@@ -56,6 +56,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
   const cfg = (): EngineConfig => ({
     decisionLead: 1,
+    finishArrow: true,
     slowmo: settings.slowmo,
     decisionS: settings.decisionS,
     animSpeed: settings.animSpeed,

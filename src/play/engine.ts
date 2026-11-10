@@ -15,6 +15,7 @@ import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types
 
 export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'receiving' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
 export interface EngineConfig {
+  /** Korbleger/Dunk nach dem Ziehen per Pfeil-Meter (ein Tipp) statt Halten + Wischen */ finishArrow?: boolean;
   /** Spielsekunden vor Wegende, ab denen schon entschieden werden darf (Entscheiden im Laufen) */ decisionLead?: number;
   slowmo: number; decisionS: number; animSpeed: number; foulMult: number; zoneFloor: number; tempoSpread: number;
   passDelayMax?: number; closeoutRandom?: number; // alte Aufrufe: 0,6 s und kein zusätzlicher Zufall
@@ -23,7 +24,7 @@ export interface EngineConfig {
 }
 export interface ActorState { id: string; pos: Vec2; y: number; facing: number; move: MoveId; moveT: number }
 export interface ArrowMeter {
-  kind: 'alleyoop' | 'catchshoot'; startTime: number; meterMs: number; zones: Zones;
+  kind: 'alleyoop' | 'catchshoot' | 'finish'; startTime: number; meterMs: number; zones: Zones;
   bankWindow: BankWindow | null;
   fill: number | null; // null = läuft; nach dem Tipp bleibt der Füllstand stehen
 }
@@ -332,6 +333,7 @@ function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: Eng
   const a = s.actors[s.handler];
   a.y = .06;
   heldBall(s);
+  if (cfg.finishArrow) startArrow(s, 'finish', s.realTime, { params: rt(s).params!, combo: s.combo!, foulRoll: 1 } as ComboData, events);
 }
 
 function nextSegment(s: PlayState, option: Option): void {
@@ -705,7 +707,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     // Aufsetzzeit bleibt bis zur Bestätigung gültig; ein verlorener Pointer kann nichts aufhalten.
     if (s.realTime + 1e-9 >= endTime && (!r.arrow?.pressed || s.realTime >= endTime + cfg.decisionS)) {
       if (r.arrow?.pressed) s.fingerDown = false;
-      if (meter.kind === 'alleyoop') miss(s, events, r.arrow!.combo.kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING');
+      if (meter.kind !== 'catchshoot') miss(s, events, r.arrow!.combo.kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING');
       else { clearArrow(s, events); decision(s, events); }
     }
   }
