@@ -235,3 +235,14 @@ Diese Regeln gehen den Abschnitten oben vor, wo sie sie genauer fassen.
 13. **Pass:** Zielpunkt = berechneter Fangpunkt (Position des Empfängers zur Fangzeit laut Weg). Steal wird einmal beim Abspiel bestimmt, mit den Verteidigerpositionen zur Abspielzeit gegen die Strecke Passgeber → Fangpunkt. Während des Passflugs gibt es den Zustand „Ball unterwegs“ ohne Eingabe.
 14. **Eine Zonen-Berechnung für Anzeige und Auswertung:** `ShotParams` bekommt einen zusätzlichen Faktor `zoneFactor` (Produkt aus Positions-, Foul- und Kontakt-Faktor) und die tatsächliche Anzeigedauer; `effectiveZones` wendet alle Faktoren genau einmal an und wird von HUD und `resolveShot` gemeinsam genutzt. Bestehende Aufrufe ohne `zoneFactor` verhalten sich unverändert (Faktor 1).
 15. **Eigene Bahnen für Korbleger/Dunk:** `buildFlight` bleibt für Sprungwürfe und Freiwürfe. Korbleger: kurzer Bogen (0,4–0,5 s) von der Hand am Sprunghöhepunkt zum Ring bzw. Brett. Dunk/Kontakt-Dunk: Ball bleibt an der Hand bis zum Ringkontakt-Bild der Animation; Treffer → durchs Netz; Fehlversuch → Abpraller vom Ring nach außen. Das Ergebnis kommt weiterhin aus `resolveShot`.
+
+## Erweiterung: Passgenauigkeit und Shooting Pocket (2026-11-10, vom Nutzer freigegeben)
+
+- **Passgenauigkeit q (0–1)** aus der Abweichung des Kurzwischs von der Bildschirmrichtung zum Empfänger: ≤ 5° → q = 1; linear fallend bis q = 0 bei 45°.
+- **Verzögerung beim Empfänger:** `(1 − q) × maxDelay` Spielsekunden (Standard maxDelay 0,6 s, einstellbar 0–1 s), in denen der Empfänger den Ball sichert und weder Wurf, Ziehen noch Pass möglich ist; die Fangbewegung zeigt den Ball je nach q in der Pocket (Brusthöhe vor dem Körper) oder versetzt (tief/hoch/seitlich, Versatz bis 0,5 m).
+- **Closeout:** Der dem Empfänger zugeordnete Verteidiger läuft während der Verzögerung weiter auf ihn zu; der Positionswert sinkt dadurch über die vorhandene Formel.
+- **Zufall je Pass:** Startversatz des Closeouts gleichverteilt in ± 0,3 s × Regler und Endabstand ± 0,6 m × Regler (Regler „Closeout-Zufall“ 0–100 %, Standard 100 %). Ein mittelguter Pass kann so frei bleiben, ein perfekter verteidigt sein; im Mittel ist der genaue Pass klar besser.
+- **Lob:** Bei ungenauem Lob wird der Alley-oop schwerer: zusätzlicher Zonenfaktor `0,75 + 0,25 × q`.
+- **Kurzmeldung:** q ≥ 0,9 „IN DIE POCKET!“, q ≤ 0,4 „UNGENAU“.
+- Die KI-Wahl „Pass“ nach Fristablauf spielt mit q = 0,5.
+- Steal-Chancen bleiben unverändert.
