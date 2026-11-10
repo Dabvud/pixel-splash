@@ -132,3 +132,19 @@ describe('Spielzug-Kamera', () => {
     expect(center.y).toBeLessThanOrEqual(-1 / 3);
   });
 });
+
+import { finishCameraPose } from '../src/render/camera-pose';
+
+describe('Seitenkamera für Korbleger und Dunk', () => {
+  it.each([{ x: 0, z: 1.2 }, { x: 1, z: 0.8 }, { x: -1, z: 0.8 }, { x: 0, z: 0.1 }])('zeigt den Abschluss von %j aus im Profil und nie von hinter dem Brett', (h) => {
+    const pose = finishCameraPose(h);
+    const camAngle = Math.atan2(pose.pos.x, pose.pos.z) * 180 / Math.PI;
+    const axis = Math.hypot(h.x, h.z) > 0.5 ? Math.atan2(h.x, h.z) * 180 / Math.PI : 0;
+    expect(Math.abs(camAngle - axis)).toBeGreaterThanOrEqual(40);
+    expect(Math.abs(camAngle)).toBeLessThanOrEqual(70.001);
+    expect(pose.pos.z).toBeGreaterThan(1);
+    expect(Math.hypot(pose.pos.x, pose.pos.z)).toBeCloseTo(7.5, 5);
+    expect(pose.look).toEqual({ x: 0, y: 2.7, z: 0 });
+    expect(pose.fov).toBe(50);
+  });
+});

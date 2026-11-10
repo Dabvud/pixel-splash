@@ -218,6 +218,11 @@ function takeoffPoint(from: Vec2, lane = 0): Vec2 {
   return { x: ux * 1.2 + uz * lane, z: uz * 1.2 - ux * lane };
 }
 
+/** Grober Timing-/Richtungshinweis zum letzten Wurf oder Abschluss (z. B. „etwas zu spät“) */
+export function lastHint(s: PlayState): string {
+  return rt(s).shot?.result.hint ?? '';
+}
+
 export function aiChoice(s: PlayState): Option {
   const options = rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }];
   const rank = { shoot: 0, drive: 1, pass: 2 };

@@ -4,14 +4,14 @@ import { MAX_FILL, type ShotResult } from "../shot/resolve";
 import { attachGesture, type GestureEvent } from "../input/gesture";
 import { createScene } from "../render/scene";
 import { createPixelRenderer } from "../render/pixel";
-import { overviewPose, playCameraPose } from "../render/camera-pose";
+import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, type ActorView } from "../render/actors";
 import { buildAtlas } from "../figure/atlas";
 import type { Look } from "../figure/raster";
 import { ACTORS } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
-import { command, createPlayState, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
+import { command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
 import { positionValue } from "../play/position";
 import { laneFromAngle, passQuality, pickTargetWithAngle, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
@@ -79,6 +79,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let menuOpen = false;
   let camHold = 0; // Sekunden, in denen nach einem Ballwechsel keine Kombi startet
   let lastHandler = "";
+  let finishCam: ReturnType<typeof finishCameraPose> | null = null;
   let raf = 0;
   let last = performance.now();
   let lastFrame = last;
@@ -139,7 +140,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       } else if (e.type === "combo") {
         if (e.fouled) phud.flash("KONTAKT!");
       } else if (e.type === "result") {
-        hud.showResult({ banner: e.banner, hint: "", made: e.made } as ShotResult);
+        hud.showResult({ banner: e.banner, hint: e.made ? "" : lastHint(s), made: e.made } as ShotResult);
         comboT0 = null;
       } else if (e.type === "freethrow") {
         phud.flash(e.left === 1 ? "LETZTER FREIWURF" : `${e.left} FREIWÜRFE`);
@@ -265,7 +266,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const targets = options.filter(o => o.kind === "pass" && o.to).map(o => s.actors[o.to!].pos);
     // Auch bei fehlenden Passzielen bleibt das Catch-and-Shoot-Pfeil-Meter tief.
     const overview = settings.camera !== "low" && s.phase === "decision" && !catchArrow;
-    const pose = overview ? overviewPose(h.pos, targets, camera.aspect) : playCameraPose(view, h.pos);
+    // Korbleger/Dunk im Profil zeigen; Standort beim Absprung merken, weil der Spieler danach zum Ring wandert
+    const finishing = aimPhase && !s.freeThrows && s.combo !== null && s.combo.kind !== "jump2" && s.combo.kind !== "three";
+    if (!finishing) finishCam = null;
+    else finishCam ??= finishCameraPose(h.pos);
+    const pose = finishCam ?? (overview ? overviewPose(h.pos, targets, camera.aspect) : playCameraPose(view, h.pos));
     const k = !camInit || overview ? 1 : 1 - Math.exp(-(menuOpen ? 0 : dt) * 9);
     camInit = true;
     // Die Übersicht kann auf der Schwerpunktachse stehen; der Wurf folgt der Korbachse.

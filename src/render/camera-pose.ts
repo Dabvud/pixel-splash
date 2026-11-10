@@ -85,3 +85,16 @@ export function overviewPose(handler: { x: number; z: number }, targets: { x: nu
     fov: 60,
   };
 }
+
+// Korbleger/Dunk sind nur im Profil erkennbar: Kamera 55° neben der Zuglinie, nie hinter dem Brett.
+// (Beim Abschluss wird nur getippt, die Wischrichtung muss deshalb nicht zum Korb zeigen.)
+export function finishCameraPose(handler: { x: number; z: number }): Pose & { fov: number } {
+  const axis = Math.hypot(handler.x, handler.z) > 0.5 ? Math.atan2(handler.x, handler.z) : 0;
+  const side = axis <= 0 ? 1 : -1;
+  const angle = Math.max(-70, Math.min(70, (axis * 180) / Math.PI + side * 55)) * (Math.PI / 180);
+  return {
+    pos: { x: Math.sin(angle) * 7.5, y: 3.2, z: Math.cos(angle) * 7.5 },
+    look: { x: 0, y: 2.7, z: 0 },
+    fov: 50,
+  };
+}
