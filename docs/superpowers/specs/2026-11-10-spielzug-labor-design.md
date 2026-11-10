@@ -255,3 +255,8 @@ Diese Regeln gehen den Abschnitten oben vor, wo sie sie genauer fassen.
 - Ein Tipp (ohne Wisch, kurz) während des Pfeil-Meters darf nicht als Kurzwisch oder Halten gewertet werden; die Auslösung erfolgt beim Aufsetzen.
 - Die übrigen Würfe (aus dem Dribbling, Abschluss nach Ziehen, Freiwürfe) bleiben bei Halten + Wischen.
 - HUD: dieselbe Anzeige mit grüner Zone, statt Füllbalken ein wandernder Pfeil (◄) an der Anzeige; nach dem Tipp bleibt die Markierung stehen.
+
+## Erweiterung: Übersichtskamera bei Entscheidungen und Steals nach Passgenauigkeit (2026-11-10, Nutzerwunsch)
+
+- **Übersichtskamera:** An jedem Entscheidungspunkt (Kamera-Modus „Automatisch“ und „Erhöht“) müssen der Ballführer, alle anspielbaren Mitspieler und der Korb im Bild sein (Hochformat, mit mindestens 8 % Rand). Blickrichtung: von hinter dem Ballführer zum Korb, solange dabei alle Ziele ins Bild passen; steht der Ballführer näher als 4 m am Korb oder liegen Ziele hinter der Kamera, schaut die Kamera vom Schwerpunkt der Mitspieler aus (von weiter hinten und höher) Richtung Korb. Abstand und Höhe werden so gewählt, dass alle Punkte hineinpassen (Sichtfeld 60°). Für Wurf-/Abschluss-Kombis und das Pfeil-Meter beim Catch-and-Shoot gilt weiter die tiefe Kamera auf der Achse Korb → Schütze. Randpfeile bleiben als Rückfall bestehen.
+- **Steal-Chance:** `Grundwert × (0,15 + 0,85 × (1 − q))` mit Grundwert 0,6 (Verteidiger < 0,5 m am Passweg), 0,2 (< 1 m), sonst 0; q = Passgenauigkeit. Die KI-Wahl „Pass“ nutzt q = 0,5.
