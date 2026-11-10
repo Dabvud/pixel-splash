@@ -9,6 +9,7 @@ import { DEFAULTS } from '../src/settings';
 import { MAX_FILL } from '../src/shot/resolve';
 import type { Mode } from '../src/modes/mode';
 import { ACTORS } from '../src/play/teams';
+import { playCameraPose } from '../src/render/camera-pose';
 
 vi.mock('../src/render/scene', async () => {
   const THREE = await import('three');
@@ -45,6 +46,87 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it.each(['auto', 'high'] as const)('rahmt beim Kick-out in %s schon im ersten Entscheidungsframe alle Ziele ein', cameraMode => {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'kickout', defenseRandom: false, camera: cameraMode });
+    advance(1 / 60);
+    const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+    camera.aspect = 390 / 844;
+    camera.updateProjectionMatrix();
+    for (let i = 0; i < 240 && state().phase !== 'decision'; i++) advance(1 / 60);
+    expect(state().phase).toBe('decision');
+    camera.updateMatrixWorld(true);
+    for (const id of [state().handler, 'r11', 'r3']) {
+      const p = state().actors[id].pos;
+      for (const y of [0, 2.2]) {
+        const v = new Vector3(p.x, y, p.z).project(camera);
+        expect(Math.abs(v.x)).toBeLessThanOrEqual(.84 + 1e-10);
+        expect(Math.abs(v.y)).toBeLessThanOrEqual(.84 + 1e-10);
+        expect(Math.abs(v.z)).toBeLessThan(1);
+      }
+    }
+    const rim = new Vector3(0, 3.05, 0).project(camera);
+    expect(Math.abs(rim.x)).toBeLessThanOrEqual(.84 + 1e-10);
+    expect(Math.abs(rim.y)).toBeLessThanOrEqual(.84 + 1e-10);
+  });
+  it.each(['auto', 'high'] as const)('fährt beim Catch-and-Shoot in %s auch mit fehlenden Passzielen schon vor dem Tipp tief', cameraMode => {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, camera: cameraMode });
+    const s = catchArrow();
+    const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+    camera.aspect = 390 / 844;
+    camera.updateProjectionMatrix();
+    s.actors.r3.pos = { x: -6.9, z: 10 };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'decision', options: [{ kind: 'shoot' }, { kind: 'pass', to: 'r3' }] }]);
+    advance(1 / 60);
+    expect(camera.fov).toBeLessThan(60);
+    advance(.3);
+    expect(s.arrowMeter!.fill).toBeNull();
+    expect(camera.fov).toBeLessThan(51);
+    const target = new Vector3(s.actors.r3.pos.x, 1, s.actors.r3.pos.z).project(camera);
+    expect(Math.abs(target.x)).toBeGreaterThan(1);
+    gesture({ type: 'start' });
+    gesture({ type: 'tap' });
+    expect(s.phase).toBe('ballflight');
+    advance(.5);
+    expect(camera.fov).toBeLessThan(51);
+  });
+  it.each(['auto', 'high'] as const)('nutzt beim Catch-and-Shoot ohne fehlende Ziele und beim Abschluss in %s die tiefe Kamera', cameraMode => {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, camera: cameraMode });
+    const s = catchArrow();
+    advance(.5);
+    const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+    expect(camera.fov).toBeLessThan(51);
+    gesture({ type: 'start' });
+    gesture({ type: 'tap' });
+    advance(.5);
+    const aim = playCameraPose('aim', s.actors[s.handler].pos);
+    expect(camera.fov).toBeCloseTo(aim.fov, 0);
+    expect(camera.position.y).toBeCloseTo(aim.pos.y, 0);
+  });
+  it('aktualisiert die Tafel beim Korb und jedem Freiwurf sofort und setzt sie beim neuen Spielzug zurück', () => {
+    const s = state();
+    advance(1 / 60);
+    const red = () => document.querySelector('.phud-score-red')!.textContent;
+    expect(red()).toBe('98');
+    expect(document.querySelector('.play-lab #hud-stats')).not.toBeNull();
+    mode.setPaused!(true);
+    s.points = 3;
+    s.phase = 'freethrows';
+    s.clock = 0;
+    advance(1 / 60);
+    expect(red()).toBe('101');
+    for (const points of [4, 5]) {
+      s.points = points;
+      advance(1 / 60);
+      expect(red()).toBe(String(98 + points));
+      expect(document.querySelector('.phud-game-clock')!.textContent).toBe('0.0');
+      expect(document.querySelector('.phud-score-blue')!.textContent).toBe('100');
+    }
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'fastbreak', defenseRandom: false });
+    expect(red()).toBe('98');
+  });
   function catchArrow(): PlayState {
     advance(2.3);
     const s = state(), c = vi.mocked(step).mock.calls.at(-1)![2];

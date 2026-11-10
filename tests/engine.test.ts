@@ -236,6 +236,15 @@ describe('Engine Zeit, Kontrolle und KI', () => {
 });
 
 describe('Pass, Einwurf und Abschluss', () => {
+  it.each([[1, false], [.5, true], [0, true]] as const)(
+    'berücksichtigt beim Abspiel q=%s für Steal=%s', (quality, steal) => {
+      const s = decision();
+      const from = s.actors[s.handler].pos, to = s.actors.r11.pos;
+      for (const a of Object.values(s.actors).filter(a => ACTORS[a.id].team === 'def')) a.pos = { x: -7, z: 12 };
+      s.actors.b1.pos = { x: (from.x + to.x) / 2, z: (from.z + to.z) / 2 };
+      expect(command(s, { kind: 'pass', to: 'r11', quality }, cfg, () => .2))
+        .toContainEqual({ type: 'pass', from: s.handler, to: 'r11', steal });
+    });
   it('würfelt Steal genau beim Abspiel, animiert den Abfang und zählt Ballverlust', () => {
     const s = decision();
     const from = s.actors[s.handler].pos, to = s.actors.r50.pos;

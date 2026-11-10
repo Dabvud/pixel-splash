@@ -346,7 +346,7 @@ function catchOffset(a: ActorState, quality: number): Vec3 {
 
 function startPass(s: PlayState, option: Option, quality: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const r = rt(s), catcher = s.actors[option.to!], target = catchPoint(s, catcher.id), h = s.actors[s.handler];
-  const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos));
+  const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos), quality);
   let stolenBy: string | undefined;
   if (steal) {
     const dx = target.pos.x - h.pos.x, dz = target.pos.z - h.pos.z, len2 = dx * dx + dz * dz;

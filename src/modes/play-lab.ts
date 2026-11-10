@@ -4,7 +4,7 @@ import { MAX_FILL, type ShotResult } from "../shot/resolve";
 import { attachGesture, type GestureEvent } from "../input/gesture";
 import { createScene } from "../render/scene";
 import { createPixelRenderer } from "../render/pixel";
-import { playCameraPose } from "../render/camera-pose";
+import { overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, type ActorView } from "../render/actors";
 import { buildAtlas } from "../figure/atlas";
 import type { Look } from "../figure/raster";
@@ -15,7 +15,7 @@ import { command, createPlayState, step, type ArrowMeter, type EngineConfig, typ
 import { positionValue } from "../play/position";
 import { laneFromAngle, passQuality, pickTargetWithAngle, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
-import { createPlayHud, type Marker } from "../ui/play-hud";
+import { createPlayHud, formatPlayClock, type Marker } from "../ui/play-hud";
 import type { Mode } from "./mode";
 
 const HOLD_MS = 200; // ab hier gilt die Geste als Wurf statt als Kurzwisch
@@ -35,6 +35,7 @@ function seeded(seed: number): () => number {
 
 export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const root = document.createElement("div");
+  root.className = "play-lab";
   app.append(root);
   const stage = document.createElement("div");
   stage.id = "stage";
@@ -85,8 +86,6 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const camLook = new THREE.Vector3();
   let camInit = false;
 
-  const clockText = (c: number) => `0:${String(Math.max(0, Math.ceil(c))).padStart(2, "0")}`;
-
   function showStats(): void {
     const st = stats[s.play.id];
     statsEl.textContent = st ? `${s.play.name}: ${st.points} Pkt / ${st.tries} Versuche · ${st.turnovers} BV` : s.play.name;
@@ -106,7 +105,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     detach = menuOpen ? () => {} : attach();
     hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
     phud.setMarkers([]);
-    phud.setSituation(`4. VIERTEL · ${clockText(s.clock)} · −${s.deficit}`, s.play.name);
+    phud.setSituation(`4. VIERTEL · ${formatPlayClock(s.clock, false)} · −${s.deficit}`, s.play.name);
+    phud.setScoreboard(s.clock, s.deficit, s.points);
     showStats();
   }
 
@@ -255,14 +255,18 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     lastFrame = now;
     advanceTo(now);
 
-    // Kamera: bei Entscheidungen erhöht, beim Wurf tief – immer auf der Achse Korb → Ballführer
+    // Entscheidungen rahmen alle Optionen ein; Kombis und Abschlüsse bleiben tief.
     const h = s.actors[s.handler];
-    const aimPhase = s.phase === "combo" || s.phase === "takeoff" || s.phase === "ballflight" || s.phase === "freethrows";
-    const view = settings.camera === "low" ? "aim" : settings.camera === "high" ? "wide" : aimPhase ? "aim" : "wide";
-    const pose = playCameraPose(view, h.pos);
-    const k = camInit ? 1 - Math.exp(-(menuOpen ? 0 : dt) * 9) : 1;
+    const catchArrow = s.arrowMeter?.kind === "catchshoot" && s.arrowMeter.fill === null;
+    const aimPhase = s.phase === "combo" || s.phase === "takeoff" || s.phase === "ballflight" || s.phase === "freethrows" || catchArrow;
+    const view = settings.camera === "low" || aimPhase ? "aim" : "wide";
+    const targets = options.filter(o => o.kind === "pass" && o.to).map(o => s.actors[o.to!].pos);
+    // Auch bei fehlenden Passzielen bleibt das Catch-and-Shoot-Pfeil-Meter tief.
+    const overview = settings.camera !== "low" && s.phase === "decision" && !catchArrow;
+    const pose = overview ? overviewPose(h.pos, targets, camera.aspect) : playCameraPose(view, h.pos);
+    const k = !camInit || overview ? 1 : 1 - Math.exp(-(menuOpen ? 0 : dt) * 9);
     camInit = true;
-    // Nur Abstand und Höhe mischen, damit die Kamera auch während der Fahrt auf der Korbachse bleibt.
+    // Die Übersicht kann auf der Schwerpunktachse stehen; der Wurf folgt der Korbachse.
     const len = Math.hypot(pose.pos.x, pose.pos.z), ux = len > 0 ? pose.pos.x / len : 0, uz = len > 0 ? pose.pos.z / len : 1;
     const radius = THREE.MathUtils.lerp(Math.hypot(camPos.x, camPos.z), Math.hypot(pose.pos.x, pose.pos.z), k);
     const lookRadius = THREE.MathUtils.lerp(Math.hypot(camLook.x, camLook.z), Math.hypot(pose.look.x, pose.look.z), k);
@@ -270,10 +274,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     camLook.set(ux * lookRadius, THREE.MathUtils.lerp(camLook.y, pose.look.y, k), uz * lookRadius);
     camera.position.copy(camPos);
     camera.lookAt(camLook);
-    if (Math.abs(camera.fov - pose.fov) > 0.01) {
+    if (overview || Math.abs(camera.fov - pose.fov) > 0.01) {
       camera.fov += (pose.fov - camera.fov) * k;
       camera.updateProjectionMatrix();
     }
+    camera.updateMatrixWorld(true);
     const yaw = Math.atan2(camLook.x - camPos.x, -(camLook.z - camPos.z));
 
     const views: ActorView[] = Object.values(s.actors).map((a) => ({ id: a.id, x: a.pos.x, y: a.y, z: a.pos.z, facing: a.facing, move: a.move, moveT: a.moveT, visible: true }));
@@ -282,7 +287,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     ball.position.set(s.ball.x, s.ball.y, s.ball.z);
 
     // HUD
-    phud.setClock(clockText(s.clock));
+    phud.setScoreboard(s.clock, s.deficit, s.points);
     if (s.phase !== "intro") phud.setSituation(null);
     const head = screen(h.pos.x, h.y + ACTORS[h.id].heightM + 0.35, h.pos.z);
     const markers: Marker[] = [];

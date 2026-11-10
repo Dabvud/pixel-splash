@@ -37,7 +37,7 @@ export function laneFromAngle(deg: number): -1 | 0 | 1 {
   return deg < -8 ? -1 : deg > 8 ? 1 : 0;
 }
 
-export function stealChance(from: Vec2, to: Vec2, defenders: Vec2[]): number {
+export function stealChance(from: Vec2, to: Vec2, defenders: Vec2[], quality: number): number {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
   const lengthSquared = dx * dx + dz * dz;
@@ -48,7 +48,8 @@ export function stealChance(from: Vec2, to: Vec2, defenders: Vec2[]): number {
     distance = Math.min(distance,
       Math.hypot(defender.x - from.x - projection * dx, defender.z - from.z - projection * dz));
   }
-  return distance < 0.5 ? 0.6 : distance < 1 ? 0.2 : 0;
+  const base = distance < 0.5 ? 0.6 : distance < 1 ? 0.2 : 0;
+  return base * (.15 + .85 * (1 - Math.max(0, Math.min(1, quality))));
 }
 
 export function passTime(distM: number): number {

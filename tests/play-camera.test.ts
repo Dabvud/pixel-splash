@@ -1,5 +1,79 @@
 import { describe, expect, it } from 'vitest';
 import { playCameraPose } from '../src/render/camera-pose';
+import { overviewPose } from '../src/render/camera-pose';
+import { PerspectiveCamera, Vector3 } from 'three';
+import { command, createPlayState, step, type EngineConfig } from '../src/play/engine';
+import { PLAYS } from '../src/play/plays';
+
+const aspect = 390 / 844;
+function expectFramed(pose: ReturnType<typeof overviewPose>, handler: { x: number; z: number }, targets: { x: number; z: number }[]): void {
+  const camera = new PerspectiveCamera(pose.fov, aspect, .1, 100);
+  camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
+  camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
+  camera.updateMatrixWorld(true);
+  const points = [handler, ...targets].flatMap(p => [0, 1, 2.2].map(y => new Vector3(p.x, y, p.z)));
+  points.push(new Vector3(0, 3.05, 0));
+  for (const point of points) {
+    point.project(camera);
+    // 8 % je Bildrand entsprechen NDC ±0,84.
+    expect(Math.abs(point.x)).toBeLessThanOrEqual(.84 + 1e-10);
+    expect(Math.abs(point.y)).toBeLessThanOrEqual(.84 + 1e-10);
+    expect(Math.abs(point.z)).toBeLessThan(1);
+  }
+}
+
+describe('Übersicht aller Entscheidungspunkte im Hochformat', () => {
+  const cfg: EngineConfig = {
+    slowmo: .3, decisionS: 4, animSpeed: 1, foulMult: 0, zoneFloor: .7, tempoSpread: 0,
+    passDelayMax: 0, closeoutRandom: 0,
+    shot: { meterMs: 700, greenZone: .07, aimDeg: 6, influence: .6 },
+    finish: { meterMs: 450, greenZone: .1, aimDeg: 8 },
+  };
+  const cases = Object.values(PLAYS).flatMap(play => play.variants.flatMap(variant =>
+    Object.values(play.segments).map(segment => ({ title: `${play.id}/${variant.id}/${segment.id}`, play, variant, segment }))));
+  it.each(cases)('$title: zeigt Ballführer, alle Passziele und Ring mit 8 % Rand', ({ play, variant, segment }) => {
+    const s = createPlayState({ ...play, variants: [{ ...variant, weight: 1 }] }, cfg, () => .99);
+    const wait = (ready: () => boolean) => {
+      for (let i = 0; i < 1200 && !ready() && s.phase !== 'ended'; i++) step(s, 1 / 120, cfg, () => .99);
+      expect(ready()).toBe(true);
+    };
+    wait(() => s.phase === 'decision');
+    if (segment.id !== play.start) {
+      const pass = play.segments[play.start].options!.find(o => o.next === segment.id)!;
+      command(s, { kind: 'pass', to: pass.to!, quality: 1 }, cfg, () => .99);
+      wait(() => s.handler === segment.handler && (s.phase === 'decision' || s.phase === 'takeoff'));
+    }
+    const handler = s.actors[s.handler].pos;
+    const targets = segment.options!.filter(o => o.kind === 'pass').map(o => s.actors[o.to!].pos);
+    const pose = overviewPose(handler, targets, aspect);
+    expect(pose.fov).toBe(60);
+    expectFramed(pose, handler, targets);
+  });
+  it('zeigt beim Kick-out ausdrücklich beide weit auseinanderliegenden Passziele', () => {
+    const handler = { x: 0, z: 2.6 }, targets = [{ x: 6.9, z: .5 }, { x: -4.8, z: 4.8 }];
+    const snapshot = JSON.stringify({ handler, targets });
+    const pose = overviewPose(handler, targets, aspect);
+    expectFramed(pose, handler, targets);
+    expect(pose.pos.y).toBeGreaterThan(8);
+    expect(JSON.stringify({ handler, targets })).toBe(snapshot);
+  });
+  it('behält die Ballführerachse bei ausreichendem Abstand bei', () => {
+    const handler = { x: 3, z: 6 };
+    const pose = overviewPose(handler, [{ x: -2, z: 2 }], aspect);
+    expect(pose.pos.x * handler.z - pose.pos.z * handler.x).toBeCloseTo(0, 8);
+  });
+  it('nutzt für ein Ziel hinter der bisherigen Kamera die Schwerpunktachse', () => {
+    const handler = { x: 0, z: 5 }, targets = [{ x: 4, z: 20 }];
+    const pose = overviewPose(handler, targets, aspect);
+    expect(pose.pos.x).toBeGreaterThan(0);
+    expectFramed(pose, handler, targets);
+  });
+  it('liefert auch direkt unter dem Ring ohne Passziele eine endliche Pose', () => {
+    const pose = overviewPose({ x: 0, z: 0 }, [], aspect);
+    expect(pose.pos.y).toBeGreaterThanOrEqual(8);
+    expectFramed(pose, { x: 0, z: 0 }, []);
+  });
+});
 
 describe('Korb-Achse nahe dem Ring', () => {
   it('bleibt bei wide auch unter 0,5 m Abstand auf der Ballführerachse', () => {

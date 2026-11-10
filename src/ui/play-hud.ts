@@ -8,10 +8,21 @@ export interface Marker {
 
 const EDGE = 26; // Abstand der Randpfeile zum Bildschirmrand
 
+export function formatPlayClock(seconds: number, tenths = true): string {
+  const time = Math.max(0, seconds);
+  if (tenths && time < 10) return (Math.floor(time * 10) / 10).toFixed(1);
+  const whole = Math.ceil(time);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+export function playScore(deficit: number, points: number): { red: number; blue: number } {
+  return { red: 100 - deficit + points, blue: 100 };
+}
+
 // HUD des Spielzug-Labors: Lage, Entscheidungsmarker, Positionsring, Kurzmeldungen
 export function createPlayHud(root: HTMLElement): {
   setSituation(top: string | null, name?: string): void;
-  setClock(text: string): void;
+  setScoreboard(clock: number, deficit: number, points: number): void;
   setMarkers(markers: Marker[]): void;
   setRing(x: number, y: number, P: number | null, visible: boolean): void;
   setHandler(x: number, y: number, visible: boolean): void;
@@ -21,7 +32,11 @@ export function createPlayHud(root: HTMLElement): {
 } {
   const el = document.createElement("div");
   el.className = "phud";
-  el.innerHTML = `<div class="phud-clock"></div>
+  el.innerHTML = `<div class="phud-scoreboard" role="group" aria-label="Spielstand">
+      <div class="phud-team"><span>ROT</span><b class="phud-score-red">100</b></div>
+      <div class="phud-game"><span>4. VIERTEL</span><b class="phud-game-clock">0.0</b></div>
+      <div class="phud-team"><span>BLAU</span><b class="phud-score-blue">100</b></div>
+    </div>
     <div class="phud-sit" hidden><div class="phud-sit-top"></div><div class="phud-sit-name"></div></div>
     <div class="phud-ring" hidden></div>
     <div class="phud-handler" hidden><span>▼</span></div>
@@ -32,6 +47,7 @@ export function createPlayHud(root: HTMLElement): {
   const q = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
   const sit = q(".phud-sit"), ring = q(".phud-ring"), fl = q(".phud-flash"), dec = q(".phud-decision"), box = q(".phud-markers");
   const handler = q(".phud-handler");
+  const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue');
   const markerNodes: { el: HTMLDivElement; icon: HTMLElement; label: HTMLElement }[] = [];
   let flashTimer = 0;
 
@@ -41,8 +57,12 @@ export function createPlayHud(root: HTMLElement): {
       q(".phud-sit-top").textContent = top ?? "";
       q(".phud-sit-name").textContent = name;
     },
-    setClock(text) {
-      q(".phud-clock").textContent = text;
+    setScoreboard(seconds, deficit, points) {
+      const score = playScore(deficit, points);
+      const setText = (node: HTMLElement, text: string) => { if (node.textContent !== text) node.textContent = text; };
+      setText(clock, formatPlayClock(seconds));
+      setText(red, String(score.red));
+      setText(blue, String(score.blue));
     },
     setMarkers(markers) {
       // display:grid der Marker übersteuert das native hidden; unbenutzte Knoten entfernen.

@@ -55,19 +55,27 @@ describe('Passweg und Flugzeit', () => {
 
   it.each([[0.4, 0.6], [0.5, 0.2], [0.8, 0.2], [1, 0], [1.2, 0]])(
     'berechnet bei %s m Abstand die Steal-Chance %s', (z, expected) => {
-      expect(stealChance(from, to, [{ x: 5, z }])).toBe(expected);
+      expect(stealChance(from, to, [{ x: 5, z }], 0)).toBe(expected);
     });
 
   it('verwendet außerhalb der Strecke den Abstand zum nächsten Endpunkt', () => {
-    expect(stealChance(from, to, [{ x: -0.4, z: 0 }])).toBe(0.6);
-    expect(stealChance(from, to, [{ x: -1.2, z: 0 }])).toBe(0);
-    expect(stealChance(from, to, [{ x: 10.8, z: 0 }])).toBe(0.2);
+    expect(stealChance(from, to, [{ x: -0.4, z: 0 }], 0)).toBe(0.6);
+    expect(stealChance(from, to, [{ x: -1.2, z: 0 }], 0)).toBe(0);
+    expect(stealChance(from, to, [{ x: 10.8, z: 0 }], 0)).toBe(0.2);
   });
 
   it('nimmt den kleinsten Verteidigerabstand und liefert ohne Verteidiger null', () => {
-    expect(stealChance(from, to, [])).toBe(0);
-    expect(stealChance(from, to, [{ x: 5, z: 0.8 }, { x: 3, z: 0.4 }])).toBe(0.6);
-    expect(stealChance(from, from, [{ x: 0.8, z: 0 }])).toBe(0.2);
+    expect(stealChance(from, to, [], 0)).toBe(0);
+    expect(stealChance(from, to, [{ x: 5, z: 0.8 }, { x: 3, z: 0.4 }], 0)).toBe(0.6);
+    expect(stealChance(from, from, [{ x: 0.8, z: 0 }], 0)).toBe(0.2);
+  });
+
+  it.each([
+    [.4, 1, .09], [.4, .5, .345], [.4, 0, .6],
+    [.8, 1, .03], [.8, .5, .115], [.8, 0, .2],
+    [1.2, 1, 0], [1.2, .5, 0], [1.2, 0, 0],
+  ])('gewichtet bei %s m die Steal-Chance mit q=%s zu %s', (z, quality, expected) => {
+    expect(stealChance(from, to, [{ x: 5, z }], quality)).toBeCloseTo(expected, 10);
   });
 
   it('berechnet für zehn Meter 0,85 Sekunden Flugzeit', () => {

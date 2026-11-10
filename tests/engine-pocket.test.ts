@@ -155,13 +155,20 @@ describe('Shooting Pocket und Closeout', () => {
     expect(events).toContainEqual({ type: 'pocket', quality: .5 });
     expect(s.phase).toBe('receiving');
   });
-  it('lässt Steal-Chancen unabhängig von q unverändert', () => {
-    for (const quality of [0, .5, 1]) {
+  it('senkt die Steal-Chance bei genaueren Pässen', () => {
+    for (const [quality, steal] of [[0, true], [.5, false], [1, false]] as const) {
       const s = setup();
       s.actors.b1.pos = { x: -2, z: 5 };
       expect(command(s, { kind: 'pass', to: 'r50', quality }, cfg, () => .59))
-        .toContainEqual({ type: 'pass', from: 'r3', to: 'r50', steal: true });
+        .toContainEqual({ type: 'pass', from: 'r3', to: 'r50', steal });
     }
+  });
+  it.each([[.2, true], [.4, false]] as const)('nutzt beim KI-Pass die Steal-Chance für q=0,5 bei Zufall %s', (roll, steal) => {
+    const play = fixture();
+    play.segments.setup.paths.b1 = [{ t: 0, x: -2, z: 5, act: 'defend' }];
+    const s = setup(play);
+    expect(step(s, cfg.decisionS, cfg, () => roll))
+      .toContainEqual({ type: 'pass', from: 'r3', to: 'r50', steal });
   });
   it('verändert bei q = 1 und Closeout-Zufall 0 die Fangposition des Verteidigers nicht', () => {
     const s = receive(1);

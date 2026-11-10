@@ -44,3 +44,44 @@ export function playCameraPose(view: 'wide' | 'aim', handler: { x: number; z: nu
     fov: 60,
   };
 }
+
+/** Übersicht mit 8 % Rand, einschließlich Füßen/Kopf der Spieler und Ring. */
+export function overviewPose(handler: { x: number; z: number }, targets: { x: number; z: number }[], aspect: number): Pose & { fov: number } {
+  const distance = Math.hypot(handler.x, handler.z);
+  let ux = distance > 0 ? handler.x / distance : 0;
+  let uz = distance > 0 ? handler.z / distance : 1;
+  const wide = playCameraPose('wide', handler);
+  const behind = targets.some(p =>
+    (p.x - wide.pos.x) * (wide.pos.x - wide.look.x)
+    + (1 - wide.pos.y) * (wide.pos.y - wide.look.y)
+    + (p.z - wide.pos.z) * (wide.pos.z - wide.look.z) >= 0);
+  if (distance < 4 || behind) {
+    const group = targets.length ? targets : [handler];
+    const x = group.reduce((sum, p) => sum + p.x, 0) / group.length;
+    const z = group.reduce((sum, p) => sum + p.z, 0) / group.length;
+    const length = Math.hypot(x, z);
+    ux = length > 1e-8 ? x / length : 0;
+    uz = length > 1e-8 ? z / length : 1;
+  }
+  const look = { x: 0, y: 1, z: 0 };
+  // Feste Neigung: beim Zurückfahren wächst gleichzeitig die Höhe.
+  const cos = 1 / Math.hypot(1, .65), sin = .65 * cos;
+  const tan = Math.tan(Math.PI / 6), margin = .84;
+  let depth = Math.max((distance + 7) / cos, 7 / sin);
+  const points = [handler, ...targets].flatMap(p => [0, 2.2].map(y => ({ ...p, y })));
+  points.push(RIM);
+  for (const p of points) {
+    const y = p.y - look.y;
+    const along = p.x * ux + p.z * uz;
+    const right = p.x * uz - p.z * ux;
+    const up = y * cos - along * sin;
+    const back = along * cos + y * sin;
+    // Perspective: |x| / (Tiefe * tan(fov/2) * aspect) ≤ 0,84.
+    depth = Math.max(depth, back + Math.max(Math.abs(right) / (tan * aspect * margin), Math.abs(up) / (tan * margin), .1) + .01);
+  }
+  return {
+    pos: { x: ux * cos * depth, y: look.y + sin * depth, z: uz * cos * depth },
+    look,
+    fov: 60,
+  };
+}
