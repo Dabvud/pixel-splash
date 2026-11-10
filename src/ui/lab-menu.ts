@@ -27,6 +27,8 @@ const RANGES: RangeField[] = [
   { key: "finishAim", label: "Richtung Abschluss", show: "play", min: 4, max: 14, step: 1, scale: 1, fmt: (v) => `± ${v}°` },
   { key: "slowmo", label: "Zeitlupe", show: "play", min: 20, max: 50, step: 5, scale: 100, fmt: pct },
   { key: "decisionS", label: "Entscheidungszeit", show: "play", min: 1, max: 4, step: 0.5, scale: 1, fmt: (v) => `${v} s` },
+  { key: "passDelayMax", label: "Pass-Verzögerung max.", show: "play", min: 0, max: 1, step: 0.05, scale: 1, fmt: (v) => `${v} s` },
+  { key: "closeoutRandom", label: "Closeout-Zufall", show: "play", min: 0, max: 100, step: 5, scale: 100, fmt: pct },
   { key: "animSpeed", label: "Animationstempo", show: "play", min: 50, max: 150, step: 10, scale: 100, fmt: pct },
   { key: "tempoSpread", label: "Tempo-Spanne verteidigt", show: "play", min: 0, max: 50, step: 5, scale: 100, fmt: (v) => `± ${v} %` },
   { key: "zoneFloor", label: "Zonen-Untergrenze verteidigt", show: "play", min: 50, max: 90, step: 5, scale: 100, fmt: pct },

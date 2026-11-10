@@ -16,6 +16,7 @@ describe('Einstellungen', () => {
       mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2, animSpeed: 1,
       defenseRandom: true, fouls: 'normal', finishMeterMs: 450, finishGreen: 0.1,
       finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
+      passDelayMax: 0.6, closeoutRandom: 1,
     });
     expect(STORAGE_KEY).toBe('pixel-splash.settings.v1');
   });

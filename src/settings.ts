@@ -30,6 +30,8 @@ export interface Settings {
   finishAim: number;
   tempoSpread: number;
   zoneFloor: number;
+  passDelayMax: number;
+  closeoutRandom: number;
 }
 
 export const SPOTS: readonly Spot[] = [
@@ -53,6 +55,7 @@ export const DEFAULTS: Settings = {
   mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2, animSpeed: 1,
   defenseRandom: true, fouls: 'normal', finishMeterMs: 450, finishGreen: 0.1,
   finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
+  passDelayMax: 0.6, closeoutRandom: 1,
 };
 export const STORAGE_KEY = 'pixel-splash.settings.v1';
 
@@ -92,6 +95,8 @@ export function loadSettings(storage?: Storage | null): Settings {
       finishAim: bounded(fields.finishAim, 4, 14, DEFAULTS.finishAim),
       tempoSpread: bounded(fields.tempoSpread, 0, 0.5, DEFAULTS.tempoSpread),
       zoneFloor: bounded(fields.zoneFloor, 0.5, 0.9, DEFAULTS.zoneFloor),
+      passDelayMax: bounded(fields.passDelayMax, 0, 1, DEFAULTS.passDelayMax),
+      closeoutRandom: bounded(fields.closeoutRandom, 0, 1, DEFAULTS.closeoutRandom),
     };
   } catch {
     // Gesperrter Speicher darf den Start nicht verhindern.

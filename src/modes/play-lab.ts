@@ -13,7 +13,7 @@ import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
 import { command, createPlayState, step, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
 import { positionValue } from "../play/position";
-import { laneFromAngle, pickTarget, swipeAngleTo, type ScreenTarget } from "../play/pass";
+import { laneFromAngle, passQuality, pickTargetWithAngle, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
 import { createPlayHud, type Marker } from "../ui/play-hud";
 import type { Mode } from "./mode";
@@ -60,6 +60,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     foulMult: FOUL_MULT[settings.fouls],
     zoneFloor: settings.zoneFloor,
     tempoSpread: settings.tempoSpread,
+    passDelayMax: settings.passDelayMax,
+    closeoutRandom: settings.closeoutRandom,
     shot: { meterMs: settings.meterMs, greenZone: settings.greenZone, aimDeg: settings.aimDeg, influence: INFLUENCE[settings.influence] },
     finish: { meterMs: settings.finishMeterMs, greenZone: settings.finishGreen, aimDeg: settings.finishAim },
   });
@@ -117,6 +119,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     for (const e of events) {
       if (e.type === "decision") options = e.options;
       else if (e.type === "pass" || e.type === "caught") options = [];
+      else if (e.type === "pocket") {
+        if (e.quality >= .9) phud.flash("IN DIE POCKET!");
+        else if (e.quality <= .4) phud.flash("UNGENAU");
+      }
       else if (e.type === "takeoff") {
         options = [];
         if (e.kind === "contact_dunk") phud.flash("POSTER?");
@@ -176,11 +182,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         } else if (o.kind === "drive") targets.push({ id: "rim", ...screen(0, 3.05, 0), distM: Math.hypot(h.pos.x, h.pos.z) });
       }
       const swipe = { dx: e.dx, dy: e.dy };
-      const id = pickTarget(origin, swipe, targets);
-      if (id === "rim") {
-        const lane = laneFromAngle(swipeAngleTo(origin, targets.find((t) => t.id === "rim")!, swipe));
+      const target = pickTargetWithAngle(origin, swipe, targets);
+      if (target?.id === "rim") {
+        const lane = laneFromAngle(target.angleDeg);
         handle(command(s, { kind: "drive", lane }, c, rng));
-      } else if (id) handle(command(s, { kind: "pass", to: id }, c, rng));
+      } else if (target) handle(command(s, { kind: "pass", to: target.id, quality: passQuality(target.angleDeg) }, c, rng));
     } else if (e.type === "release" && s.combo && comboT0 !== null) {
       const holdMs = Math.max(0, activeNow - comboT0);
       releasedFill = Math.min(holdMs / s.combo.meterMs, MAX_FILL);

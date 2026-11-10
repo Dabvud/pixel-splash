@@ -2,6 +2,10 @@ import type { Vec2 } from './position';
 
 export interface ScreenTarget { id: string; x: number; y: number; distM: number }
 
+export function passQuality(angleDeg: number): number {
+  return Math.max(0, Math.min(1, (45 - Math.abs(angleDeg)) / 40));
+}
+
 export function swipeAngleTo(origin: { x: number; y: number }, target: { x: number; y: number },
   swipe: { dx: number; dy: number }): number {
   const dx = target.x - origin.x;
@@ -11,6 +15,11 @@ export function swipeAngleTo(origin: { x: number; y: number }, target: { x: numb
 
 export function pickTarget(origin: { x: number; y: number }, swipe: { dx: number; dy: number },
   targets: ScreenTarget[]): string | null {
+  return pickTargetWithAngle(origin, swipe, targets)?.id ?? null;
+}
+
+export function pickTargetWithAngle(origin: { x: number; y: number }, swipe: { dx: number; dy: number },
+  targets: ScreenTarget[]): { id: string; angleDeg: number } | null {
   if (Math.hypot(swipe.dx, swipe.dy) === 0) return null;
   const candidates = targets.filter((target) => target.x !== origin.x || target.y !== origin.y)
     .map((target) => ({ target, angle: swipeAngleTo(origin, target, swipe) }))
@@ -19,8 +28,9 @@ export function pickTarget(origin: { x: number; y: number }, swipe: { dx: number
   const best = candidates[0];
   if (!best) return null;
   // Eng benachbarte Richtungen müssen auch im Hochformat unterscheidbar bleiben.
-  return candidates.filter(({ angle }) => Math.abs(angle - best.angle) < 15)
-    .sort((a, b) => a.target.distM - b.target.distM)[0].target.id;
+  const chosen = candidates.filter(({ angle }) => Math.abs(angle - best.angle) < 15)
+    .sort((a, b) => a.target.distM - b.target.distM)[0];
+  return { id: chosen.target.id, angleDeg: chosen.angle };
 }
 
 export function laneFromAngle(deg: number): -1 | 0 | 1 {
