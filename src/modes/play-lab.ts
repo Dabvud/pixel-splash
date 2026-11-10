@@ -11,7 +11,7 @@ import type { Look } from "../figure/raster";
 import { ACTORS } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
-import { command, createPlayState, step, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
+import { command, createPlayState, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
 import { positionValue } from "../play/position";
 import { laneFromAngle, passQuality, pickTargetWithAngle, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
@@ -71,6 +71,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let options: Option[] = [];
   let comboT0: number | null = null; // Echtzeit-Start der sichtbaren Anzeige
   let releasedFill: number | null = null;
+  let arrowTouch: ArrowMeter | null = null;
   let endedAt: number | null = null;
   let menuOpen = false;
   let camHold = 0; // Sekunden, in denen nach einem Ballwechsel keine Kombi startet
@@ -97,6 +98,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     s = createPlayState(PLAYS[id], cfg(), rng);
     options = [];
     comboT0 = releasedFill = endedAt = null;
+    arrowTouch = null;
     lastHandler = s.handler;
     camHold = 0;
     camInit = false;
@@ -118,6 +120,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   function handle(events: EngineEvent[]): void {
     for (const e of events) {
       if (e.type === "decision") options = e.options;
+      else if (e.type === "arrowStart") {
+        comboT0 = releasedFill = null;
+        hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
+      } else if (e.type === "arrowTap") hud.markRelease(e.fill, true);
+      else if (e.type === "arrowEnd") hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
       else if (e.type === "pass" || e.type === "caught") options = [];
       else if (e.type === "pocket") {
         if (e.quality >= .9) phud.flash("IN DIE POCKET!");
@@ -157,7 +164,20 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const c = cfg();
     if (e.type === "start") {
       handle(command(s, { kind: "finger", down: true }, c, rng));
+      arrowTouch = s.arrowMeter?.fill === null && s.realTime >= s.arrowMeter.startTime ? s.arrowMeter : null;
       return;
+    }
+    if (arrowTouch) {
+      // Erst beim Loslassen unterscheiden wir Tipp und Kurzwisch. Die Engine hat
+      // Zeitpunkt und P bereits beim Aufsetzen gesichert, auch über das Laufende hinaus.
+      if (e.type === "hold") { advanceTo(now); return; }
+      const flick = e.type === "flick" && arrowTouch.kind === "catchshoot";
+      if (e.type === "tap" && arrowTouch === s.arrowMeter) handle(command(s, { kind: "tap" }, c, rng));
+      arrowTouch = null;
+      if (!flick) {
+        handle(command(s, { kind: "finger", down: false }, c, rng));
+        return;
+      }
     }
     if (e.type === "hold") {
       const canCombo =
@@ -199,7 +219,12 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     handle(command(s, { kind: "finger", down: false }, c, rng));
   }
   const attach = () => attachGesture(stage, onGesture,
-    () => menuOpen || camHold > 0 || !["decision", "takeoff", "freethrows", "combo"].includes(s.phase),
+    () => {
+      if (menuOpen) return true;
+      advanceTo(performance.now());
+      if (s.arrowMeter?.fill === null && s.realTime >= s.arrowMeter.startTime) return false;
+      return camHold > 0 || !["decision", "takeoff", "freethrows", "combo"].includes(s.phase);
+    },
     { flicks: true, holdThresholdMs: HOLD_MS });
 
   const resize = () => px.resize(settings.pixelHeight, camera);
@@ -280,7 +305,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     phud.setRing(feet.x, feet.y, colorRing ? (s.combo ? s.combo.P : positionValue(h.pos, defenders)) : null, showPlayer);
     phud.setHandler(head.x, head.y, showPlayer);
 
-    if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL);
+    if (s.arrowMeter && s.realTime >= s.arrowMeter.startTime) {
+      const meter = s.arrowMeter;
+      hud.setMeter(meter.fill ?? Math.min((s.realTime - meter.startTime) * 1000 / meter.meterMs, MAX_FILL), meter.zones, MAX_FILL, true);
+    } else if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL);
     else hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
 
     px.renderer.render(scene, camera);
@@ -306,6 +334,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       if (p) {
         detach();
         detach = () => {};
+        arrowTouch = null;
         handle(command(s, { kind: "finger", down: false }, cfg(), rng));
         if (releasedFill === null) comboT0 = null;
       } else detach = attach();

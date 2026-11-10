@@ -42,7 +42,7 @@ function receive(q: number, c = cfg, rng = safe, play = fixture()): PlayState {
 function shootP(q: number, random = 0, rng = safe): number {
   const c = { ...cfg, closeoutRandom: random }, s = receive(q, c, rng);
   until(s, () => s.phase === 'decision', c);
-  command(s, { kind: 'comboStart' }, c, safe);
+  command(s, { kind: 'tap' }, c, safe);
   return s.combo!.P;
 }
 function rolls(start: number, end: number): () => number {
@@ -66,8 +66,9 @@ describe('Shooting Pocket und Closeout', () => {
       const events = until(s, () => s.handler === 'r50');
       expect(events).toContainEqual({ type: 'pocket', quality: 1 });
       expect(s.phase).toBe('decision');
-      command(s, { kind: 'comboStart' }, cfg, safe);
-      expect(s.phase).toBe('combo');
+      expect(s.arrowMeter?.kind).toBe('catchshoot');
+      command(s, { kind: 'tap' }, cfg, safe);
+      expect(s.phase).toBe('ballflight');
     }
   });
   it('sperrt bei q = 0 alle Aktionen für exakt 0,6 Spielsekunden und senkt P', () => {
@@ -82,7 +83,7 @@ describe('Shooting Pocket und Closeout', () => {
     step(s, .001 / c.animSpeed, c, safe);
     expect(s.gameT - start).toBeCloseTo(.6, 9);
     expect(s.phase).toBe('decision');
-    command(s, { kind: 'comboStart' }, c, safe);
+    command(s, { kind: 'tap' }, c, safe);
     expect(s.combo!.P).toBeLessThan(shootP(1));
   });
   it('nutzt passDelayMax = 0 und verändert bei fehlendem Closeout-Regler den alten RNG-Ablauf nicht', () => {
@@ -91,7 +92,9 @@ describe('Shooting Pocket und Closeout', () => {
     expect(s.phase).toBe('decision');
     const old = setup();
     command(old, { kind: 'pass', to: 'r50' }, c, safe);
-    until(old, () => old.handler === 'r50', c, () => { throw new Error('zusätzlicher Zufall'); });
+    let draws = 0;
+    until(old, () => old.handler === 'r50', c, () => { draws++; return .99; });
+    expect(draws).toBe(2); // Foul und Tempo des neuen Catch-and-Shoot-Meters.
   });
   it('ordnet den beim Fangen nächsten Verteidiger zu und lässt nur ihn aufschließen', () => {
     const p = fixture();
@@ -135,14 +138,15 @@ describe('Shooting Pocket und Closeout', () => {
     expect(s.combo!.zones.g).toBeCloseTo(good.combo!.zones.g * (.75 + .25 * q));
     expect(s.combo!.zones.a).toBeCloseTo(good.combo!.zones.a * (.75 + .25 * q));
   });
-  it('wartet auch beim ungenauen Lob vor der Abschluss-Kombi und beendet bei Uhrablauf', () => {
+  it('fängt auch den ungenauen Lob direkt am Idealpunkt und beendet ohne Tipp', () => {
     const s = receive(0, cfg, safe, fixture(true));
-    expect(s.phase).toBe('receiving');
-    expect(s.combo).toBeNull();
+    expect(s.phase).toBe('takeoff');
+    expect(s.arrowMeter?.kind).toBe('alleyoop');
+    expect(s.combo).not.toBeNull();
     s.clock = .1;
-    step(s, .2, cfg, safe);
+    until(s, () => s.phase === 'ended');
     expect(s.phase).toBe('ended');
-    expect(s.banner).toBe('ZEIT ABGELAUFEN');
+    expect(s.banner).toBe('VOM RING');
   });
   it('spielt den KI-Pass mit q = 0,5', () => {
     const s = setup();
@@ -162,7 +166,7 @@ describe('Shooting Pocket und Closeout', () => {
   it('verändert bei q = 1 und Closeout-Zufall 0 die Fangposition des Verteidigers nicht', () => {
     const s = receive(1);
     expect(s.actors.b1.pos).toEqual({ x: 0, z: 3.4 });
-    command(s, { kind: 'comboStart' }, cfg, safe);
+    command(s, { kind: 'tap' }, cfg, safe);
     expect(s.combo!.P).toBe(positionValue({ x: 0, z: 5 }, [{ x: 0, z: 3.4 }, { x: 6, z: 10 }]));
   });
 });
@@ -182,10 +186,14 @@ describe.each(routes)('Pocket-Route $title', ({ play, route, q }) => {
     for (let i = 0; i < 3600 && s.phase !== 'ended'; i++) {
       if (s.phase === 'decision') {
         const o: Option = route[index++] ?? { kind: 'shoot' };
-        command(s, o.kind === 'pass' ? { kind: 'pass', to: o.to!, quality: q }
+        if (s.arrowMeter && o.kind === 'shoot') {
+          step(s, Math.max(0, s.arrowMeter.startTime + s.arrowMeter.meterMs / 1000 - s.realTime), c, safe);
+          command(s, { kind: 'tap' }, c, safe);
+        } else command(s, o.kind === 'pass' ? { kind: 'pass', to: o.to!, quality: q }
           : o.kind === 'drive' ? { kind: 'drive', lane: 0 } : { kind: 'comboStart' }, c, safe);
       }
-      if (s.phase === 'takeoff' || s.phase === 'freethrows') command(s, { kind: 'comboStart' }, c, safe);
+      if (s.phase === 'takeoff' && s.arrowMeter) command(s, { kind: 'tap' }, c, safe);
+      else if (s.phase === 'takeoff' || s.phase === 'freethrows') command(s, { kind: 'comboStart' }, c, safe);
       if (s.phase === 'combo') command(s, { kind: 'comboRelease', holdMs: s.combo!.meterMs, angleDeg: 0 }, c, safe);
       step(s, 1 / 120, c, safe);
     }

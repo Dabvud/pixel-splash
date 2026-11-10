@@ -4,7 +4,7 @@ const BANNER_MS = 1800;
 const MARK_MS = 1500;
 
 export function createHud(root: HTMLElement): {
-  setMeter(fill: number | null, zones: Zones, fillMax: number): void;
+  setMeter(fill: number | null, zones: Zones, fillMax: number, arrow?: boolean): void;
   markRelease(fill: number, persist?: boolean): void;
   showResult(r: ShotResult): void;
   setStats(made: number, shots: number): void;
@@ -13,7 +13,7 @@ export function createHud(root: HTMLElement): {
     "beforeend",
     `<div class="hud-stats" id="hud-stats">Treffer 0 / 0</div>
      <div class="hud-banner" id="hud-banner" hidden><div class="hud-title"></div><div class="hud-hint"></div></div>
-     <div class="hud-meter" id="hud-meter" hidden><div class="hud-green"></div><div class="hud-fill"></div><div class="hud-mark" hidden></div></div>`,
+     <div class="hud-meter" id="hud-meter" hidden><div class="hud-green"></div><div class="hud-fill"></div><div class="hud-arrow" hidden>◄</div><div class="hud-mark" hidden></div></div>`,
   );
   const stats = root.querySelector<HTMLElement>("#hud-stats")!;
   const banner = root.querySelector<HTMLElement>("#hud-banner")!;
@@ -21,13 +21,14 @@ export function createHud(root: HTMLElement): {
   const green = meter.querySelector<HTMLElement>(".hud-green")!;
   const fillEl = meter.querySelector<HTMLElement>(".hud-fill")!;
   const mark = meter.querySelector<HTMLElement>(".hud-mark")!;
+  const arrowEl = meter.querySelector<HTMLElement>(".hud-arrow")!;
   let max = 1.6;
   let bannerTimer = 0;
   let markTimer = 0;
   const pct = (v: number) => `${(Math.min(v, max) / max) * 100}%`;
 
   return {
-    setMeter(fill, zones, fillMax) {
+    setMeter(fill, zones, fillMax, arrow = false) {
       meter.hidden = fill === null;
       if (fill === null) {
         mark.hidden = true;
@@ -35,6 +36,9 @@ export function createHud(root: HTMLElement): {
         return;
       }
       max = fillMax;
+      fillEl.hidden = arrow;
+      arrowEl.hidden = !arrow;
+      arrowEl.style.bottom = pct(fill);
       fillEl.style.height = pct(fill);
       green.style.bottom = pct(1 - zones.g);
       green.style.height = `${((2 * zones.g) / max) * 100}%`;

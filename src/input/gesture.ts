@@ -47,7 +47,8 @@ export class GestureTracker {
     const dyUp = start.y - y;
     // Die Spezifikation verlangt mehr als 30 Pixel nach unten für den Abbruch.
     if (dyUp < -MIN_SWIPE_PX) return { type: 'cancel' };
-    if (dyUp < MIN_SWIPE_PX) return { type: 'tap' };
+    if (dyUp < MIN_SWIPE_PX) return this.opts.flicks && Math.hypot(dx, dy) >= MIN_SWIPE_PX
+      ? { type: 'cancel' } : { type: 'tap' };
     return {
       type: 'release', holdMs: t - start.t,
       angleDeg: Math.atan2(x - start.x, dyUp) * 180 / Math.PI,

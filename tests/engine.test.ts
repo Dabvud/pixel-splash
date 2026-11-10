@@ -30,6 +30,11 @@ function choose(s: PlayState, o: Option, c = cfg, rng = safe): EngineEvent[] {
     : o.kind === 'drive' ? { kind: 'drive', lane: 0 } : { kind: 'pass', to: o.to! }, c, rng);
 }
 function release(s: PlayState, perfect: boolean, c = cfg, rng = safe): void {
+  if (s.arrowMeter && s.arrowMeter.fill === null) {
+    if (perfect) step(s, Math.max(0, s.arrowMeter.startTime + s.arrowMeter.meterMs / 1000 - s.realTime), c, rng);
+    command(s, { kind: 'tap' }, c, rng);
+    return;
+  }
   if (s.phase !== 'combo') command(s, { kind: 'comboStart' }, c, rng);
   command(s, { kind: 'comboRelease', holdMs: perfect ? s.combo!.meterMs : 0, angleDeg: perfect ? 0 : 80 }, c, rng);
 }
@@ -52,7 +57,11 @@ describe.each(routes)('$title', ({ play, route, perfect }) => {
     const s = decision(play);
     let index = 0;
     for (let i = 0; i < 1800 && s.phase !== 'ended'; i++) {
-      if (s.phase === 'decision') choose(s, route[index++] ?? { kind: 'shoot' });
+      if (s.phase === 'decision') {
+        const option = route[index++] ?? { kind: 'shoot' };
+        if (s.arrowMeter && option.kind === 'shoot') release(s, perfect);
+        else choose(s, option);
+      }
       if (s.phase === 'takeoff' || s.phase === 'freethrows' || s.phase === 'combo') release(s, perfect);
       step(s, 1 / 60, cfg, safe);
       for (const a of Object.values(s.actors)) {

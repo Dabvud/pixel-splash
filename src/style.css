@@ -98,6 +98,13 @@ body {
   margin-bottom: -1px;
   background: #fff;
 }
+.hud-arrow {
+  position: absolute;
+  left: calc(100% + 5px);
+  transform: translateY(50%);
+  color: var(--accent);
+  font: 18px/1 var(--pixel);
+}
 
 .lab-open {
   position: fixed;

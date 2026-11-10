@@ -45,6 +45,102 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  function catchArrow(): PlayState {
+    advance(2.3);
+    const s = state(), c = vi.mocked(step).mock.calls.at(-1)![2];
+    command(s, { kind: 'pass', to: 'r11' }, c, () => 1);
+    for (let i = 0; i < 240 && !s.arrowMeter; i++) advance(1 / 60);
+    expect(s.arrowMeter?.kind).toBe('catchshoot');
+    return s;
+  }
+  it('bestätigt den Pfeil-Tipp beim Loslassen mit Aufsetzzeit und hält seine Markierung fest', () => {
+    const s = catchArrow();
+    now += (s.arrowMeter!.startTime + s.arrowMeter!.meterMs / 1000 - s.realTime) * 1000;
+    gesture({ type: 'start' });
+    expect(s.phase).toBe('decision');
+    now += 120;
+    frame(now);
+    gesture({ type: 'tap' });
+    frame(now);
+    expect(s.phase).toBe('ballflight');
+    expect(s.arrowMeter!.fill).toBeCloseTo(1, 8);
+    const arrow = document.querySelector<HTMLElement>('.hud-arrow')!;
+    const mark = document.querySelector<HTMLElement>('.hud-mark')!;
+    expect(arrow.hidden).toBe(false);
+    const bottom = arrow.style.bottom;
+    expect(mark.style.bottom).toBe(bottom);
+    advance(.5);
+    expect(arrow.style.bottom).toBe(bottom);
+    expect(mark.style.bottom).toBe(bottom);
+  });
+  it('unterdrückt hold und release derselben Pfeil-Berührung und lässt danach normale Kombis zu', () => {
+    const s = catchArrow();
+    gesture({ type: 'start' });
+    now += 200;
+    gesture({ type: 'hold' });
+    expect(s.combo).toBeNull();
+    gesture({ type: 'release', holdMs: 250, angleDeg: 0 });
+    expect(s.phase).toBe('decision');
+    for (let i = 0; i < 120 && s.arrowMeter; i++) advance(1 / 60);
+    gesture({ type: 'start' });
+    gesture({ type: 'hold' });
+    expect(s.phase).toBe('combo');
+  });
+  it('lässt einen schnellen 30-px-Wisch während Catch-and-Shoot sofort ziehen, auch während der Kamerafahrt', () => {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    const stage = document.querySelector<HTMLElement>('#stage')!;
+    Object.defineProperties(stage, { clientWidth: { value: 800 }, clientHeight: { value: 600 } });
+    const s = catchArrow();
+    expect(vi.mocked(attachGesture).mock.calls.at(-1)![2]()).toBe(false);
+    const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+    const h = s.actors[s.handler].pos;
+    const origin = new Vector3(h.x, 1, h.z).project(camera), rim = new Vector3(0, 3.05, 0).project(camera);
+    const dx = (rim.x - origin.x) * 400, dy = (origin.y - rim.y) * 300, len = Math.hypot(dx, dy);
+    gesture({ type: 'start' });
+    now += 100;
+    gesture({ type: 'flick', dx: dx / len * 30, dy: dy / len * 30, holdMs: 100 });
+    expect(s.phase).toBe('driving');
+    expect(s.arrowMeter).toBeNull();
+  });
+  it('pausiert den Pfeil und verwirft einen noch unbestätigten Tipp beim Menüöffnen', () => {
+    const s = catchArrow();
+    gesture({ type: 'start' });
+    mode.setPaused!(true);
+    const snapshot = JSON.stringify(s);
+    advance(5);
+    expect(JSON.stringify(s)).toBe(snapshot);
+    mode.setPaused!(false);
+    gesture({ type: 'tap' });
+    expect(s.phase).toBe('decision');
+    expect(s.arrowMeter!.fill).toBeNull();
+  });
+  it('verliert nach einem 500-ms-Frameaussetzer keine Pfeil-Echtzeit', () => {
+    const s = catchArrow(), before = s.realTime;
+    now += 500;
+    frame(now);
+    expect(s.realTime - before).toBeCloseTo(.5, 8);
+    expect(parseFloat(document.querySelector<HTMLElement>('.hud-arrow')!.style.bottom))
+      .toBeCloseTo((s.realTime - s.arrowMeter!.startTime) * 1000 / s.arrowMeter!.meterMs / MAX_FILL * 100, 8);
+  });
+  it('erlaubt den Lob-Tipp während des Passflugs und unterdrückt hold derselben Berührung', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'inbound', defenseRandom: false });
+    advance(1.3);
+    const s = state(), c = vi.mocked(step).mock.calls.at(-1)![2];
+    command(s, { kind: 'pass', to: 'r50' }, c, () => 1);
+    for (let i = 0; i < 120 && s.realTime < s.arrowMeter!.startTime; i++) advance(1 / 60);
+    expect(s.phase).toBe('passing');
+    expect(vi.mocked(attachGesture).mock.calls.at(-1)![2]()).toBe(false);
+    gesture({ type: 'start' });
+    now += 200;
+    gesture({ type: 'hold' });
+    expect(s.phase).toBe('passing');
+    gesture({ type: 'tap' });
+    expect(s.arrowMeter!.fill).not.toBeNull();
+    for (let i = 0; i < 120 && s.handler === 'r3'; i++) advance(1 / 60);
+    expect(s.handler).toBe('r50');
+    expect(s.phase).toBe('ballflight');
+    expect(document.querySelector<HTMLElement>('.hud-mark')!.hidden).toBe(false);
+  });
   it('verwendet nach 500 ms Frameaussetzer dieselbe Echtzeit für Kombianzeige und Release', () => {
     advance(2.3);
     gesture({ type: 'start' });

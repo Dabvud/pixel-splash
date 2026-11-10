@@ -1,7 +1,7 @@
 import type { MoveId } from '../figure/moves';
 import { MOVES, moveFrames } from '../figure/moves';
 import { buildFinishFlight } from '../shot/finish-path';
-import { effectiveZones, resolveShot } from '../shot/resolve';
+import { effectiveZones, MAX_FILL, resolveShot } from '../shot/resolve';
 import type { ShotParams, ShotResult, Zones } from '../shot/resolve';
 import { buildFlight } from '../shot/trajectory';
 import type { Flight, Vec3 } from '../shot/trajectory';
@@ -21,17 +21,23 @@ export interface EngineConfig {
   finish: { meterMs: number; greenZone: number; aimDeg: number };
 }
 export interface ActorState { id: string; pos: Vec2; y: number; facing: number; move: MoveId; moveT: number }
+export interface ArrowMeter {
+  kind: 'alleyoop' | 'catchshoot'; startTime: number; meterMs: number; zones: Zones;
+  fill: number | null; // null = läuft; nach dem Tipp bleibt der Füllstand stehen
+}
 export interface PlayState {
   play: Play; variant: string; deficit: number; phase: Phase; gameT: number; clock: number; handler: string;
   actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number;
   combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
+  realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
 }
 export type Command = { kind: 'pass'; to: string; quality?: number } | { kind: 'drive'; lane: -1 | 0 | 1 } | { kind: 'comboStart' }
-  | { kind: 'comboRelease'; holdMs: number; angleDeg: number } | { kind: 'finger'; down: boolean };
+  | { kind: 'comboRelease'; holdMs: number; angleDeg: number } | { kind: 'finger'; down: boolean } | { kind: 'tap' };
 export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pass'; from: string; to: string; steal: boolean }
   | { type: 'caught'; by: string } | { type: 'takeoff'; kind: 'layup' | 'dunk' | 'contact_dunk' }
   | { type: 'pocket'; quality: number }
+  | { type: 'arrowStart'; kind: ArrowMeter['kind'] } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
   | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
 
@@ -40,7 +46,7 @@ interface Pass {
   quality: number; startOffset: number; endOffset: number;
 }
 interface Reception {
-  quality: number; delay: number; elapsed: number; lob: boolean; offset: Vec3;
+  quality: number; delay: number; elapsed: number; offset: Vec3;
   closeout?: { id: string; from: Vec2; distance: number; start: number; end: number };
 }
 interface Drive { from: Vec2; to: Vec2; duration: number; elapsed: number }
@@ -49,14 +55,16 @@ interface Shot {
   flight?: Flight; from: Vec2; defender?: string; defenderFrom?: Vec2;
   lob: boolean;
 }
+interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams; foulRoll: number }
+interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
   segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
   clockStarted: boolean; pass?: Pass; drive?: Drive; shot?: Shot; params?: ShotParams;
   offsets: Record<string, Vec2>;
   lob?: boolean;
-  lobQuality?: number;
   reception?: Reception;
   comboWait?: { phase: 'decision' | 'takeoff' | 'freethrows'; elapsed: number };
+  arrow?: ComboData & { pressed?: ArrowInput; tapped?: ArrowInput };
 }
 // Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
 const runtimes = new WeakMap<PlayState, Runtime>();
@@ -147,6 +155,7 @@ function end(s: PlayState, events: EngineEvent[], banner?: string): void {
   if (banner) s.banner = banner;
   phase(s, 'ended');
   s.combo = null;
+  clearArrow(s, events);
   s.freeThrows = null;
   s.fingerDown = false;
   s.verdict = verdict(s.points, s.deficit);
@@ -175,7 +184,7 @@ export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => numbe
   const s: PlayState = {
     play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0,
-    combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false,
+    combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null,
   };
   runtimes.set(s, { segment, variant, segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
   for (const id of play.actors) {
@@ -219,32 +228,101 @@ export function aiChoice(s: PlayState): Option {
   return [...options].sort((a, b) => value(a) - value(b) || rank[a.kind] - rank[b.kind])[0];
 }
 
-function prepareCombo(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
+function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number,
+  actor = s.handler, pos = s.actors[actor].pos, lobQuality?: number): ComboData {
   const ft = s.freeThrows !== null, finishing = kind !== 'jump2' && kind !== 'three';
-  const fouled = !ft && rng() < foulChance(kind, P, cfg.foulMult);
+  const foulRoll = ft ? 1 : rng(), fouled = !ft && foulRoll < foulChance(kind, P, cfg.foulMult);
   const base = finishing ? cfg.finish : cfg.shot;
   const meterMs = ft ? base.meterMs : meterDuration(base.meterMs, P, cfg.tempoSpread, rng);
-  const a = ACTORS[s.handler];
-  rt(s).params = { ...base, meterMs, influence: cfg.shot.influence,
+  const a = ACTORS[actor];
+  const params = { ...base, meterMs, influence: cfg.shot.influence,
     rating: finishing ? a.athleticism : a.shot,
-    distance: finishing ? 4.6 : distance(s.actors[s.handler].pos, { x: 0, z: 0 }),
+    distance: finishing ? 4.6 : distance(pos, { x: 0, z: 0 }),
     zoneFactor: ft ? 1 : zoneFactor(P, cfg.zoneFloor, fouled, kind === 'contact_dunk')
-      * (rt(s).lob ? .75 + .25 * (rt(s).lobQuality ?? 1) : 1) };
-  s.combo = { kind, P, meterMs, zones: effectiveZones(rt(s).params!), fouled };
+      * (lobQuality === undefined ? 1 : .75 + .25 * lobQuality) };
+  return { params, combo: { kind, P, meterMs, zones: effectiveZones(params), fouled }, foulRoll };
+}
+
+function prepareCombo(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
+  const data = comboData(s, kind, P, cfg, rng);
+  rt(s).params = data.params;
+  s.combo = data.combo;
+  const finishing = kind !== 'jump2' && kind !== 'three';
   move(s.actors[s.handler], finishing ? kind as MoveId : 'jumpshot', true);
   s.actors[s.handler].facing = facingTo(s.actors[s.handler].pos, { x: 0, z: 0 });
-  events.push({ type: 'combo', fouled, contact: kind === 'contact_dunk' });
+  events.push({ type: 'combo', fouled: data.combo.fouled, contact: kind === 'contact_dunk' });
   heldBall(s);
 }
 
-function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[], lob = false): void {
+function clearArrow(s: PlayState, events: EngineEvent[]): void {
+  if (s.arrowMeter) events.push({ type: 'arrowEnd' });
+  s.arrowMeter = null;
+  rt(s).arrow = undefined;
+}
+
+function startArrow(s: PlayState, kind: ArrowMeter['kind'], startTime: number, data: ComboData, events: EngineEvent[]): void {
+  rt(s).arrow = data;
+  s.arrowMeter = { kind, startTime, meterMs: data.combo.meterMs, zones: data.combo.zones, fill: null };
+  events.push({ type: 'arrowStart', kind });
+  if (kind === 'alleyoop') events.push({ type: 'combo', fouled: data.combo.fouled, contact: data.combo.kind === 'contact_dunk' });
+}
+
+function refreshCatchArrow(s: PlayState, P: number, cfg: EngineConfig): void {
+  const a = rt(s).arrow!, c = a.combo;
+  c.kind = shotKindAt(s.actors[s.handler].pos);
+  c.P = P;
+  c.fouled = a.foulRoll < foulChance(c.kind, P, cfg.foulMult);
+  a.params.distance = distance(s.actors[s.handler].pos, { x: 0, z: 0 });
+  a.params.zoneFactor = zoneFactor(P, cfg.zoneFloor, c.fouled, false);
+  c.zones = effectiveZones(a.params);
+  s.arrowMeter!.zones = c.zones;
+}
+
+function arrowInput(s: PlayState): ArrowInput | undefined {
+  const m = s.arrowMeter;
+  if (!m || m.fill !== null || s.realTime < m.startTime || s.realTime >= m.startTime + m.meterMs * MAX_FILL / 1000
+    || (s.clock <= 0 && m.kind === 'catchshoot')) return;
+  return { holdMs: (s.realTime - m.startTime) * 1000, P: currentP(s) };
+}
+
+function tapArrow(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
+  const m = s.arrowMeter, a = rt(s).arrow;
+  if (!m || !a || m.fill !== null) return;
+  const input = a.pressed ?? arrowInput(s);
+  if (!input) return;
+  a.tapped = input;
+  m.fill = Math.min(MAX_FILL, input.holdMs / m.meterMs);
+  events.push({ type: 'arrowTap', fill: m.fill });
+  if (m.kind === 'catchshoot') {
+    refreshCatchArrow(s, input.P, cfg);
+    s.combo = a.combo; rt(s).params = a.params;
+    events.push({ type: 'combo', fouled: a.combo.fouled, contact: false });
+  }
+  if (s.phase !== 'passing') startShot(s, { holdMs: input.holdMs, angleDeg: 0 }, rng);
+}
+
+function catchLob(s: PlayState, rng: () => number, events: EngineEvent[]): void {
+  const r = rt(s), data = r.arrow!, a = s.actors[s.handler];
+  phase(s, 'takeoff');
+  r.lob = true;
+  r.params = data.params; s.combo = data.combo;
+  const kind = data.combo.kind as 'layup' | 'dunk' | 'contact_dunk';
+  move(a, kind, true);
+  a.facing = facingTo(a.pos, { x: 0, z: 0 });
+  a.y = Math.max(.35, 3.05 - (hand(a).y - a.y));
+  events.push({ type: 'takeoff', kind });
+  heldBall(s);
+  if (data.tapped) startShot(s, { holdMs: data.tapped.holdMs, angleDeg: 0 }, rng);
+}
+
+function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const P = currentP(s), kind = finishKind(ACTORS[s.handler].athleticism, P, rng);
   phase(s, 'takeoff');
-  rt(s).lob = lob;
+  rt(s).lob = false;
   events.push({ type: 'takeoff', kind });
   prepareCombo(s, kind, P, cfg, rng, events);
   const a = s.actors[s.handler];
-  a.y = lob ? Math.max(.35, 3.05 - (hand(a).y - a.y)) : .06;
+  a.y = .06;
   heldBall(s);
 }
 
@@ -295,6 +373,13 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
   phase(s, 'passing');
   s.ball = { ...r.pass.from };
   events.push({ type: 'pass', from: s.handler, to: catcher.id, steal });
+  if (option.lob && !steal) {
+    const P = positionValue(target.pos, defenders(s).map(a => predicted(s, a.id, target.duration)));
+    const kind = finishKind(ACTORS[catcher.id].athleticism, P, rng);
+    const data = comboData(s, kind, P, cfg, rng, catcher.id, target.pos, quality);
+    const catchTime = s.realTime + target.duration / cfg.animSpeed;
+    startArrow(s, 'alleyoop', Math.max(s.realTime, catchTime - data.combo.meterMs / 1000), data, events);
+  }
 }
 
 function updateCloseout(s: PlayState): void {
@@ -321,8 +406,11 @@ function receptionReady(s: PlayState, cfg: EngineConfig, rng: () => number, even
     }
   }
   r.reception = undefined;
-  if (reception.lob) takeoff(s, cfg, rng, events, true);
-  else decision(s, events);
+  decision(s, events);
+  if ((r.segment.options ?? [{ kind: 'shoot' }]).some(o => o.kind === 'shoot')) {
+    const data = comboData(s, shotKindAt(s.actors[s.handler].pos), currentP(s), cfg, rng);
+    startArrow(s, 'catchshoot', s.realTime, data, events);
+  }
   heldBall(s);
 }
 
@@ -345,6 +433,8 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
   const events: EngineEvent[] = [], r = rt(s);
   if (s.phase === 'ended') return events;
   if (cmd.kind === 'finger') {
+    if (cmd.down && !s.fingerDown && r.arrow) r.arrow.pressed = arrowInput(s);
+    if (!cmd.down && r.arrow) r.arrow.pressed = undefined;
     if (!cmd.down && s.fingerDown && s.phase === 'combo' && r.comboWait) {
       const wait = r.comboWait, elapsed = wait.elapsed + r.realT;
       phase(s, wait.phase);
@@ -358,6 +448,8 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
     s.fingerDown = cmd.down;
     return events;
   }
+  if (cmd.kind === 'tap') { tapArrow(s, cfg, rng, events); return events; }
+  if (s.arrowMeter && (cmd.kind === 'comboStart' || cmd.kind === 'comboRelease')) return events;
   if (s.phase === 'intro' || s.phase === 'running' || s.phase === 'passing' || s.phase === 'receiving' || s.phase === 'driving' || s.phase === 'ballflight') return events;
   if (s.phase === 'decision' && r.aiSelected) {
     const selected = r.aiSelected;
@@ -390,8 +482,12 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
   if (s.phase !== 'decision' || s.combo) return events;
   if (cmd.kind === 'pass') {
     const option = r.segment.options?.find(o => o.kind === 'pass' && o.to === cmd.to);
-    if (option && s.actors[cmd.to]) startPass(s, option, Math.max(0, Math.min(1, cmd.quality ?? 1)), cfg, rng, events);
+    if (option && s.actors[cmd.to]) {
+      clearArrow(s, events);
+      startPass(s, option, Math.max(0, Math.min(1, cmd.quality ?? 1)), cfg, rng, events);
+    }
   } else if (cmd.kind === 'drive' && (r.segment.options ?? [{ kind: 'drive' }]).some(o => o.kind === 'drive')) {
+    clearArrow(s, events);
     const h = s.actors[s.handler], to = takeoffPoint(h.pos, cmd.lane);
     r.drive = { from: { ...h.pos }, to, duration: Math.max(1, distance(h.pos, to) / 8), elapsed: 0 };
     phase(s, 'driving');
@@ -421,6 +517,7 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
   s.banner = ft ? result.made ? 'TREFFER' : 'DANEBEN' : finishBanner(kind, result.made, fouled, s.assisted);
   events.push({ type: 'result', banner: s.banner, made: result.made });
   s.combo = null;
+  clearArrow(s, events);
   for (const a of Object.values(s.actors)) { a.y = 0; move(a, ACTORS[a.id].team === 'def' ? 'defend' : 'idle'); }
   if (ft) {
     s.freeThrows!.left--;
@@ -479,6 +576,7 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
 function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const r = rt(s), oldPhase = s.phase;
   if (oldPhase === 'ended') return;
+  s.realTime += dtReal;
   const slow = oldPhase === 'decision' || oldPhase === 'combo' || oldPhase === 'takeoff';
   const dt = dtReal * cfg.animSpeed * (slow ? cfg.slowmo : 1);
   r.phaseT += dt; r.realT += dtReal;
@@ -493,7 +591,8 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     if (s.clock < 1e-10) s.clock = 0;
   }
   const finishing = s.combo && s.combo.kind !== 'jump2' && s.combo.kind !== 'three';
-  if (s.clock <= 0 && !s.freeThrows && oldPhase !== 'ballflight' && !(finishing && (oldPhase === 'takeoff' || oldPhase === 'combo'))) {
+  const pendingTap = s.arrowMeter?.kind === 'catchshoot' && r.arrow?.pressed;
+  if (s.clock <= 0 && !s.freeThrows && oldPhase !== 'ballflight' && !pendingTap && !(finishing && (oldPhase === 'takeoff' || oldPhase === 'combo'))) {
     end(s, events, 'ZEIT ABGELAUFEN'); return;
   }
   for (const a of Object.values(s.actors)) a.moveT += dt;
@@ -502,7 +601,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   updatePaths(s, previous);
   if (oldPhase === 'running') {
     if (r.segT >= (r.segment.decisionAt ?? 0)) decision(s, events);
-  } else if (oldPhase === 'decision' && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) {
+  } else if (oldPhase === 'decision' && !s.arrowMeter && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) {
     if (r.aiSelected) miss(s, events, 'ZU LANGE GEZÖGERT');
     else {
       const option = aiChoice(s);
@@ -515,7 +614,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   } else if (oldPhase === 'passing') {
     const p = r.pass!;
     p.elapsed += dt;
-    const f = Math.min(1, p.elapsed / p.duration);
+    const f = p.elapsed + 1e-9 >= p.duration ? 1 : p.elapsed / p.duration;
     s.ball = { x: mix(p.from.x, p.to.x, f), y: mix(p.from.y, p.to.y, f) + .35 * 4 * f * (1 - f), z: mix(p.from.z, p.to.z, f) };
     if (f >= 1) {
       if (p.stolenBy) {
@@ -530,18 +629,19 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
         const nearest = defenders(s).sort((d, e) => distance(d.pos, a.pos) - distance(e.pos, a.pos))[0];
         nextSegment(s, p.option);
         events.push({ type: 'caught', by: s.handler });
-        r.lobQuality = p.quality;
-        r.reception = { quality: p.quality, delay: (1 - p.quality) * (cfg.passDelayMax ?? .6), elapsed: 0,
-          lob: p.option.lob ?? false, offset: catchOffset(a, p.quality),
-          closeout: nearest && (p.quality < 1 || (cfg.closeoutRandom ?? 0) > 0) ? {
-            id: nearest.id, from: { ...nearest.pos }, distance: distance(nearest.pos, a.pos),
-            start: p.startOffset, end: Math.max(.1, .5 + p.endOffset),
-          } : undefined };
-        phase(s, 'receiving');
-        if (p.option.lob) a.y = Math.max(.35, 3.05 - (hand(a).y - a.y));
-        updateCloseout(s);
-        if (r.reception.delay <= 0) receptionReady(s, cfg, rng, events);
-        else heldBall(s);
+        if (p.option.lob) catchLob(s, rng, events);
+        else {
+          r.reception = { quality: p.quality, delay: (1 - p.quality) * (cfg.passDelayMax ?? .6), elapsed: 0,
+            offset: catchOffset(a, p.quality),
+            closeout: nearest && (p.quality < 1 || (cfg.closeoutRandom ?? 0) > 0) ? {
+              id: nearest.id, from: { ...nearest.pos }, distance: distance(nearest.pos, a.pos),
+              start: p.startOffset, end: Math.max(.1, .5 + p.endOffset),
+            } : undefined };
+          phase(s, 'receiving');
+          updateCloseout(s);
+          if (r.reception.delay <= 0) receptionReady(s, cfg, rng, events);
+          else heldBall(s);
+        }
         events.push({ type: 'pocket', quality: p.quality });
       }
     }
@@ -558,7 +658,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     if (f >= 1) takeoff(s, cfg, rng, events);
   } else if (oldPhase === 'takeoff') {
     s.actors[s.handler].moveT = 0;
-    if (r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) miss(s, events, r.aiSelected ? 'ZU LANGE GEZÖGERT' : 'VERLEGT');
+    if (!s.arrowMeter && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) miss(s, events, r.aiSelected ? 'ZU LANGE GEZÖGERT' : 'VERLEGT');
   } else if (oldPhase === 'combo') {
     s.actors[s.handler].moveT = 0;
     // Auch abgebrochene Kombis und Freiwürfe haben eine endliche Wartezeit.
@@ -570,6 +670,17 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     prepareCombo(s, 'jump2', 1, cfg, rng, events);
     startShot(s, { holdMs: 0, angleDeg: 80 }, rng);
   } else if (oldPhase === 'ballflight') shotAnimation(s, dt, events);
+  const meter = s.arrowMeter;
+  if (meter && meter.fill === null) {
+    if (meter.kind === 'catchshoot') refreshCatchArrow(s, r.arrow?.pressed?.P ?? currentP(s), cfg);
+    const endTime = meter.startTime + meter.meterMs * MAX_FILL / 1000;
+    // Aufsetzzeit bleibt bis zur Bestätigung gültig; ein verlorener Pointer kann nichts aufhalten.
+    if (s.realTime + 1e-9 >= endTime && (!r.arrow?.pressed || s.realTime >= endTime + cfg.decisionS)) {
+      if (r.arrow?.pressed) s.fingerDown = false;
+      if (meter.kind === 'alleyoop') miss(s, events, r.arrow!.combo.kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING');
+      else { clearArrow(s, events); decision(s, events); }
+    }
+  }
   if (s.phase !== 'passing' && s.phase !== 'ballflight' && s.phase !== 'ended') heldBall(s);
 }
 
@@ -579,7 +690,11 @@ export function step(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () =>
   // Kleine Teilintervalle bewahren Ereignisreihenfolge auch nach einem langsamen Render-Frame.
   let left = dtReal;
   while (left > 1e-10 && s.phase !== 'ended') {
-    const dt = Math.min(left, 1 / 120);
+    const r = rt(s);
+    // Der Lob-Idealpunkt liegt exakt beim Fangen; die Pass-Verzögerung endet in Spielzeit.
+    const boundary = s.phase === 'passing' && r.pass!.option.lob ? (r.pass!.duration - r.pass!.elapsed) / cfg.animSpeed
+      : s.phase === 'receiving' ? (r.reception!.delay - r.reception!.elapsed) / cfg.animSpeed : Infinity;
+    const dt = Math.min(left, 1 / 120, boundary > 1e-10 ? boundary : Infinity);
     tick(s, dt, cfg, rng, events);
     left -= dt;
   }
