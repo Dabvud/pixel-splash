@@ -13,6 +13,11 @@ function at(path: Waypoint[], t: number): Vec2 {
   return { x: a.x + (end.x - a.x) * f, z: a.z + (end.z - a.z) * f };
 }
 
+function travelled(path: Waypoint[], start: number, end: number): number {
+  const points = [at(path, start), ...path.filter(p => p.t > start && p.t < end), at(path, end)];
+  return points.slice(1).reduce((sum, p, i) => sum + Math.hypot(p.x - points[i].x, p.z - points[i].z), 0);
+}
+
 const FREE: Record<string, Record<string, string>> = {
   pnr: { under: 'shoot', hedge: 'r50', switch: 'drive', corner_help: 'r11' },
   fastbreak: { staggered: 'r11', split: 'drive', stop_ball: 'r23' },
@@ -82,6 +87,42 @@ describe.each(Object.values(PLAYS))('$name Daten', (play: Play) => {
       expect(values.find(o => o.id === FREE[play.id][v.id])!.P).toBeGreaterThanOrEqual(.7);
       expect(values.some(o => o.id !== FREE[play.id][v.id] && o.P <= .5)).toBe(true);
       expect(values.filter(o => o.id !== FREE[play.id][v.id]).every(o => o.P <= .5)).toBe(true);
+    }
+  });
+
+  it('hält die freie und alle gedeckten Optionen auch zur Fenstermitte unterscheidbar', () => {
+    const seg = play.segments[play.start], t = seg.decisionAt! - 1.25;
+    for (const v of play.variants) {
+      const defenders = Object.values(v.defPaths[seg.id]).map(path => at(path, t));
+      for (const o of seg.options!) {
+        const pos = o.kind === 'pass' ? at(seg.paths[o.to!], t + 1)
+          : o.kind === 'drive' ? { x: 0, z: 1.2 } : at(seg.paths[seg.handler], t);
+        const P = positionValue(pos, defenders);
+        if ((o.to ?? o.kind) === FREE[play.id][v.id]) expect(P).toBeGreaterThanOrEqual(.7);
+        else expect(P).toBeLessThanOrEqual(.5);
+      }
+    }
+  });
+
+  it('bewegt je Variante den Ballführer mindestens 3 m und mindestens drei weitere Akteure über 1 m', () => {
+    for (const v of play.variants) for (const seg of Object.values(play.segments)) {
+      const end = seg.decisionAt!, start = Math.max(0, end - 2.5);
+      expect(end - start).toBeGreaterThanOrEqual(seg.id === play.start ? 2.5 : 1.5);
+      const paths = { ...seg.paths, ...v.defPaths[seg.id] };
+      expect(travelled(paths[seg.handler], start, end)).toBeGreaterThanOrEqual(3);
+      expect(play.actors.filter(id => {
+        if (id === seg.handler) return false;
+        const a = at(paths[id], start), b = at(paths[id], end);
+        return Math.hypot(b.x - a.x, b.z - a.z) > 1;
+      }).length).toBeGreaterThanOrEqual(3);
+      for (const id of play.actors) {
+        const path = paths[id];
+        expect(path.at(-1)!.t).toBeGreaterThanOrEqual(end);
+        for (let t = start; t < end - .01; t += .1) {
+          const speed = travelled(path, t, Math.min(t + .1, end)) / Math.min(.1, end - t);
+          expect(speed).toBeGreaterThanOrEqual(id === seg.handler ? 2 - 1e-8 : .1);
+        }
+      }
     }
   });
 });

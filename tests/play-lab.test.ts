@@ -9,6 +9,7 @@ import { DEFAULTS } from '../src/settings';
 import { MAX_FILL } from '../src/shot/resolve';
 import type { Mode } from '../src/modes/mode';
 import { ACTORS } from '../src/play/teams';
+import { PLAYS } from '../src/play/plays';
 import { playCameraPose } from '../src/render/camera-pose';
 
 vi.mock('../src/render/scene', async () => {
@@ -26,6 +27,8 @@ vi.mock('../src/play/engine', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/play/engine')>();
   return { ...actual, createPlayState: vi.fn(actual.createPlayState), step: vi.fn(actual.step) };
 });
+// restoreAllMocks leert getMockImplementation(); die Originalfunktionen bleiben hier verfügbar.
+const actualEngine = await vi.importActual<typeof import('../src/play/engine')>('../src/play/engine');
 
 let mode: Mode, frame: FrameRequestCallback, now: number;
 function advance(seconds: number): void {
@@ -97,7 +100,16 @@ describe('Spielzug-Labor Integration', () => {
     vi.mocked(step).mockReturnValueOnce([{ type: 'decision', options: [{ kind: 'shoot' }, { kind: 'pass', to: 'r3' }] }]);
     advance(1 / 60);
     expect(camera.fov).toBeLessThan(60);
-    advance(.3);
+    // Das künstliche Ziel bleibt trotz der jetzt bewegten Daten außerhalb des Bildes.
+    const actualStep = actualEngine.step;
+    try {
+      vi.mocked(step).mockImplementation((state, dt, c, rng) => {
+        const events = actualStep(state, dt, c, rng);
+        state.actors.r3.pos = { x: -6.9, z: 10 };
+        return events;
+      });
+      advance(.3);
+    } finally { vi.mocked(step).mockImplementation(actualStep); }
     expect(s.arrowMeter!.fill).toBeNull();
     expect(camera.fov).toBeLessThan(51);
     const target = new Vector3(s.actors.r3.pos.x, 1, s.actors.r3.pos.z).project(camera);
@@ -262,21 +274,42 @@ describe('Spielzug-Labor Integration', () => {
     expect(document.querySelector<HTMLElement>('.hud-mark')!.style.bottom).toBe(displayed);
   });
 
-  // TODO: an das Entscheidungsfenster im Laufen anpassen (KI-Wahl fällt jetzt am Wegende, Zeitpunkte im Test stimmen nicht mehr)
-  it.skip('verliert bei langen Frames keine Entscheidungsfrist und pausiert die Echtzeit im Menü', () => {
-    advance(4.4); // kurz vor Wegende: Entscheidungsfenster ist seit 1 Spielsekunde offen
-    const before = state().clock;
+  function aiShootWindow(): number {
+    const create = actualEngine.createPlayState;
+    vi.mocked(createPlayState).mockImplementationOnce((play, c, rng) => {
+      const fixture = structuredClone(play), end = fixture.segments[fixture.start].decisionAt!;
+      for (const v of fixture.variants) for (const id of Object.keys(v.defPaths[fixture.start])) {
+        // Nur die KI-Wahl isolieren; Engine, Fenster und Zeitmodell laufen unverändert.
+        v.defPaths[fixture.start][id] = [{ t: 0, x: id === 'b1' ? 0 : 7,
+          z: id === 'b1' ? 5 : 12, act: 'defend' }, { t: end, x: id === 'b1' ? 0 : 7,
+          z: id === 'b1' ? 5 : 12, act: 'defend' }];
+      }
+      return create(fixture, c, rng);
+    });
+    mode.restart!();
+    for (let i = 0; i < 300 && state().phase !== 'decision'; i++) advance(1 / 60);
+    expect(state().phase).toBe('decision');
+    const c = vi.mocked(step).mock.calls.at(-1)![2];
+    expect(c.decisionLead).toBe(2.5);
+    return (PLAYS.pnr.segments.setup.decisionAt! - state().gameT) / (c.slowmo * c.animSpeed);
+  }
+
+  it('verliert bei langen Frames kein Entscheidungsfenster und pausiert Spielzeit und Echtzeit im Menü', () => {
+    const remaining = aiShootWindow();
+    advance(remaining - .5);
+    const before = state().clock, snapshot = JSON.stringify(state());
+    expect(document.querySelector('.phud-markers')!.children).toHaveLength(4);
     mode.setPaused!(true);
     now += 5000;
     frame(now);
-    expect(state().clock).toBe(before);
+    expect(JSON.stringify(state())).toBe(snapshot);
     mode.setPaused!(false);
-    state().actors.b1.pos = { x: 0, z: 5 };
-    for (const id of ['b7', 'b15', 'b21', 'b44']) state().actors[id].pos = { x: 7, z: 12 };
-    now += (DEFAULTS.decisionS + .1) * 1000;
+    now += 1000;
     frame(now);
+    expect(state().phase).toBe('decision');
     expect(document.querySelector('.phud-markers')!.children).toHaveLength(1);
-    expect(state().clock).toBeCloseTo(before - (DEFAULTS.decisionS + .1) * DEFAULTS.slowmo, 8);
+    expect(document.querySelector('.phud-m-shoot')).not.toBeNull();
+    expect(state().clock).toBeCloseTo(before - DEFAULTS.slowmo, 8);
     gesture({ type: 'start' });
     gesture({ type: 'hold' });
     const meterMs = state().combo!.meterMs;
@@ -448,16 +481,20 @@ describe('Spielzug-Labor Integration', () => {
     advance(1 / 60);
     expect(markers.children).toHaveLength(0);
   });
-  // TODO: an das Entscheidungsfenster im Laufen anpassen (KI-Wahl fällt jetzt am Wegende, Zeitpunkte im Test stimmen nicht mehr)
-  it.skip('zeigt nach KI-Werfen nur noch den verbindlichen Wurfmarker', () => {
-    advance(4.4); // kurz vor Wegende: Entscheidungsfenster ist seit 1 Spielsekunde offen
-    state().actors.b1.pos = { x: 0, z: 5 };
-    for (const id of ['b7', 'b15', 'b21', 'b44']) state().actors[id].pos = { x: 7, z: 12 };
-    advance(DEFAULTS.decisionS);
+  it('zeigt erst am Wegende nach KI-Werfen nur noch den verbindlichen Wurfmarker', () => {
+    const remaining = aiShootWindow();
+    advance(remaining - .1);
+    expect(document.querySelector('.phud-markers')!.children).toHaveLength(4);
+    advance(.2);
     expect(state().phase).toBe('decision');
     const markers = document.querySelector('.phud-markers')!;
     expect(markers.children).toHaveLength(1);
     expect(markers.firstElementChild!.classList.contains('phud-m-shoot')).toBe(true);
+    const c = vi.mocked(step).mock.calls.at(-1)![2];
+    expect(command(state(), { kind: 'pass', to: 'r11' }, c, () => 1)).toEqual([]);
+    expect(command(state(), { kind: 'drive', lane: 0 }, c, () => 1)).toEqual([]);
+    gesture({ type: 'start' }); gesture({ type: 'hold' });
+    expect(state().phase).toBe('combo');
   });
   it('hält Wurfanzeige und Loslass-Markierung bis zum Ergebnis sichtbar und eingefroren', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });

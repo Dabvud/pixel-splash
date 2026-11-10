@@ -151,7 +151,9 @@ describe('Engine Zeit, Kontrolle und KI', () => {
   it('bewertet Ziehen nach künftigen Variantenwegen und Pass am bewegten Fangpunkt', () => {
     const p: Play = structuredClone(PLAYS.pnr);
     p.variants = [p.variants[0]];
-    p.variants[0].defPaths.setup = { b1: [{ t: 0, x: 7, z: 10, act: 'defend' }, { t: 2.4, x: 0, z: .8, act: 'defend' }] };
+    // Der Verteidiger erreicht den Ring erst nach dem aktuellen Entscheidungszeitpunkt.
+    const future = p.segments.setup.decisionAt! + 1;
+    p.variants[0].defPaths.setup = { b1: [{ t: 0, x: 7, z: 10, act: 'defend' }, { t: future, x: 0, z: .8, act: 'defend' }] };
     const s = decision(p);
     for (const a of Object.values(s.actors)) if (ACTORS[a.id].team === 'def') a.pos = { x: 7, z: 12 };
     expect(aiChoice(s).kind).toBe('drive');
