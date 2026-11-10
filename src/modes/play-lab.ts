@@ -42,7 +42,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   root.append(stage);
 
   let settings = initial;
-  const { scene, ball } = createScene();
+  const { scene, ball, updateNet } = createScene();
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
   const looks: Record<string, Look> = {};
@@ -316,6 +316,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     } else if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL, false, s.combo.bankWindow);
     else hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
 
+    updateNet(now);
     px.renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
   }

@@ -1,7 +1,8 @@
 import * as THREE from "three";
+import { netHit, netPose } from "./net";
 
 // Halle aus der Look-Test-Vorschau (Variante „Pixel“): Feld, Korb, Publikum, Licht.
-export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh } {
+export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet(nowMs: number): void } {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x120d0a);
 
@@ -26,7 +27,7 @@ export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh } {
   wall(30, -11, 6, Math.PI / 2);
   wall(30, 11, 6, -Math.PI / 2);
 
-  addHoop(scene);
+  const net = addHoop(scene);
 
   scene.add(new THREE.HemisphereLight(0xfff0e0, 0x2a1a12, 0.8));
   const sun = new THREE.DirectionalLight(0xffffff, 0.7);
@@ -39,7 +40,18 @@ export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh } {
   const ball = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), new THREE.MeshLambertMaterial({ color: 0xd8661f }));
   ball.castShadow = true;
   scene.add(ball);
-  return { scene, ball };
+  // Netz reagiert auf den Ball: strecken beim Treffer, wackeln beim Ringkontakt
+  const prev = { x: 0, y: 0, z: 0 };
+  let hitAt = -1e9, strength = 1;
+  const updateNet = (nowMs: number): void => {
+    const hit = netHit(prev, ball.position);
+    if (hit !== null && (hit > 1 || nowMs - hitAt > 400)) { hitAt = nowMs; strength = hit; }
+    prev.x = ball.position.x; prev.y = ball.position.y; prev.z = ball.position.z;
+    const { sy, dx } = netPose((nowMs - hitAt) / 1000, strength);
+    net.scale.y = sy;
+    net.position.set(dx, 3.05 - 0.21 * sy, 0);
+  };
+  return { scene, ball, updateNet };
 }
 
 function courtTexture(): THREE.CanvasTexture {
@@ -99,7 +111,7 @@ function crowdTexture(repeat: number, rows: number): THREE.CanvasTexture {
   return t;
 }
 
-function addHoop(scene: THREE.Scene): void {
+function addHoop(scene: THREE.Scene): THREE.Mesh {
   const c = document.createElement("canvas");
   c.width = 90;
   c.height = 52;
@@ -124,7 +136,8 @@ function addHoop(scene: THREE.Scene): void {
   part(new THREE.BoxGeometry(1.8, 1.05, 0.05), new THREE.MeshLambertMaterial({ map: texture }), 0, 3.42, -0.4);
   const rim = part(new THREE.TorusGeometry(0.23, 0.02, 8, 24), new THREE.MeshLambertMaterial({ color: 0xe8601c }), 0, 3.05, 0);
   rim.rotation.x = Math.PI / 2;
-  part(new THREE.CylinderGeometry(0.23, 0.15, 0.42, 12, 3, true), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }), 0, 2.84, 0);
+  const net = part(new THREE.CylinderGeometry(0.23, 0.15, 0.42, 12, 3, true), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }), 0, 2.84, 0);
   part(new THREE.BoxGeometry(0.15, 0.15, 1.2), dark, 0, 3.3, -1);
   part(new THREE.BoxGeometry(0.25, 3.4, 0.25), dark, 0, 1.7, -1.6);
+  return net;
 }

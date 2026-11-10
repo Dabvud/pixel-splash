@@ -13,7 +13,7 @@ import { playCameraPose } from '../src/render/camera-pose';
 
 vi.mock('../src/render/scene', async () => {
   const THREE = await import('three');
-  return { createScene: () => ({ scene: new THREE.Scene(), ball: new THREE.Object3D() }) };
+  return { createScene: () => ({ scene: new THREE.Scene(), ball: new THREE.Object3D(), updateNet: () => {} }) };
 });
 vi.mock('../src/render/pixel', () => ({ createPixelRenderer: () => ({ renderer: { render: vi.fn(), dispose: vi.fn() }, resize: vi.fn() }) }));
 vi.mock('../src/figure/atlas', async () => {

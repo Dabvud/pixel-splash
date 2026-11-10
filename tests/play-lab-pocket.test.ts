@@ -8,7 +8,7 @@ import { DEFAULTS } from '../src/settings';
 
 vi.mock('../src/render/scene', async () => {
   const t = await import('three');
-  return { createScene: () => ({ scene: new t.Scene(), ball: new t.Object3D() }) };
+  return { createScene: () => ({ scene: new t.Scene(), ball: new t.Object3D(), updateNet: () => {} }) };
 });
 vi.mock('../src/render/pixel', () => ({ createPixelRenderer: () => ({ renderer: { render: vi.fn(), dispose: vi.fn() }, resize: vi.fn() }) }));
 vi.mock('../src/figure/atlas', async () => {

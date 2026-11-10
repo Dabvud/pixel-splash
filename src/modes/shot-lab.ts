@@ -31,7 +31,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
   let shots = 0;
   let raf = 0;
 
-  const { scene, ball } = createScene();
+  const { scene, ball, updateNet } = createScene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
   const player = createPlayer(scene);
@@ -108,6 +108,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     const pose = cameraPose(settings.camera, { x: s.x, y: 0, z: s.z }, progress);
     camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
     camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
+    updateNet(now);
     px.renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
   }
