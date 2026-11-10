@@ -57,3 +57,33 @@ describe('Kamera-Pose', () => {
     expect(cameraPose(mode, top, 1)).toEqual(cameraPose(mode, top, null));
   });
 });
+
+import { playCameraPose } from '../src/render/camera-pose';
+
+describe('Spielzug-Kamera', () => {
+  const wing = { x: 4, z: 5 };
+  const onAxis = (pose: { pos: { x: number; z: number } }, h: { x: number; z: number }) =>
+    expect(pose.pos.x * h.z - pose.pos.z * h.x).toBeCloseTo(0, 6);
+
+  it.each(['wide', 'aim'] as const)('steht bei %s auf der Achse Korb → Ballführer, hinter ihm', (view) => {
+    const pose = playCameraPose(view, wing);
+    onAxis(pose, wing);
+    expect(Math.hypot(pose.pos.x, pose.pos.z)).toBeGreaterThan(Math.hypot(wing.x, wing.z));
+  });
+
+  it('ist bei wide erhöht mit 60° Sichtfeld, bei aim tief mit 50°', () => {
+    const wide = playCameraPose('wide', wing);
+    const aim = playCameraPose('aim', wing);
+    expect(wide.fov).toBe(60);
+    expect(aim.fov).toBe(50);
+    expect(wide.pos.y).toBeGreaterThan(aim.pos.y + 2);
+    expect(aim.pos.y).toBe(3);
+  });
+
+  it('nimmt direkt unter dem Korb die Mittelachse', () => {
+    const pose = playCameraPose('aim', { x: 0, z: 0 });
+    expect(pose.pos.x).toBeCloseTo(0, 6);
+    expect(pose.pos.z).toBeGreaterThan(0);
+    expect(Number.isFinite(pose.pos.z)).toBe(true);
+  });
+});

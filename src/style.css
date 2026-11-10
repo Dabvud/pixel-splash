@@ -175,3 +175,115 @@ body {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
+
+/* Spielzug-Labor */
+.phud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--pixel);
+}
+.phud-clock {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 44px);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  font-size: 10px;
+  background: rgb(0 0 0 / 0.55);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.phud-clock:empty {
+  display: none;
+}
+.phud-sit {
+  position: absolute;
+  top: 30%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  text-shadow: 3px 3px 0 #000;
+  background: rgb(0 0 0 / 0.55);
+  padding: 14px 8px;
+}
+.phud-sit-top {
+  font-size: clamp(10px, 3.4vw, 16px);
+}
+.phud-sit-name {
+  margin-top: 10px;
+  font-size: clamp(14px, 5vw, 24px);
+  color: var(--accent);
+}
+.phud-ring {
+  position: absolute;
+  left: -26px;
+  top: -9px;
+  width: 52px;
+  height: 18px;
+  border: 3px solid;
+  border-radius: 50%;
+}
+.phud-flash {
+  position: absolute;
+  top: 40%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: clamp(14px, 5vw, 24px);
+  color: #ffd84a;
+  text-shadow: 3px 3px 0 #000;
+}
+.phud-decision {
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  height: 8px;
+  background: rgb(0 0 0 / 0.6);
+  border: 2px solid var(--fg);
+}
+.phud-decision > div {
+  height: 100%;
+  background: var(--accent);
+}
+.phud-m {
+  position: absolute;
+  left: -18px;
+  top: -18px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  color: #fff;
+  text-shadow: 2px 2px 0 #000;
+}
+.phud-m i {
+  font-style: normal;
+  display: block;
+}
+.phud-m b {
+  position: absolute;
+  top: -14px;
+  font-size: 8px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.phud-m-pass:not(.phud-m-edge) {
+  border: 3px solid #5fd0ff;
+  border-radius: 50%;
+  height: 14px;
+  top: -7px;
+  width: 44px;
+  left: -22px;
+}
+.phud-m-pass {
+  color: #5fd0ff;
+}
+.phud-m-drive {
+  color: var(--good);
+  font-size: 22px;
+}
+.phud-m-shoot {
+  color: var(--accent);
+  font-size: 22px;
+}

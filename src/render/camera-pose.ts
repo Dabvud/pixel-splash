@@ -21,3 +21,23 @@ export function cameraPose(mode: 'low' | 'high' | 'auto', shooter: Vec3, flightP
     look: { x: RIM.x, y: RIM.y - 0.75 + 0.75 * progress, z: RIM.z },
   };
 }
+
+// Spielzug-Labor: 'wide' = erhöht für Entscheidungen, 'aim' = tief für Wurf/Abschluss.
+// Beide stehen auf der Achse Korb→Ballführer, damit „gerade nach oben wischen“ immer zum Korb zeigt.
+export function playCameraPose(view: 'wide' | 'aim', handler: { x: number; z: number }): Pose & { fov: number } {
+  const distance = Math.hypot(handler.x, handler.z);
+  const ux = distance > 0.5 ? handler.x / distance : 0;
+  const uz = distance > 0.5 ? handler.z / distance : 1;
+  if (view === 'aim') {
+    return {
+      pos: { x: handler.x + ux * 5.2, y: 3, z: handler.z + uz * 5.2 },
+      look: { x: RIM.x, y: RIM.y - 0.75, z: RIM.z },
+      fov: 50,
+    };
+  }
+  return {
+    pos: { x: handler.x + ux * 7, y: 8, z: handler.z + uz * 7 },
+    look: { x: handler.x * 0.45, y: 1, z: handler.z * 0.45 },
+    fov: 60,
+  };
+}
