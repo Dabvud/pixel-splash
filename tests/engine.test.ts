@@ -124,6 +124,24 @@ describe('Engine Zeit, Kontrolle und KI', () => {
     until(s, () => s.phase === 'ended');
     expect(s.banner).toBe('ZU LANGE GEZÖGERT');
   });
+  it('bindet nach KI-Werfen Befehle und Entscheidungsoptionen an die gewählte Option', () => {
+    const s = decision(only(PLAYS.pnr, PLAYS.pnr.variants.find(v => v.id === 'hedge')!));
+    expect(aiChoice(s).kind).toBe('shoot');
+    const events = step(s, cfg.decisionS, cfg, safe);
+    expect(events).toContainEqual({ type: 'decision', options: [{ kind: 'shoot' }] });
+    expect(command(s, { kind: 'pass', to: 'r50' }, cfg, safe)).toEqual([]);
+    expect(s.phase).toBe('decision');
+    expect(command(s, { kind: 'drive', lane: 0 }, cfg, safe)).toEqual([]);
+    expect(s.phase).toBe('decision');
+    command(s, { kind: 'finger', down: true }, cfg, safe);
+    command(s, { kind: 'comboStart' }, cfg, safe);
+    expect(s.phase).toBe('combo');
+    command(s, { kind: 'finger', down: false }, cfg, safe);
+    command(s, { kind: 'pass', to: 'r50' }, cfg, safe);
+    expect(s.phase).toBe('decision');
+    release(s, true);
+    expect(s.phase).toBe('ballflight');
+  });
   it.each(Object.values(PLAYS).flatMap(p => p.variants.map(v => [p.id, v.id, only(p, v)] as const)))('%s/%s beendet auch ohne Eingaben', (_p, _v, p) => {
     const s = createPlayState(p, cfg, safe);
     until(s, () => s.phase === 'ended');
@@ -309,6 +327,33 @@ describe('Pass, Einwurf und Abschluss', () => {
 });
 
 describe('Freiwurf-Serie', () => {
+  it('hält die Freiwurf-Frist bei fingerDown über die Halteschwelle hinaus an', () => {
+    const c = { ...cfg, foulMult: 2 }, s = decision(PLAYS.kickout, c);
+    command(s, { kind: 'drive', lane: 0 }, c, () => 0);
+    until(s, () => s.phase === 'takeoff', c, () => 0);
+    release(s, true, c, () => 0);
+    until(s, () => s.phase === 'freethrows', c, () => 0);
+    step(s, 1.85, c, safe);
+    command(s, { kind: 'finger', down: true }, c, safe);
+    expect(step(s, .2, c, safe)).toEqual([]);
+    expect(s.phase).toBe('freethrows');
+    command(s, { kind: 'comboStart' }, c, safe);
+    expect(s.phase).toBe('combo');
+    release(s, true, c, safe);
+    expect(s.phase).toBe('ballflight');
+  });
+
+  it('holt die Freiwurf-Frist nach Finger-Ende ohne Kombi nach', () => {
+    const s = decision();
+    s.phase = 'freethrows';
+    s.freeThrows = { shooter: s.handler, left: 1 };
+    command(s, { kind: 'finger', down: true }, cfg, safe);
+    step(s, 3, cfg, safe);
+    expect(s.phase).toBe('freethrows');
+    command(s, { kind: 'finger', down: false }, cfg, safe);
+    step(s, 1 / 60, cfg, safe);
+    expect(s.phase).toBe('ballflight');
+  });
   function fouled(perfect: boolean) {
     const p: Play = structuredClone(PLAYS.pnr);
     p.segments.setup.paths.r3 = [{ t: 0, x: 0, z: 7, act: 'stand' }];

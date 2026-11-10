@@ -45,6 +45,92 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('verwendet nach 500 ms Frameaussetzer dieselbe Echtzeit für Kombianzeige und Release', () => {
+    advance(2.3);
+    gesture({ type: 'start' });
+    now += 200;
+    gesture({ type: 'hold' });
+    const meterMs = state().combo!.meterMs;
+    vi.mocked(step).mockClear();
+    now += 500;
+    frame(now);
+    const fill = document.querySelector<HTMLElement>('.hud-fill')!;
+    const displayed = fill.style.height;
+    expect(parseFloat(displayed)).toBeCloseTo(500 / meterMs / MAX_FILL * 100, 8);
+    const intervals = vi.mocked(step).mock.calls.map(call => call[1]);
+    expect(intervals.reduce((a, b) => a + b, 0)).toBeCloseTo(.5, 10);
+    expect(intervals.every(dt => dt <= .05)).toBe(true);
+    gesture({ type: 'release', holdMs: 700, angleDeg: 0 });
+    frame(now);
+    expect(state().phase).toBe('ballflight');
+    expect(fill.style.height).toBe(displayed);
+    expect(document.querySelector<HTMLElement>('.hud-mark')!.style.bottom).toBe(displayed);
+  });
+
+  it('verliert bei langen Frames keine Entscheidungsfrist und pausiert die Echtzeit im Menü', () => {
+    advance(2.3);
+    const before = state().clock;
+    mode.setPaused!(true);
+    now += 5000;
+    frame(now);
+    expect(state().clock).toBe(before);
+    mode.setPaused!(false);
+    state().actors.b1.pos = { x: 0, z: 5 };
+    for (const id of ['b7', 'b15', 'b21', 'b44']) state().actors[id].pos = { x: 7, z: 12 };
+    now += (DEFAULTS.decisionS + .1) * 1000;
+    frame(now);
+    expect(document.querySelector('.phud-markers')!.children).toHaveLength(1);
+    expect(state().clock).toBeCloseTo(before - (DEFAULTS.decisionS + .1) * DEFAULTS.slowmo, 8);
+    gesture({ type: 'start' });
+    gesture({ type: 'hold' });
+    const meterMs = state().combo!.meterMs;
+    now += 500;
+    frame(now);
+    expect(parseFloat(document.querySelector<HTMLElement>('.hud-fill')!.style.height))
+      .toBeCloseTo(500 / meterMs / MAX_FILL * 100, 8);
+  });
+
+  it('startet die Kombianzeige bei verspätetem hold am ursprünglichen Schwellenzeitpunkt', () => {
+    advance(2.3);
+    gesture({ type: 'start' });
+    const startedAt = now + 200;
+    now += 700;
+    gesture({ type: 'hold', startedAt });
+    frame(now);
+    expect(parseFloat(document.querySelector<HTMLElement>('.hud-fill')!.style.height))
+      .toBeCloseTo(500 / state().combo!.meterMs / MAX_FILL * 100, 8);
+    gesture({ type: 'release', holdMs: 700, angleDeg: 0 });
+    expect(state().phase).toBe('ballflight');
+  });
+
+  it.each([[99, 'ballflight'], [100, 'ended'], [101, 'ended']] as const)(
+    'wertet Release nach %s ms zwischen Frames nur strikt vor Uhrablauf (%s)', (elapsed, phase) => {
+      advance(2.3);
+      gesture({ type: 'start' });
+      gesture({ type: 'hold' });
+      state().clock = .1 * DEFAULTS.slowmo;
+      now += elapsed;
+      gesture({ type: 'release', holdMs: 200 + elapsed, angleDeg: 0 });
+      expect(state().phase).toBe(phase);
+      if (phase === 'ended') {
+        expect(state().clock).toBe(0);
+        expect(state().banner).toBe('ZEIT ABGELAUFEN');
+        expect(state().points).toBe(0);
+      }
+    });
+
+  it.each([
+    { type: 'start' }, { type: 'hold' }, { type: 'tap' }, { type: 'cancel' },
+    { type: 'flick', dx: 100, dy: 0, holdMs: 101 },
+  ] satisfies GestureEvent[])('schreibt vor $type die Simulation bis zur Eingabe fort', event => {
+    advance(2.3);
+    state().clock = .1 * DEFAULTS.slowmo;
+    now += 101;
+    gesture(event);
+    expect(state().phase).toBe('ended');
+    expect(state().banner).toBe('ZEIT ABGELAUFEN');
+  });
+
   it.each(['intro', 'running', 'passing', 'combo', 'ballflight', 'freethrows'] as const)(
     'zeigt in %s einen weißen Positionsring und den Spielerpfeil', phase => {
       mode.setPaused!(true);
@@ -143,6 +229,7 @@ describe('Spielzug-Labor Integration', () => {
     mode.setPaused!(false);
     gesture({ type: 'start' });
     gesture({ type: 'hold' });
+    now += state().combo!.meterMs;
     gesture({ type: 'release', holdMs: 200 + state().combo!.meterMs, angleDeg: 0 });
     expect(state().phase).toBe('ballflight');
   });
@@ -152,6 +239,7 @@ describe('Spielzug-Labor Integration', () => {
     expect(state().phase).toBe('decision');
     gesture({ type: 'start' }); gesture({ type: 'hold' });
     const meter = state().combo!.meterMs;
+    now += meter;
     gesture({ type: 'release', holdMs: meter + 200, angleDeg: 0 });
     advance(4);
     expect(state().points).toBeGreaterThanOrEqual(2);
@@ -164,15 +252,27 @@ describe('Spielzug-Labor Integration', () => {
     advance(1 / 60);
     expect(markers.children).toHaveLength(0);
   });
+  it('zeigt nach KI-Werfen nur noch den verbindlichen Wurfmarker', () => {
+    advance(2.3);
+    state().actors.b1.pos = { x: 0, z: 5 };
+    for (const id of ['b7', 'b15', 'b21', 'b44']) state().actors[id].pos = { x: 7, z: 12 };
+    advance(DEFAULTS.decisionS);
+    expect(state().phase).toBe('decision');
+    const markers = document.querySelector('.phud-markers')!;
+    expect(markers.children).toHaveLength(1);
+    expect(markers.firstElementChild!.classList.contains('phud-m-shoot')).toBe(true);
+  });
   it('hält Wurfanzeige und Loslass-Markierung bis zum Ergebnis sichtbar und eingefroren', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     advance(2.3);
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, animSpeed: .5 });
     gesture({ type: 'start' }); gesture({ type: 'hold' });
+    const comboStartedAt = now;
     advance(1 / 60);
     const meter = document.querySelector<HTMLElement>('#hud-meter')!;
     const fill = meter.querySelector<HTMLElement>('.hud-fill')!;
     const mark = meter.querySelector<HTMLElement>('.hud-mark')!;
+    now = comboStartedAt + state().combo!.meterMs * .6;
     gesture({ type: 'release', holdMs: 200 + state().combo!.meterMs * .6, angleDeg: 0 });
     advance(1 / 60);
     const releasedHeight = fill.style.height, releasedBottom = mark.style.bottom;

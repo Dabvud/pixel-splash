@@ -41,12 +41,12 @@ describe('Spielzug-Gesten', () => {
     expect(tracker.poll(500)).toBeNull();
     tracker.down(1, 100, 500, 100);
     expect(tracker.poll(299)).toBeNull();
-    expect(tracker.poll(300)).toEqual({ type: 'hold' });
+    expect(tracker.poll(300)).toEqual({ type: 'hold', startedAt: 300 });
     expect(tracker.poll(400)).toBeNull();
     tracker.abort(1);
     expect(tracker.poll(500)).toBeNull();
     tracker.down(2, 100, 500, 600);
-    expect(tracker.poll(800)).toEqual({ type: 'hold' });
+    expect(tracker.poll(800)).toEqual({ type: 'hold', startedAt: 800 });
   });
 
   it('fügt dem Wurf-Labor ohne Optionen kein hold hinzu', () => {
@@ -57,6 +57,24 @@ describe('Spielzug-Gesten', () => {
 });
 
 describe('Spielzug-Haltetimer', () => {
+  it('holt bei überfälligem Timer hold vor release mit dem Schwellenzeitpunkt nach', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(100);
+    const { pointer, onEvent, detach } = setup();
+    pointer('pointerdown');
+    now.mockReturnValue(1000);
+    // Der Timer wird absichtlich nicht ausgeführt; pointerup kommt zuerst dran.
+    pointer('pointerup', 2);
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    pointer('pointerup', 1, 440);
+    expect(onEvent.mock.calls.flat()).toEqual([
+      { type: 'start' }, { type: 'hold', startedAt: 300 }, { type: 'release', holdMs: 900, angleDeg: 0 },
+    ]);
+    vi.advanceTimersByTime(1000);
+    expect(onEvent).toHaveBeenCalledTimes(3);
+    detach();
+  });
+
   function setup() {
     const el = document.createElement('div');
     el.setPointerCapture = vi.fn();
@@ -66,8 +84,8 @@ describe('Spielzug-Haltetimer', () => {
     });
     const onEvent = vi.fn();
     const detach = attachGesture(el, onEvent, () => false, playOptions);
-    const pointer = (type: string, id = 1) => el.dispatchEvent(new PointerEvent(type, {
-      pointerId: id, clientX: 100, clientY: 500,
+    const pointer = (type: string, id = 1, y = 500) => el.dispatchEvent(new PointerEvent(type, {
+      pointerId: id, clientX: 100, clientY: y,
     }));
     return { pointer, onEvent, detach };
   }
@@ -83,9 +101,13 @@ describe('Spielzug-Haltetimer', () => {
     pointer('pointerup', 2);
     pointer('pointercancel', 2);
     vi.advanceTimersByTime(1);
-    expect(onEvent.mock.calls).toEqual([[{ type: 'start' }], [{ type: 'hold' }]]);
+    expect(onEvent.mock.calls).toEqual([[{ type: 'start' }], [{ type: 'hold', startedAt: 200 }]]);
     vi.advanceTimersByTime(500);
     expect(onEvent).toHaveBeenCalledTimes(2);
+    pointer('pointerup', 1, 440);
+    expect(onEvent.mock.calls.flat()).toEqual([
+      { type: 'start' }, { type: 'hold', startedAt: 200 }, { type: 'release', holdMs: 700, angleDeg: 0 },
+    ]);
     detach();
   });
 
@@ -97,7 +119,7 @@ describe('Spielzug-Haltetimer', () => {
       if (action === 'detach') detach();
       else pointer(action);
       vi.advanceTimersByTime(300);
-      expect(onEvent.mock.calls.flat()).not.toContainEqual({ type: 'hold' });
+      expect(onEvent.mock.calls.flat().some(event => event.type === 'hold')).toBe(false);
       detach();
     });
 });

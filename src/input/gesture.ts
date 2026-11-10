@@ -4,7 +4,7 @@ export type GestureEvent =
   | { type: 'cancel' }
   | { type: 'tap' }
   | { type: 'flick'; dx: number; dy: number; holdMs: number }
-  | { type: 'hold' };
+  | { type: 'hold'; startedAt?: number };
 export interface GestureOptions { flicks: boolean; holdThresholdMs: number }
 export const MIN_SWIPE_PX = 30;
 
@@ -25,11 +25,12 @@ export class GestureTracker {
     return { type: 'start' };
   }
 
-  poll(t: number): GestureEvent | null {
+  poll(t: number, id = this.pointer?.id): GestureEvent | null {
     if (!this.pointer || this.held || this.opts.holdThresholdMs <= 0
+      || this.pointer.id !== id
       || t - this.pointer.t < this.opts.holdThresholdMs) return null;
     this.held = true;
-    return { type: 'hold' };
+    return { type: 'hold', startedAt: this.pointer.t + this.opts.holdThresholdMs };
   }
 
   up(id: number, x: number, y: number, t: number): GestureEvent | null {
@@ -98,7 +99,10 @@ export function attachGesture(el: HTMLElement, onEvent: (e: GestureEvent) => voi
 
   function up(e: PointerEvent): void {
     const bounds = el.getBoundingClientRect();
-    const event = tracker.up(e.pointerId, e.clientX - bounds.left, e.clientY - bounds.top, performance.now());
+    const now = performance.now();
+    const held = tracker.poll(now, e.pointerId);
+    if (held) onEvent(held);
+    const event = tracker.up(e.pointerId, e.clientX - bounds.left, e.clientY - bounds.top, now);
     if (event) {
       clearHold();
       onEvent(event);

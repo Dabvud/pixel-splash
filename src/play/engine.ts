@@ -43,7 +43,7 @@ interface Shot {
   lob: boolean;
 }
 interface Runtime {
-  segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: boolean;
+  segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
   clockStarted: boolean; pass?: Pass; drive?: Drive; shot?: Shot; params?: ShotParams;
   offsets: Record<string, Vec2>;
   lob?: boolean;
@@ -144,7 +144,7 @@ function miss(s: PlayState, events: EngineEvent[], banner: string): void {
 
 function decision(s: PlayState, events: EngineEvent[]): void {
   phase(s, 'decision');
-  rt(s).aiSelected = false;
+  rt(s).aiSelected = null;
   events.push({ type: 'decision', options: rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }] });
 }
 
@@ -160,7 +160,7 @@ export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => numbe
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false,
   };
-  runtimes.set(s, { segment, variant, segT: 0, phaseT: 0, realT: 0, aiSelected: false, clockStarted: !play.inboundBy, offsets: {} });
+  runtimes.set(s, { segment, variant, segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
   for (const id of play.actors) {
     const p = (variant.defPaths[segment.id]?.[id] ?? segment.paths[id])?.[0];
     s.actors[id] = { id, pos: { x: p?.x ?? 0, z: p?.z ?? 0 }, y: 0, facing: 0, move: 'idle', moveT: 0 };
@@ -302,6 +302,12 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
     return events;
   }
   if (s.phase === 'intro' || s.phase === 'running' || s.phase === 'passing' || s.phase === 'driving' || s.phase === 'ballflight') return events;
+  if (s.phase === 'decision' && r.aiSelected) {
+    const selected = r.aiSelected;
+    if ((cmd.kind === 'pass' && (selected.kind !== 'pass' || selected.to !== cmd.to))
+      || (cmd.kind === 'drive' && selected.kind !== 'drive')
+      || (cmd.kind === 'comboStart' && selected.kind !== 'shoot')) return events;
+  }
   const finishing = s.combo && s.combo.kind !== 'jump2' && s.combo.kind !== 'three';
   // Nur ein begonnener Abschluss und Freiwürfe dürfen nach Ablauf noch ausgewertet werden.
   if (s.clock <= 0 && !s.freeThrows && !(finishing && (s.phase === 'takeoff' || s.phase === 'combo'))) {
@@ -443,8 +449,9 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     if (r.aiSelected) miss(s, events, 'ZU LANGE GEZÖGERT');
     else {
       const option = aiChoice(s);
-      r.aiSelected = true;
+      r.aiSelected = option;
       r.realT = 0;
+      events.push({ type: 'decision', options: [option] });
       if (option.kind === 'pass') events.push(...command(s, { kind: 'pass', to: option.to! }, cfg, rng));
       else if (option.kind === 'drive') events.push(...command(s, { kind: 'drive', lane: 0 }, cfg, rng));
     }
@@ -485,7 +492,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
       if (s.freeThrows) startShot(s, { holdMs: 0, angleDeg: 80 }, rng);
       else miss(s, events, finishing ? 'VERLEGT' : 'ZU LANGE GEZÖGERT');
     }
-  } else if (oldPhase === 'freethrows' && r.realT >= cfg.decisionS) {
+  } else if (oldPhase === 'freethrows' && r.realT >= cfg.decisionS && !s.fingerDown) {
     prepareCombo(s, 'jump2', 1, cfg, rng, events);
     startShot(s, { holdMs: 0, angleDeg: 80 }, rng);
   } else if (oldPhase === 'ballflight') shotAnimation(s, dt, events);

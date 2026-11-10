@@ -75,6 +75,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let lastHandler = "";
   let raf = 0;
   let last = performance.now();
+  let lastFrame = last;
   let activeNow = 0;
   let detach = () => {};
   const camPos = new THREE.Vector3();
@@ -142,7 +143,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function onGesture(e: GestureEvent): void {
-    if (menuOpen || s.phase === "ended") return;
+    if (menuOpen) return;
+    const now = performance.now();
+    const inputAt = e.type === "hold" ? Math.min(now, e.startedAt ?? now) : now;
+    advanceTo(inputAt);
+    if (s.phase === "ended") return;
     const c = cfg();
     if (e.type === "start") {
       handle(command(s, { kind: "finger", down: true }, c, rng));
@@ -154,9 +159,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       if (canCombo && camHold <= 0) {
         handle(command(s, { kind: "comboStart" }, c, rng));
         if (s.phase !== "combo") return;
-        comboT0 = activeNow;
+        comboT0 = activeNow - Math.max(0, last - inputAt);
         releasedFill = null;
       }
+      advanceTo(now);
       return;
     }
     if (e.type === "flick" && s.phase === "decision" && !s.combo) {
@@ -176,7 +182,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         handle(command(s, { kind: "drive", lane }, c, rng));
       } else if (id) handle(command(s, { kind: "pass", to: id }, c, rng));
     } else if (e.type === "release" && s.combo && comboT0 !== null) {
-      const holdMs = Math.max(0, e.holdMs - HOLD_MS);
+      const holdMs = Math.max(0, activeNow - comboT0);
       releasedFill = Math.min(holdMs / s.combo.meterMs, MAX_FILL);
       hud.markRelease(releasedFill, true);
       handle(command(s, { kind: "comboRelease", holdMs, angleDeg: e.angleDeg }, c, rng));
@@ -192,20 +198,31 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
   const resize = () => px.resize(settings.pixelHeight, camera);
 
-  function frame(now: number): void {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    if (!menuOpen) {
-      activeNow += dt * 1000;
+  // Dieselbe pausierbare Echtzeit treibt Anzeige, Release und Engine-Fristen.
+  function advanceTo(now: number): void {
+    let left = Math.max(0, now - last);
+    last = Math.max(last, now);
+    if (menuOpen) return;
+    const c = cfg();
+    while (left > 1e-8) {
+      const ms = Math.min(50, left), dt = ms / 1000;
+      activeNow += ms;
       if (endedAt !== null) {
         if ((activeNow - endedAt) / 1000 >= NEXT_PLAY_S) newPlay();
-      } else handle(step(s, dt, cfg(), rng));
+      } else handle(step(s, dt, c, rng));
       camHold = Math.max(0, camHold - dt);
+      if (s.handler !== lastHandler) {
+        lastHandler = s.handler;
+        camHold = CAM_SETTLE_S;
+      }
+      left -= ms;
     }
-    if (s.handler !== lastHandler) {
-      lastHandler = s.handler;
-      camHold = CAM_SETTLE_S;
-    }
+  }
+
+  function frame(now: number): void {
+    const dt = Math.max(0, (now - lastFrame) / 1000);
+    lastFrame = now;
+    advanceTo(now);
 
     // Kamera: bei Entscheidungen erhöht, beim Wurf tief – immer auf der Achse Korb → Ballführer
     const h = s.actors[s.handler];
@@ -278,6 +295,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     },
     setPaused(p) {
       if (p === menuOpen) return;
+      const now = performance.now();
+      advanceTo(now);
       if (p) {
         detach();
         detach = () => {};
@@ -285,7 +304,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         if (releasedFill === null) comboT0 = null;
       } else detach = attach();
       menuOpen = p;
-      last = performance.now();
+      lastFrame = last = now;
     },
     stop() {
       cancelAnimationFrame(raf);

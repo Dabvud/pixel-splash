@@ -32,6 +32,7 @@ export function createPlayHud(root: HTMLElement): {
   const q = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
   const sit = q(".phud-sit"), ring = q(".phud-ring"), fl = q(".phud-flash"), dec = q(".phud-decision"), box = q(".phud-markers");
   const handler = q(".phud-handler");
+  const markerNodes: { el: HTMLDivElement; icon: HTMLElement; label: HTMLElement }[] = [];
   let flashTimer = 0;
 
   return {
@@ -46,22 +47,34 @@ export function createPlayHud(root: HTMLElement): {
     setMarkers(markers) {
       // display:grid der Marker übersteuert das native hidden; unbenutzte Knoten entfernen.
       while (box.children.length > markers.length) box.lastElementChild!.remove();
-      while (box.children.length < markers.length) box.append(document.createElement("div"));
-      [...box.children].forEach((c, i) => {
-        const d = c as HTMLElement;
+      const w = innerWidth, h = innerHeight;
+      for (let i = 0; i < markers.length; i++) {
+        if (!markerNodes[i]) {
+          const el = document.createElement("div"), icon = document.createElement("i"), label = document.createElement("b");
+          el.append(icon);
+          markerNodes.push({ el, icon, label });
+        }
+        const { el: d, icon, label } = markerNodes[i];
+        if (d.parentElement !== box) box.append(d);
         const m = markers[i];
-        d.hidden = !m;
-        if (!m) return;
-        const w = innerWidth, h = innerHeight;
         const off = m.x < EDGE || m.x > w - EDGE || m.y < EDGE || m.y > h - EDGE;
         const x = Math.min(w - EDGE, Math.max(EDGE, m.x));
         const y = Math.min(h - EDGE, Math.max(EDGE + 40, m.y));
-        d.className = `phud-m phud-m-${m.kind}${off ? " phud-m-edge" : ""}`;
-        d.style.transform = `translate(${x}px, ${y}px)`;
+        const className = `phud-m phud-m-${m.kind}${off ? " phud-m-edge" : ""}`;
+        if (d.className !== className) d.className = className;
+        const transform = `translate(${x}px, ${y}px)`;
+        if (d.style.transform !== transform) d.style.transform = transform;
         // Randpfeil zeigt vom Bildschirmzentrum zum Ziel
         const rot = off ? Math.atan2(m.y - h / 2, m.x - w / 2) : m.kind === "drive" ? -Math.PI / 2 : 0;
-        d.innerHTML = `<i style="transform:rotate(${rot}rad)">${off || m.kind === "drive" ? "➤" : m.kind === "shoot" ? "◎" : ""}</i>${m.label ? `<b>${m.label}</b>` : ""}`;
-      });
+        const rotation = `rotate(${rot}rad)`;
+        if (icon.style.transform !== rotation) icon.style.transform = rotation;
+        const symbol = off || m.kind === "drive" ? "➤" : m.kind === "shoot" ? "◎" : "";
+        if (icon.textContent !== symbol) icon.textContent = symbol;
+        if (label.textContent !== (m.label ?? "")) label.textContent = m.label ?? "";
+        if (m.label) {
+          if (label.parentElement !== d) d.append(label);
+        } else if (label.parentElement === d) label.remove();
+      }
     },
     setRing(x, y, P, visible) {
       ring.hidden = !visible;
