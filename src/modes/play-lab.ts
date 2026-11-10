@@ -55,6 +55,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const stats: Record<string, { tries: number; points: number; turnovers: number }> = {};
 
   const cfg = (): EngineConfig => ({
+    decisionLead: 1,
     slowmo: settings.slowmo,
     decisionS: settings.decisionS,
     animSpeed: settings.animSpeed,

@@ -15,6 +15,7 @@ import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types
 
 export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'receiving' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
 export interface EngineConfig {
+  /** Spielsekunden vor Wegende, ab denen schon entschieden werden darf (Entscheiden im Laufen) */ decisionLead?: number;
   slowmo: number; decisionS: number; animSpeed: number; foulMult: number; zoneFloor: number; tempoSpread: number;
   passDelayMax?: number; closeoutRandom?: number; // alte Aufrufe: 0,6 s und kein zusätzlicher Zufall
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
@@ -631,8 +632,9 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   r.segT += dt;
   updatePaths(s, previous);
   if (oldPhase === 'running') {
-    if (r.segT >= (r.segment.decisionAt ?? 0)) decision(s, events);
-  } else if (oldPhase === 'decision' && !s.arrowMeter && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) {
+    // Entscheiden im Laufen: das Fenster öffnet schon während der letzten Wegsekunde, niemand bleibt stehen
+    if (r.segT >= Math.max(0, (r.segment.decisionAt ?? 0) - (cfg.decisionLead ?? 0))) decision(s, events);
+  } else if (oldPhase === 'decision' && !s.arrowMeter && r.segT + 1e-9 >= (r.segment.decisionAt ?? 0) && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) {
     if (r.aiSelected) miss(s, events, 'ZU LANGE GEZÖGERT');
     else {
       const option = aiChoice(s);
