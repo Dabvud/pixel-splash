@@ -505,12 +505,33 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
   return events;
 }
 
+// Freiwurf-Aufstellung: Schütze an der Linie, alle anderen abwechselnd links/rechts am Zonenrand
+function lineUp(s: PlayState, dtReal: number): void {
+  const shooter = s.freeThrows!.shooter;
+  let i = 0;
+  for (const a of Object.values(s.actors)) {
+    const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75, z: 1.2 + Math.floor(i / 2) * 0.6 };
+    if (a.id !== shooter) i++;
+    const d = distance(a.pos, to), stepM = 8 * dtReal;
+    if (d <= stepM) {
+      a.pos = to;
+      a.facing = facingTo(a.pos, { x: 0, z: 0 });
+      if (a.id !== shooter && a.move !== "idle") move(a, "idle", true);
+    } else {
+      a.facing = facingTo(a.pos, to);
+      a.pos = { x: a.pos.x + (to.x - a.pos.x) * stepM / d, z: a.pos.z + (to.z - a.pos.z) * stepM / d };
+      if (a.id !== shooter && a.move !== "run") move(a, "run", true);
+    }
+    if (a.id !== shooter) a.y = 0;
+  }
+}
+
 function freeThrow(s: PlayState, events: EngineEvent[]): void {
   phase(s, 'freethrows');
   s.combo = null;
   const h = s.actors[s.freeThrows!.shooter];
   s.handler = h.id;
-  h.pos = { x: 0, z: 4.2 };
+  h.pos = { x: 0, z: 4.2 }; // Schütze sofort an die Linie, damit die Distanz für die Zonen stimmt
   h.y = 0; h.facing = 0;
   rt(s).lob = false;
   move(h, 'idle', true);
@@ -594,6 +615,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     return;
   }
   s.gameT += dt;
+  if (s.freeThrows && (oldPhase === "freethrows" || oldPhase === "combo")) { lineUp(s, dtReal); heldBall(s); }
   if (r.clockStarted && !s.freeThrows) {
     s.clock = Math.max(0, s.clock - dt);
     // Rundungsreste dürfen einen Release genau bei 0:00 nicht nachträglich erlauben.
@@ -671,13 +693,8 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   } else if (oldPhase === 'combo') {
     s.actors[s.handler].moveT = 0;
     // Auch abgebrochene Kombis und Freiwürfe haben eine endliche Wartezeit.
-    if (r.realT >= cfg.decisionS + s.combo!.meterMs * 1.6 / 1000) {
-      if (s.freeThrows) startShot(s, { holdMs: 0, angleDeg: 80 }, rng);
-      else miss(s, events, finishing ? 'VERLEGT' : 'ZU LANGE GEZÖGERT');
-    }
-  } else if (oldPhase === 'freethrows' && r.realT >= cfg.decisionS && !s.fingerDown) {
-    prepareCombo(s, 'jump2', 1, cfg, rng, events);
-    startShot(s, { holdMs: 0, angleDeg: 80 }, rng);
+    // Freiwürfe warten ohne Zeitlimit auf den Nutzer
+    if (!s.freeThrows && r.realT >= cfg.decisionS + s.combo!.meterMs * 1.6 / 1000) miss(s, events, finishing ? 'VERLEGT' : 'ZU LANGE GEZÖGERT');
   } else if (oldPhase === 'ballflight') shotAnimation(s, dt, events);
   const meter = s.arrowMeter;
   if (meter && meter.fill === null) {

@@ -404,17 +404,6 @@ describe('Freiwurf-Serie', () => {
     expect(s.phase).toBe('ballflight');
   });
 
-  it('holt die Freiwurf-Frist nach Finger-Ende ohne Kombi nach', () => {
-    const s = decision();
-    s.phase = 'freethrows';
-    s.freeThrows = { shooter: s.handler, left: 1 };
-    command(s, { kind: 'finger', down: true }, cfg, safe);
-    step(s, 3, cfg, safe);
-    expect(s.phase).toBe('freethrows');
-    command(s, { kind: 'finger', down: false }, cfg, safe);
-    step(s, 1 / 60, cfg, safe);
-    expect(s.phase).toBe('ballflight');
-  });
   function fouled(perfect: boolean) {
     const p: Play = structuredClone(PLAYS.pnr);
     p.segments.setup.paths.r3 = [{ t: 0, x: 0, z: 7, act: 'stand' }];
@@ -451,11 +440,6 @@ describe('Freiwurf-Serie', () => {
     until(s, () => s.phase === 'ended', c, () => 0);
     expect(s.points).toBe(4);
     expect(s.verdict).toBe('GAMEWINNER');
-  });
-  it('beendet die Serie auch ohne weitere Geste', () => {
-    const { s, c } = fouled(false);
-    until(s, () => s.phase === 'ended', c, () => 0);
-    expect(s.points).toBe(0);
   });
 });
 

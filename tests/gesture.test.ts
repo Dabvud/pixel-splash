@@ -351,7 +351,36 @@ describe('attachGesture', () => {
     pointer('pointerdown', 2, 120, 550);
     expect(onEvent).not.toHaveBeenCalled();
     expect(remove.mock.calls.map(([type]) => type).sort()).toEqual([
-      'lostpointercapture', 'pointercancel', 'pointerdown', 'pointerup',
+      'lostpointercapture', 'pointercancel', 'pointerdown', 'pointermove', 'pointerup',
     ]);
+  });
+});
+
+describe('Ruhe-Regel: Wisch vs. Wurf im Spielzug-Labor', () => {
+  const opts = { flicks: true, holdThresholdMs: 200 };
+
+  it('wertet eine frühe Bewegung über 20 px als Wisch, auch wenn sie länger als die Halteschwelle dauert', () => {
+    const t = new GestureTracker(opts);
+    t.down(1, 100, 500, 0);
+    t.move(1, 130, 500, 80);
+    expect(t.poll(250)).toBeNull();
+    expect(t.up(1, 220, 500, 450)).toEqual({ type: 'flick', dx: 120, dy: 0, holdMs: 450 });
+  });
+
+  it('startet die Kombi nur bei ruhendem Finger und wertet danach den Wisch nach oben als Release', () => {
+    const t = new GestureTracker(opts);
+    t.down(1, 100, 500, 0);
+    t.move(1, 108, 505, 100);
+    expect(t.poll(200)).toMatchObject({ type: 'hold' });
+    t.move(1, 100, 400, 600);
+    expect(t.up(1, 100, 380, 700)).toMatchObject({ type: 'release', holdMs: 700 });
+  });
+
+  it('ignoriert Bewegungen fremder Finger und Bewegungen nach der Schwelle', () => {
+    const t = new GestureTracker(opts);
+    t.down(1, 100, 500, 0);
+    t.move(2, 300, 500, 50);
+    t.move(1, 200, 500, 260);
+    expect(t.poll(260)).toMatchObject({ type: 'hold' });
   });
 });

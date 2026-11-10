@@ -7,10 +7,12 @@ export type GestureEvent =
   | { type: 'hold'; startedAt?: number };
 export interface GestureOptions { flicks: boolean; holdThresholdMs: number }
 export const MIN_SWIPE_PX = 30;
+export const REST_PX = 20;
 
 export class GestureTracker {
   private pointer: { id: number; x: number; y: number; t: number } | null = null;
   private held = false;
+  private moved = false; // Finger hat sich vor der Halteschwelle deutlich bewegt → Wisch statt Wurf
 
   constructor(private opts: GestureOptions = { flicks: false, holdThresholdMs: 0 }) {}
 
@@ -22,11 +24,18 @@ export class GestureTracker {
     if (this.active) return null;
     this.pointer = { id, x, y, t };
     this.held = false;
+    this.moved = false;
     return { type: 'start' };
   }
 
+  move(id: number, x: number, y: number, t: number): void {
+    const p = this.pointer;
+    if (!p || p.id !== id || this.held || t - p.t >= this.opts.holdThresholdMs) return;
+    if (Math.hypot(x - p.x, y - p.y) > REST_PX) this.moved = true;
+  }
+
   poll(t: number, id = this.pointer?.id): GestureEvent | null {
-    if (!this.pointer || this.held || this.opts.holdThresholdMs <= 0
+    if (!this.pointer || this.held || this.moved || this.opts.holdThresholdMs <= 0
       || this.pointer.id !== id
       || t - this.pointer.t < this.opts.holdThresholdMs) return null;
     this.held = true;
@@ -40,7 +49,7 @@ export class GestureTracker {
     const holdMs = t - start.t;
     const dx = x - start.x;
     const dy = y - start.y;
-    if (this.opts.flicks && holdMs < this.opts.holdThresholdMs) {
+    if (this.opts.flicks && (this.moved || holdMs < this.opts.holdThresholdMs)) {
       return Math.hypot(dx, dy) >= MIN_SWIPE_PX
         ? { type: 'flick', dx, dy, holdMs } : { type: 'tap' };
     }
@@ -110,6 +119,11 @@ export function attachGesture(el: HTMLElement, onEvent: (e: GestureEvent) => voi
     }
   }
 
+  function moved(e: PointerEvent): void {
+    const bounds = el.getBoundingClientRect();
+    tracker.move(e.pointerId, e.clientX - bounds.left, e.clientY - bounds.top, performance.now());
+  }
+
   function cancel(e: PointerEvent): void {
     const event = tracker.abort(e.pointerId);
     if (event) {
@@ -120,12 +134,14 @@ export function attachGesture(el: HTMLElement, onEvent: (e: GestureEvent) => voi
 
   el.addEventListener('pointerdown', down);
   el.addEventListener('pointerup', up);
+  el.addEventListener('pointermove', moved);
   el.addEventListener('pointercancel', cancel);
   el.addEventListener('lostpointercapture', cancel);
   return () => {
     clearHold();
     el.removeEventListener('pointerdown', down);
     el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointermove', moved);
     el.removeEventListener('pointercancel', cancel);
     el.removeEventListener('lostpointercapture', cancel);
   };
