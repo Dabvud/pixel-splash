@@ -1,0 +1,177 @@
+/* Spielbildschirm: Canvas füllt alles, HUD liegt darüber und lässt Gesten durch. */
+:root {
+  --bg: #110e0c;
+  --panel: #1c1714;
+  --line: #3a2f28;
+  --fg: #f3ebe3;
+  --muted: #b5a597;
+  --accent: #e8833a;
+  --good: #7ed957;
+  --pixel: "Press Start 2P", ui-monospace, monospace;
+  --body: system-ui, sans-serif;
+  color-scheme: dark;
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--body);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+#stage {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+}
+#stage canvas {
+  display: block;
+  touch-action: none;
+}
+
+.hud-stats {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  font: 10px/1.4 var(--pixel);
+  background: rgb(0 0 0 / 0.55);
+  padding: 8px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+.hud-banner {
+  position: fixed;
+  top: 22%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 3px 3px 0 #000;
+}
+.hud-title {
+  font: clamp(18px, 6vw, 32px) / 1.2 var(--pixel);
+  color: var(--accent);
+}
+.hud-banner.made .hud-title {
+  color: var(--good);
+}
+.hud-hint {
+  margin-top: 10px;
+  font: 10px/1.4 var(--pixel);
+  color: var(--fg);
+}
+.hud-meter {
+  position: fixed;
+  left: calc(50% + 64px);
+  bottom: 18%;
+  width: 14px;
+  height: 30vh;
+  background: rgb(0 0 0 / 0.6);
+  border: 2px solid var(--fg);
+  pointer-events: none;
+}
+.hud-green {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--good);
+  opacity: 0.55;
+}
+.hud-fill {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 0;
+  background: var(--accent);
+}
+.hud-mark {
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  height: 3px;
+  margin-bottom: -1px;
+  background: #fff;
+}
+
+.lab-open {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  right: max(8px, env(safe-area-inset-right, 0px));
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
+  color: var(--fg);
+  background: rgb(0 0 0 / 0.55);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.lab {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  touch-action: auto;
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+.lab::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+.lab form {
+  display: grid;
+  gap: 12px;
+}
+.lab h2 {
+  margin: 0;
+  font: 14px/1.4 var(--pixel);
+  color: var(--accent);
+}
+.lab label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.lab select,
+.lab input {
+  grid-column: 1 / -1;
+  font-size: 16px;
+}
+.lab select {
+  padding: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.lab input[type="range"] {
+  accent-color: var(--accent);
+}
+.lab output {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.lab-close {
+  font: 600 16px var(--body);
+  padding: 10px;
+  background: var(--accent);
+  color: #1a0f07;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}

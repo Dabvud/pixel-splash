@@ -8,9 +8,10 @@ describe('Kamera-Pose', () => {
   it('steht tief hinter dem Top-Spot', () => {
     const pose = cameraPose('low', top, null);
     expect(pose.pos.z).toBeGreaterThan(top.z);
-    expect(pose.pos.x).toBeCloseTo(0, 8);
-    expect(pose.pos.z).toBeCloseTo(10.5, 8);
-    expect(pose.pos.y).toBe(2.5);
+    // 5,2 m hinter dem Werfer, 0,7 m nach rechts versetzt (über die Schulter)
+    expect(pose.pos.x).toBeCloseTo(0.7, 8);
+    expect(pose.pos.z).toBeCloseTo(12.1, 8);
+    expect(pose.pos.y).toBe(3);
     expect(pose.look.x).toBe(0);
     expect(pose.look.y).toBeCloseTo(2.3, 8);
     expect(pose.look.z).toBe(0);
@@ -20,8 +21,11 @@ describe('Kamera-Pose', () => {
     const pose = cameraPose('low', corner, null);
     expect(pose.pos.x).toBeLessThan(corner.x);
     expect(pose.pos.z).toBeGreaterThan(corner.z);
-    expect(Math.hypot(pose.pos.x - corner.x, pose.pos.z - corner.z)).toBeCloseTo(3.6, 8);
-    expect(pose.pos.x / pose.pos.z).toBeCloseTo(corner.x / corner.z, 8);
+    const d = Math.hypot(corner.x, corner.z);
+    const u = { x: corner.x / d, z: corner.z / d };
+    const off = { x: pose.pos.x - corner.x, z: pose.pos.z - corner.z };
+    expect(off.x * u.x + off.z * u.z).toBeCloseTo(5.2, 8);
+    expect(off.x * u.z - off.z * u.x).toBeCloseTo(0.7, 8);
   });
 
   it.each([top, corner])('verwendet die erhöhte Position für %j', (shooter) => {
@@ -43,9 +47,9 @@ describe('Kamera-Pose', () => {
     const middle = cameraPose('auto', top, 0.5);
     const end = cameraPose('auto', top, 1);
     expect(end.pos.y).toBeGreaterThan(low.pos.y);
-    expect(end.pos).toEqual({ ...low.pos, y: 4 });
+    expect(end.pos).toEqual({ ...low.pos, y: 4.5 });
     expect(end.look).toEqual({ x: 0, y: 3.05, z: 0 });
-    expect(middle.pos.y).toBeCloseTo(3.25, 8);
+    expect(middle.pos.y).toBeCloseTo(3.75, 8);
     expect(middle.look.y).toBeCloseTo((low.look.y + 3.05) / 2, 8);
     expect(cameraPose('auto', top, -1)).toEqual(low);
     expect(cameraPose('auto', top, 2)).toEqual(end);
