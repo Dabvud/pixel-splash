@@ -1,8 +1,8 @@
 import type { MoveId } from '../figure/moves';
 import { MOVES, moveFrames } from '../figure/moves';
 import { buildFinishFlight } from '../shot/finish-path';
-import { effectiveZones, MAX_FILL, resolveShot } from '../shot/resolve';
-import type { ShotParams, ShotResult, Zones } from '../shot/resolve';
+import { bankWindow, effectiveZones, MAX_FILL, resolveShot } from '../shot/resolve';
+import type { BankWindow, ShotParams, ShotResult, Zones } from '../shot/resolve';
 import { buildFlight } from '../shot/trajectory';
 import type { Flight, Vec3 } from '../shot/trajectory';
 import { finishBanner, finishKind, foulChance, freeThrowCount, meterDuration, shotKindAt, verdict, zoneFactor } from './finish';
@@ -23,12 +23,13 @@ export interface EngineConfig {
 export interface ActorState { id: string; pos: Vec2; y: number; facing: number; move: MoveId; moveT: number }
 export interface ArrowMeter {
   kind: 'alleyoop' | 'catchshoot'; startTime: number; meterMs: number; zones: Zones;
+  bankWindow: BankWindow | null;
   fill: number | null; // null = läuft; nach dem Tipp bleibt der Füllstand stehen
 }
 export interface PlayState {
   play: Play; variant: string; deficit: number; phase: Phase; gameT: number; clock: number; handler: string;
   actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number;
-  combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean };
+  combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
 }
@@ -238,9 +239,10 @@ function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, r
   const params = { ...base, meterMs, influence: cfg.shot.influence,
     rating: finishing ? a.athleticism : a.shot,
     distance: finishing ? 4.6 : distance(pos, { x: 0, z: 0 }),
+    bankAngleDeg: Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI,
     zoneFactor: ft ? 1 : zoneFactor(P, cfg.zoneFloor, fouled, kind === 'contact_dunk')
       * (lobQuality === undefined ? 1 : .75 + .25 * lobQuality) };
-  return { params, combo: { kind, P, meterMs, zones: effectiveZones(params), fouled }, foulRoll };
+  return { params, combo: { kind, P, meterMs, zones: effectiveZones(params), fouled, bankWindow: bankWindow(params) }, foulRoll };
 }
 
 function prepareCombo(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
@@ -262,7 +264,8 @@ function clearArrow(s: PlayState, events: EngineEvent[]): void {
 
 function startArrow(s: PlayState, kind: ArrowMeter['kind'], startTime: number, data: ComboData, events: EngineEvent[]): void {
   rt(s).arrow = data;
-  s.arrowMeter = { kind, startTime, meterMs: data.combo.meterMs, zones: data.combo.zones, fill: null };
+  s.arrowMeter = { kind, startTime, meterMs: data.combo.meterMs, zones: data.combo.zones,
+    bankWindow: data.combo.bankWindow, fill: null };
   events.push({ type: 'arrowStart', kind });
   if (kind === 'alleyoop') events.push({ type: 'combo', fouled: data.combo.fouled, contact: data.combo.kind === 'contact_dunk' });
 }
@@ -273,9 +276,13 @@ function refreshCatchArrow(s: PlayState, P: number, cfg: EngineConfig): void {
   c.P = P;
   c.fouled = a.foulRoll < foulChance(c.kind, P, cfg.foulMult);
   a.params.distance = distance(s.actors[s.handler].pos, { x: 0, z: 0 });
+  const pos = s.actors[s.handler].pos;
+  a.params.bankAngleDeg = Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI;
   a.params.zoneFactor = zoneFactor(P, cfg.zoneFloor, c.fouled, false);
   c.zones = effectiveZones(a.params);
+  c.bankWindow = bankWindow(a.params);
   s.arrowMeter!.zones = c.zones;
+  s.arrowMeter!.bankWindow = c.bankWindow;
 }
 
 function arrowInput(s: PlayState): ArrowInput | undefined {
@@ -514,7 +521,9 @@ function freeThrow(s: PlayState, events: EngineEvent[]): void {
 function finishShot(s: PlayState, events: EngineEvent[]): void {
   const shot = rt(s).shot!, { result, kind, fouled, ft } = shot;
   if (result.made) s.points += ft ? 1 : kind === 'three' ? 3 : 2;
-  s.banner = ft ? result.made ? 'TREFFER' : 'DANEBEN' : finishBanner(kind, result.made, fouled, s.assisted);
+  s.banner = result.outcome === 'bank_in'
+    ? `${!ft && s.assisted ? 'ASSIST + ' : ''}${result.banner}${!ft && fouled ? ' + AND-ONE' : ''}`
+    : ft ? result.made ? 'TREFFER' : 'DANEBEN' : finishBanner(kind, result.made, fouled, s.assisted);
   events.push({ type: 'result', banner: s.banner, made: result.made });
   s.combo = null;
   clearArrow(s, events);

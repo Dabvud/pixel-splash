@@ -3,7 +3,7 @@ import { command, createPlayState, step } from '../src/play/engine';
 import type { EngineConfig, EngineEvent, PlayState } from '../src/play/engine';
 import { PLAYS } from '../src/play/plays';
 import type { Play } from '../src/play/types';
-import { effectiveZones } from '../src/shot/resolve';
+import { bankWindow, effectiveZones } from '../src/shot/resolve';
 
 const cfg: EngineConfig = {
   slowmo: .3, decisionS: 2, animSpeed: 1, foulMult: 0, zoneFloor: .7, tempoSpread: 0,
@@ -49,7 +49,21 @@ function fill(s: PlayState, value: number, c = cfg): void {
 }
 
 describe('Pfeil-Timing', () => {
-  it.each([['ideal', 0, true], ['grün', .9, true], ['früh', -1.5, false], ['spät', 1.5, false]] as const)(
+  it.each([[4, 4, true], [6.6, .5, false]] as const)(
+    'zeigt und wertet das Brett-Fenster beim Pfeil aus der Position (%s,%s)', (x, z, made) => {
+      const play = fixture();
+      play.segments.setup.paths.r50[0] = { t: 0, x, z, act: 'stand' };
+      const s = pass(false, 1, cfg, play);
+      until(s, () => s.arrowMeter?.kind === 'catchshoot');
+      expect(s.arrowMeter!.bankWindow).toEqual(bankWindow({ ...cfg.shot, rating: .2, distance: Math.hypot(x, z),
+        zoneFactor: 1, bankAngleDeg: Math.atan2(Math.abs(x), z) * 180 / Math.PI }));
+      fill(s, 1 + 1.5 * s.arrowMeter!.zones.g);
+      command(s, { kind: 'tap' }, cfg, safe);
+      until(s, () => s.phase === 'ended');
+      expect(s.points).toBe(made ? 2 : 0);
+      if (made) expect(s.banner).toBe('ASSIST + BRETT – DRIN');
+    });
+  it.each([['ideal', 0, true], ['grün', .9, true], ['früh', -1.5, false], ['spät', 1.5, true]] as const)(
     'wertet %s nur mit Timing und denselben effektiven Zonen', (_name, zoneOffset, made) => {
       const s = ready(), g = s.arrowMeter!.zones.g;
       fill(s, 1 + zoneOffset * g);

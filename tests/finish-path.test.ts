@@ -14,24 +14,43 @@ function expectPoint(actual: Vec3, expected: Vec3): void {
   for (const axis of ['x', 'y', 'z'] as const) expect(actual[axis]).toBeCloseTo(expected[axis], 8);
 }
 
-describe('Korbleger-Bogen', () => {
-  it.each(outcomes)('erreicht für %s nach 0,4–0,5 Sekunden den bisherigen Zielpunkt', (outcome) => {
+describe('Seitlicher Korbleger-Bogen (φ ≈ 26,6°)', () => {
+  it.each(outcomes)('erreicht für %s nach 0,4–0,5 Sekunden den spezifizierten Zielpunkt', (outcome) => {
+    const expectedOutcome = made.includes(outcome) ? 'bank_in' : outcome;
+    const target = targetPoint(expectedOutcome, release);
     const flight = buildFinishFlight('layup', outcome, release, rimContactS);
     expect(flight.arcEnd).toBeGreaterThanOrEqual(0.4);
     expect(flight.arcEnd).toBeLessThanOrEqual(0.5);
-    expectPoint(flight.at(flight.arcEnd), targetPoint(outcome, release));
+    expectPoint(flight.at(flight.arcEnd), target);
     const heights = Array.from({ length: 101 }, (_, i) => flight.at(i / 100 * flight.arcEnd).y);
-    expect(Math.max(...heights)).toBeGreaterThan(Math.max(release.y, targetPoint(outcome, release).y));
+    expect(Math.max(...heights)).toBeGreaterThan(Math.max(release.y, target.y));
   });
 
-  it.each(outcomes)('führt Fallen, Abpraller und Aufspringen für %s wie buildFlight fort', (outcome) => {
+  it.each(outcomes)('führt Fallen, Abpraller und Aufspringen für %s mit der passenden buildFlight-Bahn fort', (outcome) => {
     const flight = buildFinishFlight('layup', outcome, release, rimContactS);
-    const original = buildFlight(outcome, release);
+    const original = buildFlight(made.includes(outcome) ? 'bank_in' : outcome, release);
     const remaining = original.duration - original.arcEnd;
     expect(flight.duration - flight.arcEnd).toBeCloseTo(remaining, 10);
     for (const progress of [0.1, 0.3, 0.5, 0.8, 1]) {
       expectPoint(flight.at(flight.arcEnd + progress * remaining),
         original.at(original.arcEnd + progress * remaining));
+    }
+  });
+});
+
+describe('Frontaler Korbleger-Bogen (φ < 20°)', () => {
+  it.each(made)('behält für %s den direkten Zielpunkt und die bisherige Fortsetzung bei', outcome => {
+    for (const phi of [-19.99, -10, 0, 10, 19.99]) {
+      const from = { x: Math.tan(phi * Math.PI / 180), y: 3.2, z: 1 };
+      const flight = buildFinishFlight('layup', outcome, from, rimContactS);
+      const original = buildFlight(outcome, from);
+      expectPoint(flight.at(flight.arcEnd), targetPoint(outcome, from));
+      const remaining = original.duration - original.arcEnd;
+      expect(flight.duration - flight.arcEnd).toBeCloseTo(remaining, 10);
+      for (const progress of [0.1, 0.3, 0.5, 0.8, 1]) {
+        expectPoint(flight.at(flight.arcEnd + progress * remaining),
+          original.at(original.arcEnd + progress * remaining));
+      }
     }
   });
 });

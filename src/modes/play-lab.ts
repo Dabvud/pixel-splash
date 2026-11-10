@@ -312,8 +312,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
     if (s.arrowMeter && s.realTime >= s.arrowMeter.startTime) {
       const meter = s.arrowMeter;
-      hud.setMeter(meter.fill ?? Math.min((s.realTime - meter.startTime) * 1000 / meter.meterMs, MAX_FILL), meter.zones, MAX_FILL, true);
-    } else if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL);
+      hud.setMeter(meter.fill ?? Math.min((s.realTime - meter.startTime) * 1000 / meter.meterMs, MAX_FILL), meter.zones, MAX_FILL, true, meter.bankWindow);
+    } else if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL, false, s.combo.bankWindow);
     else hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
 
     px.renderer.render(scene, camera);

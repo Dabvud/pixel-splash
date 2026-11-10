@@ -46,6 +46,23 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('zeigt das Brett-Fenster aus der Engine bei Halte-Kombi und Pfeil', () => {
+    advance(2.3);
+    gesture({ type: 'start' });
+    gesture({ type: 'hold' });
+    advance(1 / 60);
+    const stripe = document.querySelector<HTMLElement>('.hud-bank')!;
+    const window = state().combo!.bankWindow!;
+    expect(stripe.hidden).toBe(false);
+    expect(parseFloat(stripe.style.bottom)).toBeCloseTo(window.lo / MAX_FILL * 100, 8);
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'kickout', defenseRandom: false });
+    const s = catchArrow();
+    advance(1 / 60);
+    expect(stripe.hidden).toBe(s.arrowMeter!.bankWindow === null);
+    if (s.arrowMeter!.bankWindow) {
+      expect(parseFloat(stripe.style.bottom)).toBeCloseTo(s.arrowMeter!.bankWindow.lo / MAX_FILL * 100, 8);
+    }
+  });
   it.each(['auto', 'high'] as const)('rahmt beim Kick-out in %s schon im ersten Entscheidungsframe alle Ziele ein', cameraMode => {
     const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'kickout', defenseRandom: false, camera: cameraMode });

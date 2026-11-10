@@ -118,12 +118,26 @@ describe('Flugphasen', () => {
     expect(max(far)).toBeGreaterThan(max(near));
   });
 
-  it.each(['rim_front', 'rim_back', 'rim_left', 'rim_right', 'roll_out'] as const)('prallt bei %s vom Ring weg ab', (outcome) => {
+  it.each(['rim_front', 'rim_left', 'rim_right', 'roll_out'] as const)('prallt bei %s vom Ring weg ab', (outcome) => {
     const flight = buildFlight(outcome, top);
     const target = targetPoint(outcome, top);
     const rebound = flight.at(flight.arcEnd + 0.5);
     expect(rebound.x * target.x + rebound.z * target.z).toBeGreaterThan(target.x ** 2 + target.z ** 2);
     expect(rebound.y).toBeGreaterThan(0.12);
+  });
+
+  it('prallt bei rim_back vor dem Brett zurück', () => {
+    const flight = buildFlight('rim_back', top);
+    const contactS = flight.arcEnd + (.375 - .23) / 1.6;
+    const contact = flight.at(contactS);
+    expect(contact.z).toBeCloseTo(-.375, 10);
+    expect(contact.y).toBeGreaterThanOrEqual(2.895);
+    expect(contact.y).toBeLessThanOrEqual(3.945);
+    expect(flight.at(contactS - .01).z).toBeGreaterThan(contact.z);
+    expect(flight.at(contactS + .01).z).toBeGreaterThan(contact.z);
+    const rebound = flight.at(flight.arcEnd + .5);
+    expect(rebound.z).toBeCloseTo(.28, 10);
+    expect(rebound.y).toBeGreaterThan(.12);
   });
 
   it('prallt vom Brett zum Werfer ab', () => {

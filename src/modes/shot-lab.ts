@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { INFLUENCE, PROFILES, SPOTS, spotDistance, type Settings } from "../settings";
-import { MAX_FILL, effectiveZones, resolveShot, type ShotParams } from "../shot/resolve";
+import { MAX_FILL, bankWindow, effectiveZones, resolveShot, type ShotParams } from "../shot/resolve";
 import { buildFlight, type Flight } from "../shot/trajectory";
 import { attachGesture } from "../input/gesture";
 import { createScene } from "../render/scene";
@@ -45,6 +45,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     rating: PROFILES.find((p) => p.id === settings.profile)!.rating,
     influence: INFLUENCE[settings.influence],
     distance: spotDistance(spot()),
+    bankAngleDeg: Math.atan2(Math.abs(spot().x), spot().z) * 180 / Math.PI,
   });
   const resize = () => px.resize(settings.pixelHeight, camera);
 
@@ -91,7 +92,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
       const { flight } = state;
       const p = flight.at(t);
       ball.position.set(p.x, p.y, p.z);
-      hud.setMeter(state.fill, effectiveZones(params()), MAX_FILL);
+      hud.setMeter(state.fill, effectiveZones(params()), MAX_FILL, false, bankWindow(params()));
       // Kamera schwenkt im Bogen hoch und fährt danach zurück
       const end = flight.duration + SETTLE_S;
       progress = t <= flight.arcEnd ? t / flight.arcEnd : Math.max(0, 1 - (t - flight.arcEnd) / (end - flight.arcEnd));
@@ -99,7 +100,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
       if (t > end) placePlayer();
     } else {
       if (state.k === "charging") {
-        hud.setMeter(Math.min((now - state.t0) / settings.meterMs, MAX_FILL), effectiveZones(params()), MAX_FILL);
+        hud.setMeter(Math.min((now - state.t0) / settings.meterMs, MAX_FILL), effectiveZones(params()), MAX_FILL, false, bankWindow(params()));
       }
       const h = player.handPos();
       ball.position.set(h.x, h.y, h.z);

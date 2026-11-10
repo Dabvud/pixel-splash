@@ -1,12 +1,58 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  MAX_FILL, distanceFactor, effectiveZones, feedback, resolveShot, statFactor,
+  MAX_FILL, bankWidth, bankWindow, distanceFactor, effectiveZones, feedback, resolveShot, statFactor,
 } from '../src/shot/resolve';
 import type { Outcome, ShotParams } from '../src/shot/resolve';
 
 const P: ShotParams = {
   meterMs: 1000, greenZone: 0.1, aimDeg: 10, rating: 0.5, influence: 0.6, distance: 4.6,
 };
+
+describe('Brett-Fenster', () => {
+  it.each([[0, .5], [10, .5], [15, .75], [20, 1], [60, 1], [67.5, .5], [75, 0], [86, 0]])(
+    'berechnet bankWidth bei φ=%s° als %s', (phi, width) => {
+      expect(bankWidth(phi)).toBeCloseTo(width, 12);
+    });
+
+  it.each([[45, 0, 'bank_in'], [45, .8, 'rim_back'], [86, 0, 'rim_back']] as const)(
+    'wertet t=1,5 bei φ=%s° und r=%s als %s', (bankAngleDeg, r, outcome) => {
+      const rng = vi.fn(() => .99);
+      const result = resolveShot({ holdMs: 1150, angleDeg: r * 10 }, { ...P, bankAngleDeg }, rng);
+      expect(result).toMatchObject({ outcome, made: outcome === 'bank_in' });
+      if (outcome === 'bank_in') expect(result.banner).toBe('BRETT – DRIN');
+      expect(rng).not.toHaveBeenCalled();
+    });
+
+  it('bewahrt ohne bankAngleDeg das bisherige Verhalten und zeigt kein Fenster', () => {
+    expect(bankWindow(P)).toBeNull();
+    expect(bankWindow({ ...P, bankAngleDeg: 86 })).toBeNull();
+    expect(resolveShot({ holdMs: 1150, angleDeg: 0 }, P).outcome).toBe('rim_back');
+    expect(resolveShot({ holdMs: 1120, angleDeg: 0 }, P, () => .99).outcome).toBe('roll_out');
+  });
+
+  it('gibt dem Brett-Fenster auch vor dem Ringtanz Vorrang und schließt |r|=0,6 ein', () => {
+    const rng = vi.fn(() => .99), p = { ...P, bankAngleDeg: 45 };
+    expect(resolveShot({ holdMs: 1120, angleDeg: 0 }, p, rng).outcome).toBe('bank_in');
+    for (const angleDeg of [-6, 6]) {
+      expect(resolveShot({ holdMs: 1150, angleDeg }, p, rng).outcome).toBe('bank_in');
+    }
+    expect(resolveShot({ holdMs: 1150, angleDeg: 6.001 }, p, rng).outcome).toBe('rim_back');
+    expect(rng).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 15, 45, 67.5, 74.9])('verwendet bei φ=%s° dieselben Fenstergrenzen für Anzeige und Auswertung', bankAngleDeg => {
+    for (const factor of [1, .6]) {
+      const p = { ...P, bankAngleDeg, rating: .9, distance: 6.75, zoneFactor: factor };
+      const g = effectiveZones(p).g, w = bankWidth(bankAngleDeg), window = bankWindow(p)!;
+      expect(window.lo).toBeCloseTo(1 + (1.5 - .3 * w) * g, 12);
+      expect(window.hi).toBeCloseTo(1 + (1.5 + .3 * w) * g, 12);
+      for (const [fill, inside] of [[window.lo - 1e-6, false], [window.lo, true],
+        [(window.lo + window.hi) / 2, true], [window.hi, true], [window.hi + 1e-6, false]] as const) {
+        expect(resolveShot({ holdMs: fill * p.meterMs, angleDeg: 0 }, p, () => .99).outcome === 'bank_in').toBe(inside);
+      }
+    }
+  });
+});
 
 describe('Wurfzonen', () => {
   it('multipliziert beide Zonen genau einmal mit zoneFactor und verwendet sonst eins', () => {

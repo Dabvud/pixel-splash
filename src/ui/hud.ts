@@ -1,10 +1,10 @@
-import type { ShotResult, Zones } from "../shot/resolve";
+import type { BankWindow, ShotResult, Zones } from "../shot/resolve";
 
 const BANNER_MS = 1800;
 const MARK_MS = 1500;
 
 export function createHud(root: HTMLElement): {
-  setMeter(fill: number | null, zones: Zones, fillMax: number, arrow?: boolean): void;
+  setMeter(fill: number | null, zones: Zones, fillMax: number, arrow?: boolean, bank?: BankWindow | null): void;
   markRelease(fill: number, persist?: boolean): void;
   showResult(r: ShotResult): void;
   setStats(made: number, shots: number): void;
@@ -13,7 +13,7 @@ export function createHud(root: HTMLElement): {
     "beforeend",
     `<div class="hud-stats" id="hud-stats">Treffer 0 / 0</div>
      <div class="hud-banner" id="hud-banner" hidden><div class="hud-title"></div><div class="hud-hint"></div></div>
-     <div class="hud-meter" id="hud-meter" hidden><div class="hud-green"></div><div class="hud-fill"></div><div class="hud-arrow" hidden>◄</div><div class="hud-mark" hidden></div></div>`,
+     <div class="hud-meter" id="hud-meter" hidden><div class="hud-green"></div><div class="hud-fill"></div><div class="hud-bank" hidden></div><div class="hud-arrow" hidden>◄</div><div class="hud-mark" hidden></div></div>`,
   );
   const stats = root.querySelector<HTMLElement>("#hud-stats")!;
   const banner = root.querySelector<HTMLElement>("#hud-banner")!;
@@ -22,14 +22,16 @@ export function createHud(root: HTMLElement): {
   const fillEl = meter.querySelector<HTMLElement>(".hud-fill")!;
   const mark = meter.querySelector<HTMLElement>(".hud-mark")!;
   const arrowEl = meter.querySelector<HTMLElement>(".hud-arrow")!;
+  const bankEl = meter.querySelector<HTMLElement>(".hud-bank")!;
   let max = 1.6;
   let bannerTimer = 0;
   let markTimer = 0;
   const pct = (v: number) => `${(Math.min(v, max) / max) * 100}%`;
 
   return {
-    setMeter(fill, zones, fillMax, arrow = false) {
+    setMeter(fill, zones, fillMax, arrow = false, bank = null) {
       meter.hidden = fill === null;
+      bankEl.hidden = fill === null || bank === null;
       if (fill === null) {
         mark.hidden = true;
         clearTimeout(markTimer);
@@ -42,6 +44,10 @@ export function createHud(root: HTMLElement): {
       fillEl.style.height = pct(fill);
       green.style.bottom = pct(1 - zones.g);
       green.style.height = `${((2 * zones.g) / max) * 100}%`;
+      if (bank) {
+        bankEl.style.bottom = pct(bank.lo);
+        bankEl.style.height = `${(Math.min(bank.hi, max) - Math.min(bank.lo, max)) / max * 100}%`;
+      }
     },
     markRelease(fill, persist = false) {
       mark.style.bottom = pct(fill);

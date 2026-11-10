@@ -98,6 +98,12 @@ body {
   margin-bottom: -1px;
   background: #fff;
 }
+.hud-bank {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  background: #fff;
+}
 .hud-arrow {
   position: absolute;
   left: calc(100% + 5px);

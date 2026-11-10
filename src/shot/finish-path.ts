@@ -1,37 +1,26 @@
 import type { Outcome } from './resolve';
-import { RIM, buildFlight, targetPoint } from './trajectory';
+import { RIM, buildFlight, targetPoint, withBoardCollision } from './trajectory';
 import type { Flight, Vec3 } from './trajectory';
 
 export function buildFinishFlight(kind: 'layup' | 'dunk' | 'contact_dunk', outcome: Outcome,
   release: Vec3, rimContactS: number): Flight {
   const start = { ...release };
   if (kind === 'layup') {
-    const original = buildFlight(outcome, start);
+    const made = outcome === 'swish' || outcome === 'rim_in' || outcome === 'roll_in';
+    const phi = Math.atan2(Math.abs(start.x), start.z) * 180 / Math.PI;
+    if (made && phi >= 20) outcome = 'bank_in';
     const target = targetPoint(outcome, start);
-    const arcEnd = 0.45;
-    const height = Math.max(start.y, target.y) + 0.4;
-    const rise = Math.sqrt(height - start.y);
-    const fall = Math.sqrt(height - target.y);
-    const duration = arcEnd + original.duration - original.arcEnd;
-    return {
-      arcEnd, duration,
-      at(time: number): Vec3 {
-        const t = Math.max(0, Math.min(duration, time));
-        if (t === 0) return { ...start };
-        if (t >= arcEnd) return original.at(original.arcEnd + t - arcEnd);
-        const progress = t / arcEnd;
-        return {
-          x: start.x + (target.x - start.x) * progress,
-          y: height - ((1 - progress) * rise - progress * fall) ** 2,
-          z: start.z + (target.z - start.z) * progress,
-        };
-      },
-    };
+    // Erst die vollständige kurze Bahn aufbauen, dann ihre Brett-Kollision lösen.
+    // Eine bereits gespiegelte lange Bahn kann am Phasenwechsel einen Durchtritt verdecken.
+    return buildFlight(outcome, start, {
+      duration: .45,
+      height: Math.max(start.y, target.y) + .4,
+    });
   }
 
   const arcEnd = rimContactS;
   const contact = { ...RIM, y: RIM.y + 0.1 };
-  const made = outcome === 'swish' || outcome === 'rim_in' || outcome === 'roll_in';
+  const made = outcome === 'swish' || outcome === 'rim_in' || outcome === 'roll_in' || outcome === 'bank_in';
   const ground = 0.12;
   const gravity = 9.81;
   const bounceDuration = 0.3;
@@ -44,7 +33,7 @@ export function buildFinishFlight(kind: 'layup' | 'dunk' | 'contact_dunk', outco
   const landingTime = arcEnd + fallDuration;
   const duration = landingTime + bounceDuration;
 
-  return {
+  return withBoardCollision({
     arcEnd, duration,
     at(time: number): Vec3 {
       const t = Math.max(0, Math.min(duration, time));
@@ -74,5 +63,5 @@ export function buildFinishFlight(kind: 'layup' | 'dunk' | 'contact_dunk', outco
         z: contact.z + vz * (fallDuration + bouncing),
       };
     },
-  };
+  });
 }

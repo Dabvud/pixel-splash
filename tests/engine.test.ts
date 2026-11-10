@@ -5,7 +5,7 @@ import { PLAYS } from '../src/play/plays';
 import { ACTORS } from '../src/play/teams';
 import type { Option, Play, Variant } from '../src/play/types';
 import { ballHandAt, MOVES, moveFrames } from '../src/figure/moves';
-import { effectiveZones } from '../src/shot/resolve';
+import { bankWindow, effectiveZones } from '../src/shot/resolve';
 
 const cfg: EngineConfig = {
   slowmo: .3, decisionS: 2, animSpeed: 1, foulMult: 0, zoneFloor: .7, tempoSpread: .3,
@@ -13,6 +13,49 @@ const cfg: EngineConfig = {
   finish: { meterMs: 450, greenZone: .1, aimDeg: 8 },
 };
 const safe = () => .99;
+
+describe('Bankshots in der Engine', () => {
+  it.each([[3, 3, 2], [5, 5, 3], [-5, 5, 3]] as const)(
+    'zählt bank_in bei (%s,%s) mit %s Punkten und Assist-Banner', (x, z, points) => {
+      const s = decision();
+      s.actors[s.handler].pos = { x, z };
+      s.assisted = true;
+      command(s, { kind: 'comboStart' }, cfg, safe);
+      const combo = s.combo!;
+      expect(combo.bankWindow).toEqual(bankWindow({ ...cfg.shot, rating: .7, distance: Math.hypot(x, z),
+        zoneFactor: .7 + .3 * combo.P, bankAngleDeg: 45 }));
+      command(s, { kind: 'comboRelease', holdMs: combo.meterMs * (1 + 1.5 * combo.zones.g), angleDeg: 0 }, cfg, safe);
+      const events = until(s, () => s.phase === 'ended');
+      expect(s.points).toBe(points);
+      expect(s.banner).toBe('ASSIST + BRETT – DRIN');
+      expect(events).toContainEqual({ type: 'result', banner: 'ASSIST + BRETT – DRIN', made: true });
+    });
+
+  it('zählt den Brett-Freiwurf als einen Punkt und zeigt sein Banner', () => {
+    const c = { ...cfg, foulMult: 2 }, s = decision(PLAYS.pnr, c, () => 0);
+    release(s, true, c, () => 0);
+    until(s, () => s.phase === 'freethrows', c, () => 0);
+    const before = s.points;
+    command(s, { kind: 'comboStart' }, c, safe);
+    const combo = s.combo!;
+    expect(combo.bankWindow!.hi - combo.bankWindow!.lo).toBeCloseTo(.3 * combo.zones.g, 10);
+    command(s, { kind: 'comboRelease', holdMs: combo.meterMs * (1 + 1.5 * combo.zones.g), angleDeg: 0 }, c, safe);
+    until(s, () => s.phase === 'ended', c, safe);
+    expect(s.points).toBe(before + 1);
+    expect(s.banner).toBe('BRETT – DRIN');
+  });
+
+  it('behält bei bank_in den And-one-Zusatz und gewährt genau einen Freiwurf', () => {
+    const c = { ...cfg, foulMult: 100 }, s = decision(PLAYS.pnr, c, () => 0);
+    command(s, { kind: 'comboStart' }, c, () => 0);
+    const combo = s.combo!;
+    command(s, { kind: 'comboRelease', holdMs: combo.meterMs * (1 + 1.5 * combo.zones.g), angleDeg: 0 }, c, () => 0);
+    const events = until(s, () => s.phase === 'freethrows', c, () => 0);
+    expect(s.points).toBe(2);
+    expect(s.freeThrows!.left).toBe(1);
+    expect(events).toContainEqual({ type: 'result', banner: 'BRETT – DRIN + AND-ONE', made: true });
+  });
+});
 function only(play: Play, variant: Variant): Play { return { ...play, variants: [{ ...variant, weight: 1 }] }; }
 function until(s: PlayState, predicate: () => boolean, c = cfg, rng = safe, limit = 1800): EngineEvent[] {
   const events: EngineEvent[] = [];
