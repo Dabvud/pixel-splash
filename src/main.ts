@@ -52,16 +52,19 @@ function toReady(): void {
   hud.setMeter(null, effectiveZones(params()), MAX_FILL);
 }
 
+let placed = spot(); // Spot, an dem der Spieler gerade steht (kann während eines Flugs vom Menü abweichen)
+
 function placePlayer(): void {
-  const s = spot();
-  player.setSpot(s.x, s.z);
+  placed = spot();
+  player.setSpot(placed.x, placed.z);
   toReady();
 }
 
 createLabMenu(app, settings, (s) => {
   settings = s;
-  placePlayer();
   resize();
+  // Ein laufender Flug ist schon gewertet; der neue Spot gilt ab seinem Ende
+  if (state.k !== "flying") placePlayer();
 });
 
 attachGesture(
@@ -86,7 +89,7 @@ attachGesture(
 );
 
 function frame(now: number): void {
-  const s = spot();
+  const s = placed;
   let progress: number | null = null;
   if (state.k === "flying") {
     const t = (now - state.t0) / 1000;
@@ -98,7 +101,7 @@ function frame(now: number): void {
     const end = flight.duration + SETTLE_S;
     progress = t <= flight.arcEnd ? t / flight.arcEnd : Math.max(0, 1 - (t - flight.arcEnd) / (end - flight.arcEnd));
     if (t > 0.3) player.setPose("ready");
-    if (t > end) toReady();
+    if (t > end) placePlayer();
   } else {
     if (state.k === "charging") {
       hud.setMeter(Math.min((now - state.t0) / settings.meterMs, MAX_FILL), effectiveZones(params()), MAX_FILL);
