@@ -328,13 +328,15 @@ describe('Pass, Einwurf und Abschluss', () => {
     expect(s.actors.r50.pos.x).toBeGreaterThan(startX);
     expect(s.ball).toEqual(hand(s));
   });
-  it('liefert ohne next einen Entscheidungspunkt Werfen/Ziehen', () => {
+  it('liefert ohne next einen Entscheidungspunkt Werfen/Ziehen und Pässe zu allen Mitspielern', () => {
     const p: Play = structuredClone(PLAYS.pnr);
     delete p.segments.setup.options!.find(o => o.to === 'r50')!.next;
     const s = decision(p);
     command(s, { kind: 'pass', to: 'r50' }, cfg, safe);
     const events = until(s, () => s.handler === 'r50' && s.phase === 'decision');
-    expect(events).toContainEqual({ type: 'decision', options: [{ kind: 'shoot' }, { kind: 'drive' }] });
+    expect(events).toContainEqual({ type: 'decision', options: [{ kind: 'shoot' }, { kind: 'drive' },
+      ...Object.values(s.actors).filter(a => ACTORS[a.id].team === 'off' && a.id !== s.handler)
+        .map(a => ({ kind: 'pass', to: a.id }))] });
   });
   it('startet die Inbound-Uhr beim Fangen und geht beim Lob direkt in takeoff', () => {
     const s = decision(PLAYS.inbound);

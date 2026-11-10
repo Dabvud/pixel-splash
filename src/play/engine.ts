@@ -182,10 +182,20 @@ function miss(s: PlayState, events: EngineEvent[], banner: string): void {
   end(s, events);
 }
 
+function decisionOptions(s: PlayState): Option[] {
+  const options: Option[] = [...(rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }])];
+  for (const a of Object.values(s.actors)) {
+    if (ACTORS[a.id].team === 'off' && a.id !== s.handler && !options.some(o => o.kind === 'pass' && o.to === a.id)) {
+      options.push({ kind: 'pass', to: a.id });
+    }
+  }
+  return options;
+}
+
 function decision(s: PlayState, events: EngineEvent[]): void {
   phase(s, 'decision');
   rt(s).aiSelected = null;
-  events.push({ type: 'decision', options: rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }] });
+  events.push({ type: 'decision', options: decisionOptions(s) });
 }
 
 export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => number): PlayState {
@@ -235,7 +245,7 @@ export function lastHint(s: PlayState): string {
 }
 
 export function aiChoice(s: PlayState): Option {
-  const options = rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }];
+  const options = decisionOptions(s);
   const rank = { shoot: 0, drive: 1, pass: 2 };
   const value = (o: Option): number => {
     if (o.kind === 'shoot') return currentP(s);
@@ -368,7 +378,14 @@ function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: Eng
 
 function nextSegment(s: PlayState, option: Option): void {
   const r = rt(s), next = option.next && s.play.segments[option.next];
-  r.segment = next || { id: 'received', handler: option.to!, paths: {}, decisionAt: .4, options: [{ kind: 'shoot' }, { kind: 'drive' }] };
+  if (!next) {
+    // Ohne Fortsetzung laufen die bisherigen Wege mit ihrem Zeitstand und Versatz zu Ende.
+    r.segment = { id: 'received', handler: option.to!,
+      paths: { ...r.segment.paths, ...r.variant.defPaths[r.segment.id] },
+      decisionAt: .4, options: [{ kind: 'shoot' }, { kind: 'drive' }] };
+    return;
+  }
+  r.segment = next;
   r.segT = 0;
   r.offsets = {};
   // Bewegte Empfänger bleiben am tatsächlichen Fangpunkt; Fortsetzungen sind relativ dazu.
@@ -524,7 +541,7 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
   }
   if (s.phase !== 'decision' || s.combo) return events;
   if (cmd.kind === 'pass') {
-    const option = r.segment.options?.find(o => o.kind === 'pass' && o.to === cmd.to);
+    const option = decisionOptions(s).find(o => o.kind === 'pass' && o.to === cmd.to);
     if (option && s.actors[cmd.to]) {
       clearArrow(s, events);
       startPass(s, option, Math.max(0, Math.min(1, cmd.quality ?? 1)), cfg, rng, events);

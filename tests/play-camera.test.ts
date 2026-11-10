@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { playCameraPose } from '../src/render/camera-pose';
 import { overviewPose } from '../src/render/camera-pose';
 import { PerspectiveCamera, Vector3 } from 'three';
-import { command, createPlayState, step, type EngineConfig } from '../src/play/engine';
+import { command, createPlayState, step, type EngineConfig, type EngineEvent } from '../src/play/engine';
 import { PLAYS } from '../src/play/plays';
+import { ACTORS } from '../src/play/teams';
 
 const aspect = 390 / 844;
 function expectFramed(pose: ReturnType<typeof overviewPose>, handler: { x: number; z: number }, targets: { x: number; z: number }[]): void {
@@ -33,8 +34,9 @@ describe('Übersicht aller Entscheidungspunkte im Hochformat', () => {
     Object.values(play.segments).map(segment => ({ title: `${play.id}/${variant.id}/${segment.id}`, play, variant, segment }))));
   it.each(cases)('$title: zeigt Ballführer, alle Passziele und Ring mit 8 % Rand', ({ play, variant, segment }) => {
     const s = createPlayState({ ...play, variants: [{ ...variant, weight: 1 }] }, cfg, () => .99);
+    const events: EngineEvent[] = [];
     const wait = (ready: () => boolean) => {
-      for (let i = 0; i < 1200 && !ready() && s.phase !== 'ended'; i++) step(s, 1 / 120, cfg, () => .99);
+      for (let i = 0; i < 1200 && !ready() && s.phase !== 'ended'; i++) events.push(...step(s, 1 / 120, cfg, () => .99));
       expect(ready()).toBe(true);
     };
     wait(() => s.phase === 'decision');
@@ -44,10 +46,25 @@ describe('Übersicht aller Entscheidungspunkte im Hochformat', () => {
       wait(() => s.handler === segment.handler && (s.phase === 'decision' || s.phase === 'takeoff'));
     }
     const handler = s.actors[s.handler].pos;
-    const targets = segment.options!.filter(o => o.kind === 'pass').map(o => s.actors[o.to!].pos);
+    const teammates = Object.values(s.actors).filter(a => ACTORS[a.id].team === 'off' && a.id !== s.handler);
+    if (s.phase === 'decision') {
+      const options = events.filter(e => e.type === 'decision').at(-1)!.options;
+      expect(options.filter(o => o.kind === 'pass').map(o => o.to).sort()).toEqual(teammates.map(a => a.id).sort());
+    }
+    const targets = teammates.map(a => a.pos);
     const pose = overviewPose(handler, targets, aspect);
     expect(pose.fov).toBe(60);
     expectFramed(pose, handler, targets);
+    const extra = teammates.find(a => !segment.options!.some(o => o.kind === 'pass' && o.to === a.id));
+    if (s.phase === 'decision' && extra) {
+      command(s, { kind: 'pass', to: extra.id }, cfg, () => .99);
+      wait(() => s.handler === extra.id && s.phase === 'decision');
+      const options = events.filter(e => e.type === 'decision').at(-1)!.options;
+      const all = Object.values(s.actors).filter(a => ACTORS[a.id].team === 'off' && a.id !== s.handler);
+      expect(options.filter(o => o.kind === 'pass').map(o => o.to).sort()).toEqual(all.map(a => a.id).sort());
+      const h = s.actors[s.handler].pos, goals = all.map(a => a.pos);
+      expectFramed(overviewPose(h, goals, aspect), h, goals);
+    }
   });
   it('zeigt beim Kick-out ausdrücklich beide weit auseinanderliegenden Passziele', () => {
     const handler = { x: 0, z: 2.6 }, targets = [{ x: 6.9, z: .5 }, { x: -4.8, z: 4.8 }];
