@@ -4,6 +4,7 @@ export interface ShotInput { holdMs: number; angleDeg: number }
 export interface ShotParams {
   meterMs: number; greenZone: number; aimDeg: number;
   rating: number; influence: number; distance: number;
+  zoneFactor?: number;
 }
 export interface Zones { g: number; a: number }
 export interface ShotResult {
@@ -27,7 +28,7 @@ export function distanceFactor(distance: number): number {
 }
 
 export function effectiveZones(p: ShotParams): Zones {
-  const factor = statFactor(p.rating, p.influence) * distanceFactor(p.distance);
+  const factor = statFactor(p.rating, p.influence) * distanceFactor(p.distance) * (p.zoneFactor ?? 1);
   return { g: p.greenZone * factor, a: p.aimDeg * factor };
 }
 

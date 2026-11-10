@@ -1,9 +1,105 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GestureTracker, MIN_SWIPE_PX, attachGesture } from '../src/input/gesture';
+import type { GestureOptions } from '../src/input/gesture';
 
 afterEach(() => {
   vi.restoreAllMocks();
   document.body.replaceChildren();
+});
+
+const playOptions: GestureOptions = { flicks: true, holdThresholdMs: 200 };
+
+describe('Spielzug-Gesten', () => {
+  it.each([
+    [-80, 0, 120], [0, 60, 100], [0, -30, 199], [30, 0, 100], [24, 18, 100],
+  ])('liefert den vollständigen Flick (%s, %s) mit Dauer %s', (dx, dy, holdMs) => {
+    const tracker = new GestureTracker(playOptions);
+    tracker.down(1, 100, 500, 0);
+    expect(tracker.up(1, 100 + dx, 500 + dy, holdMs)).toEqual({ type: 'flick', dx, dy, holdMs });
+  });
+
+  it('wertet 10 px vor der Schwelle als tap', () => {
+    const tracker = new GestureTracker(playOptions);
+    tracker.down(1, 100, 500, 0);
+    expect(tracker.up(1, 110, 500, 100)).toEqual({ type: 'tap' });
+  });
+
+  it('bricht gehaltene Gesten mit 60 px nach unten ab', () => {
+    const tracker = new GestureTracker(playOptions);
+    tracker.down(1, 100, 500, 0);
+    expect(tracker.up(1, 100, 560, 300)).toEqual({ type: 'cancel' });
+  });
+
+  it('liefert ab genau 200 ms release mit roher Haltedauer', () => {
+    const tracker = new GestureTracker(playOptions);
+    tracker.down(1, 100, 500, 0);
+    expect(tracker.up(1, 100, 440, 200)).toEqual({ type: 'release', holdMs: 200, angleDeg: 0 });
+  });
+
+  it('meldet hold pro Geste genau einmal ab der Schwelle', () => {
+    const tracker = new GestureTracker(playOptions);
+    expect(tracker.poll(500)).toBeNull();
+    tracker.down(1, 100, 500, 100);
+    expect(tracker.poll(299)).toBeNull();
+    expect(tracker.poll(300)).toEqual({ type: 'hold' });
+    expect(tracker.poll(400)).toBeNull();
+    tracker.abort(1);
+    expect(tracker.poll(500)).toBeNull();
+    tracker.down(2, 100, 500, 600);
+    expect(tracker.poll(800)).toEqual({ type: 'hold' });
+  });
+
+  it('fügt dem Wurf-Labor ohne Optionen kein hold hinzu', () => {
+    const tracker = new GestureTracker();
+    tracker.down(1, 100, 500, 0);
+    expect(tracker.poll(300)).toBeNull();
+  });
+});
+
+describe('Spielzug-Haltetimer', () => {
+  function setup() {
+    const el = document.createElement('div');
+    el.setPointerCapture = vi.fn();
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, top: 0, left: 0, bottom: 600, right: 300, width: 300, height: 600,
+      toJSON: () => ({}),
+    });
+    const onEvent = vi.fn();
+    const detach = attachGesture(el, onEvent, () => false, playOptions);
+    const pointer = (type: string, id = 1) => el.dispatchEvent(new PointerEvent(type, {
+      pointerId: id, clientX: 100, clientY: 500,
+    }));
+    return { pointer, onEvent, detach };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it('liefert hold nach 200 ms per Timer und ignoriert fremde Finger', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const { pointer, onEvent, detach } = setup();
+    pointer('pointerdown');
+    vi.advanceTimersByTime(199);
+    expect(onEvent.mock.calls).toEqual([[{ type: 'start' }]]);
+    pointer('pointerup', 2);
+    pointer('pointercancel', 2);
+    vi.advanceTimersByTime(1);
+    expect(onEvent.mock.calls).toEqual([[{ type: 'start' }], [{ type: 'hold' }]]);
+    vi.advanceTimersByTime(500);
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    detach();
+  });
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'detach'])(
+    'entfernt den Haltetimer bei %s', (action) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+      const { pointer, onEvent, detach } = setup();
+      pointer('pointerdown');
+      if (action === 'detach') detach();
+      else pointer(action);
+      vi.advanceTimersByTime(300);
+      expect(onEvent.mock.calls.flat()).not.toContainEqual({ type: 'hold' });
+      detach();
+    });
 });
 
 describe('GestureTracker', () => {

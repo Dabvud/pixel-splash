@@ -1,0 +1,89 @@
+import { describe, expect, it } from 'vitest';
+import { buildFinishFlight } from '../src/shot/finish-path';
+import { RIM, buildFlight, targetPoint } from '../src/shot/trajectory';
+import type { Outcome } from '../src/shot/resolve';
+import type { Vec3 } from '../src/shot/trajectory';
+
+const outcomes: Outcome[] = ['swish', 'rim_in', 'roll_in', 'roll_out', 'rim_front', 'rim_back',
+  'rim_left', 'rim_right', 'airball', 'board', 'wide_left', 'wide_right'];
+const made: Outcome[] = ['swish', 'rim_in', 'roll_in'];
+const release = { x: -0.4, y: 3.2, z: 0.8 };
+const rimContactS = 0.3;
+
+function expectPoint(actual: Vec3, expected: Vec3): void {
+  for (const axis of ['x', 'y', 'z'] as const) expect(actual[axis]).toBeCloseTo(expected[axis], 8);
+}
+
+describe('Korbleger-Bogen', () => {
+  it.each(outcomes)('erreicht für %s nach 0,4–0,5 Sekunden den bisherigen Zielpunkt', (outcome) => {
+    const flight = buildFinishFlight('layup', outcome, release, rimContactS);
+    expect(flight.arcEnd).toBeGreaterThanOrEqual(0.4);
+    expect(flight.arcEnd).toBeLessThanOrEqual(0.5);
+    expectPoint(flight.at(flight.arcEnd), targetPoint(outcome, release));
+    const heights = Array.from({ length: 101 }, (_, i) => flight.at(i / 100 * flight.arcEnd).y);
+    expect(Math.max(...heights)).toBeGreaterThan(Math.max(release.y, targetPoint(outcome, release).y));
+  });
+
+  it.each(outcomes)('führt Fallen, Abpraller und Aufspringen für %s wie buildFlight fort', (outcome) => {
+    const flight = buildFinishFlight('layup', outcome, release, rimContactS);
+    const original = buildFlight(outcome, release);
+    const remaining = original.duration - original.arcEnd;
+    expect(flight.duration - flight.arcEnd).toBeCloseTo(remaining, 10);
+    for (const progress of [0.1, 0.3, 0.5, 0.8, 1]) {
+      expectPoint(flight.at(flight.arcEnd + progress * remaining),
+        original.at(original.arcEnd + progress * remaining));
+    }
+  });
+});
+
+for (const kind of ['layup', 'dunk', 'contact_dunk'] as const) {
+  describe(`Abschlussbahn ${kind}`, () => {
+    it.each(outcomes)('startet für %s am Release und endet am richtigen Bodenpunkt', (outcome) => {
+      const flight = buildFinishFlight(kind, outcome, release, rimContactS);
+      expect(flight.at(0)).toEqual(release);
+      expect(flight.at(-1)).toEqual(release);
+      const end = flight.at(flight.duration);
+      expect(end.y).toBeCloseTo(0.12, 8);
+      if (made.includes(outcome)) {
+        expect(end.x).toBe(RIM.x);
+        expect(end.z).toBe(RIM.z);
+      } else expect(Math.hypot(end.x - RIM.x, end.z - RIM.z)).toBeGreaterThan(0.3);
+      expect(flight.at(flight.duration + 10)).toEqual(end);
+    });
+
+    it.each(outcomes)('bleibt für %s an allen Phasenübergängen stetig', (outcome) => {
+      const flight = buildFinishFlight(kind, outcome, release, rimContactS);
+      let previous = flight.at(0);
+      for (let i = 1; i <= 1000; i++) {
+        const point = flight.at(i / 1000 * flight.duration);
+        expect(Math.hypot(point.x - previous.x, point.y - previous.y, point.z - previous.z)).toBeLessThan(0.1);
+        expect(point.y).toBeGreaterThanOrEqual(0.12 - 1e-8);
+        previous = point;
+      }
+    });
+  });
+}
+
+for (const kind of ['dunk', 'contact_dunk'] as const) {
+  describe(`Ringkontakt ${kind}`, () => {
+    it.each([0.2, 0.5])('folgt bis zum Ringkontakt bei %s Sekunden der Hand linear', (contactS) => {
+      const flight = buildFinishFlight(kind, 'swish', release, contactS);
+      expect(flight.arcEnd).toBe(contactS);
+      const contact = { ...RIM, y: RIM.y + 0.1 };
+      expectPoint(flight.at(contactS), contact);
+      expectPoint(flight.at(contactS / 2), {
+        x: (release.x + contact.x) / 2, y: (release.y + contact.y) / 2, z: (release.z + contact.z) / 2,
+      });
+      const below = flight.at(contactS + 0.25);
+      expect(below.y).toBeLessThan(RIM.y);
+      expect(below.x).toBe(RIM.x);
+      expect(below.z).toBe(RIM.z);
+    });
+
+    it('prallt beim Fehlversuch vom Ring nach außen ab', () => {
+      const flight = buildFinishFlight(kind, 'rim_front', release, rimContactS);
+      const afterContact = flight.at(rimContactS + 0.2);
+      expect(Math.hypot(afterContact.x, afterContact.z)).toBeGreaterThan(0.3);
+    });
+  });
+}

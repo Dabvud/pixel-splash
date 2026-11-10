@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULTS, INFLUENCE, PROFILES, SPOTS, STORAGE_KEY,
+  DEFAULTS, FOUL_MULT, INFLUENCE, PROFILES, SPOTS, STORAGE_KEY,
   loadSettings, saveSettings, spotDistance,
 } from '../src/settings';
 import type { Settings } from '../src/settings';
@@ -13,6 +13,9 @@ describe('Einstellungen', () => {
     expect(DEFAULTS).toEqual({
       spot: 'top', camera: 'auto', profile: 'avg', influence: 'fair',
       meterMs: 700, greenZone: 0.07, aimDeg: 6, pixelHeight: 320,
+      mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2, animSpeed: 1,
+      defenseRandom: true, fouls: 'normal', finishMeterMs: 450, finishGreen: 0.1,
+      finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
     });
     expect(STORAGE_KEY).toBe('pixel-splash.settings.v1');
   });
@@ -85,6 +88,7 @@ describe('Einstellungen', () => {
 
   it.each([220, 320, 420, 540] as const)('erhält gültige Werte beim Rundweg mit Pixelhöhe %s', (pixelHeight) => {
     const settings: Settings = {
+      ...DEFAULTS,
       spot: 'wing_r', camera: 'low', profile: 'elite', influence: 'light',
       meterMs: 900, greenZone: 0.12, aimDeg: 9, pixelHeight,
     };
@@ -116,4 +120,46 @@ describe('Einstellungen', () => {
   it.each([['top', 6.9], ['ft', 4.2]] as const)('berechnet die Entfernung für %s', (id, expected) => {
     expect(spotDistance(SPOTS.find((spot) => spot.id === id)!)).toBeCloseTo(expected, 2);
   });
+});
+
+describe('Spielzug-Einstellungen', () => {
+  it('lädt v1-Daten mit alten Werten und neuen Standardfeldern', () => {
+    const old = { spot: 'mid', camera: 'high', profile: 'elite', influence: 'off',
+      meterMs: 900, greenZone: 0.12, aimDeg: 9, pixelHeight: 420 };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(old));
+    expect(loadSettings()).toEqual({ ...DEFAULTS, ...old });
+    expect(FOUL_MULT).toEqual({ off: 0, rare: 0.5, normal: 1, often: 2 });
+  });
+
+  it.each([
+    ['slowmo', -1, 0.2], ['slowmo', 0.9, 0.5],
+    ['decisionS', 0, 1], ['decisionS', 9, 4],
+    ['animSpeed', 0, 0.5], ['animSpeed', 2, 1.5],
+    ['finishMeterMs', 0, 300], ['finishMeterMs', 900, 700],
+    ['finishGreen', 0, 0.05], ['finishGreen', 1, 0.2],
+    ['finishAim', 0, 4], ['finishAim', 20, 14],
+    ['tempoSpread', -1, 0], ['tempoSpread', 1, 0.5],
+    ['zoneFloor', 0, 0.5], ['zoneFloor', 1, 0.9],
+  ])('begrenzt das neue Feld %s = %s auf %s', (field, value, expected) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ [field]: value }));
+    expect(loadSettings()).toEqual({ ...DEFAULTS, [field]: expected });
+  });
+
+  it('ersetzt ungültige Spielzug-Felder durch Standardwerte', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: 'x', play: 'x', fouls: 'x',
+      defenseRandom: 'ja', slowmo: '0.3', decisionS: null, animSpeed: false,
+      finishMeterMs: [], finishGreen: {}, finishAim: '8', tempoSpread: null, zoneFloor: false }));
+    expect(loadSettings()).toEqual(DEFAULTS);
+  });
+
+  it.each(['pnr', 'fastbreak', 'kickout', 'inbound', 'random'] as const)(
+    'speichert und lädt gültige Spielzug-Werte für %s', (play) => {
+      for (const fouls of ['off', 'rare', 'normal', 'often'] as const) {
+        const settings: Settings = { ...DEFAULTS, mode: 'play', play, fouls, defenseRandom: false,
+          slowmo: 0.4, decisionS: 3, animSpeed: 1.2, finishMeterMs: 600,
+          finishGreen: 0.15, finishAim: 10, tempoSpread: 0.4, zoneFloor: 0.8 };
+        saveSettings(settings);
+        expect(loadSettings()).toEqual(settings);
+      }
+    });
 });

@@ -2,6 +2,10 @@ export type SpotId = 'corner_l' | 'wing_l' | 'top' | 'wing_r' | 'corner_r' | 'ft
 export type CameraMode = 'low' | 'high' | 'auto';
 export type ProfileId = 'elite' | 'avg' | 'center';
 export type InfluenceId = 'off' | 'light' | 'fair' | 'strong';
+export type ModeId = 'shot' | 'play';
+export type PlayChoice = 'pnr' | 'fastbreak' | 'kickout' | 'inbound' | 'random';
+export type FoulRate = 'off' | 'rare' | 'normal' | 'often';
+export const FOUL_MULT: Record<FoulRate, number> = { off: 0, rare: 0.5, normal: 1, often: 2 };
 
 export interface Spot { id: SpotId; label: string; x: number; z: number }
 export interface Profile { id: ProfileId; label: string; rating: number }
@@ -14,6 +18,18 @@ export interface Settings {
   greenZone: number;
   aimDeg: number;
   pixelHeight: 220 | 320 | 420 | 540;
+  mode: ModeId;
+  play: PlayChoice;
+  slowmo: number;
+  decisionS: number;
+  animSpeed: number;
+  defenseRandom: boolean;
+  fouls: FoulRate;
+  finishMeterMs: number;
+  finishGreen: number;
+  finishAim: number;
+  tempoSpread: number;
+  zoneFloor: number;
 }
 
 export const SPOTS: readonly Spot[] = [
@@ -34,6 +50,9 @@ export const INFLUENCE: Record<InfluenceId, number> = { off: 0, light: 0.3, fair
 export const DEFAULTS: Settings = {
   spot: 'top', camera: 'auto', profile: 'avg', influence: 'fair',
   meterMs: 700, greenZone: 0.07, aimDeg: 6, pixelHeight: 320,
+  mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2, animSpeed: 1,
+  defenseRandom: true, fouls: 'normal', finishMeterMs: 450, finishGreen: 0.1,
+  finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
 };
 export const STORAGE_KEY = 'pixel-splash.settings.v1';
 
@@ -61,6 +80,18 @@ export function loadSettings(storage?: Storage | null): Settings {
       greenZone: bounded(fields.greenZone, 0.03, 0.15, DEFAULTS.greenZone),
       aimDeg: bounded(fields.aimDeg, 2, 12, DEFAULTS.aimDeg),
       pixelHeight: choice(fields.pixelHeight, [220, 320, 420, 540], DEFAULTS.pixelHeight),
+      mode: choice(fields.mode, ['shot', 'play'], DEFAULTS.mode),
+      play: choice(fields.play, ['pnr', 'fastbreak', 'kickout', 'inbound', 'random'], DEFAULTS.play),
+      slowmo: bounded(fields.slowmo, 0.2, 0.5, DEFAULTS.slowmo),
+      decisionS: bounded(fields.decisionS, 1, 4, DEFAULTS.decisionS),
+      animSpeed: bounded(fields.animSpeed, 0.5, 1.5, DEFAULTS.animSpeed),
+      defenseRandom: typeof fields.defenseRandom === 'boolean' ? fields.defenseRandom : DEFAULTS.defenseRandom,
+      fouls: choice(fields.fouls, ['off', 'rare', 'normal', 'often'], DEFAULTS.fouls),
+      finishMeterMs: bounded(fields.finishMeterMs, 300, 700, DEFAULTS.finishMeterMs),
+      finishGreen: bounded(fields.finishGreen, 0.05, 0.2, DEFAULTS.finishGreen),
+      finishAim: bounded(fields.finishAim, 4, 14, DEFAULTS.finishAim),
+      tempoSpread: bounded(fields.tempoSpread, 0, 0.5, DEFAULTS.tempoSpread),
+      zoneFloor: bounded(fields.zoneFloor, 0.5, 0.9, DEFAULTS.zoneFloor),
     };
   } catch {
     // Gesperrter Speicher darf den Start nicht verhindern.

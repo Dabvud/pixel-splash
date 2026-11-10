@@ -9,6 +9,22 @@ const P: ShotParams = {
 };
 
 describe('Wurfzonen', () => {
+  it('multipliziert beide Zonen genau einmal mit zoneFactor und verwendet sonst eins', () => {
+    const params = { ...P, rating: 0.9, distance: 6.75 };
+    const original = effectiveZones(params);
+    expect(effectiveZones({ ...params, zoneFactor: 1 })).toEqual(original);
+    const half = effectiveZones({ ...params, zoneFactor: 0.5 });
+    expect(half.g).toBeCloseTo(original.g * 0.5, 10);
+    expect(half.a).toBeCloseTo(original.a * 0.5, 10);
+  });
+
+  it('wertet 1080 ms mit halben Zonen als rim_back statt rim_in aus', () => {
+    const input = { holdMs: 1080, angleDeg: 0 };
+    expect(resolveShot(input, P).outcome).toBe('rim_in');
+    const result = resolveShot(input, { ...P, zoneFactor: 0.5 });
+    expect(result.t).toBeCloseTo(1.6, 10);
+    expect(result.outcome).toBe('rim_back');
+  });
   it('berechnet den Stat-Faktor', () => {
     expect(statFactor(0.9, 0.6)).toBeCloseTo(1.384, 6);
     expect(statFactor(0.1, 1)).toBeCloseTo(0.36, 6);
