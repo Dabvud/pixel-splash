@@ -359,3 +359,19 @@ body {
   color: var(--accent);
   font-size: 22px;
 }
+
+/* Pause-Menü */
+.pause[open] {
+  display: grid;
+  gap: 12px;
+}
+.pause-btn {
+  font: 600 16px var(--body);
+  min-height: 44px;
+  padding: 10px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}

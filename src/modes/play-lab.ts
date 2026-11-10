@@ -332,6 +332,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       resize();
       if (restart) newPlay();
     },
+    restart() {
+      newPlay();
+    },
     setPaused(p) {
       if (p === menuOpen) return;
       const now = performance.now();

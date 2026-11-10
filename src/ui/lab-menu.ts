@@ -35,7 +35,7 @@ const RANGES: RangeField[] = [
 ];
 
 // Zahnrad + Dialog; jede Änderung wird sofort gespeichert und gemeldet.
-export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Settings) => void, onToggle?: (open: boolean) => void): void {
+export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Settings) => void, onToggle?: (open: boolean) => void, onRestart?: () => void): void {
   const select = (f: SelectField) =>
     `<label data-show="${f.show}">${f.label} <select id="lab-${f.key}">${f.options.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>`;
   const range = (f: RangeField) =>
@@ -43,7 +43,13 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
        <input type="range" id="lab-${f.key}" min="${f.min}" max="${f.max}" step="${f.step}"></label>`;
   root.insertAdjacentHTML(
     "beforeend",
-    `<button class="lab-open" id="lab-open" aria-label="Labor-Einstellungen">⚙</button>
+    `<button class="lab-open" id="lab-open" aria-label="Pause">⏸</button>
+     <dialog class="lab pause" id="pause">
+       <h2>Pause</h2>
+       <button class="lab-close" id="pause-resume">Weiter</button>
+       <button class="pause-btn" id="pause-restart">${s.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen"}</button>
+       <button class="pause-btn" id="pause-settings">Einstellungen</button>
+     </dialog>
      <dialog class="lab" id="lab">
        <form method="dialog">
          <h2>Labor</h2>
@@ -76,11 +82,28 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     saveSettings(cur);
     onChange(cur);
   });
+  const pause = root.querySelector<HTMLDialogElement>("#pause")!;
+  let toSettings = false; // Pause schließt nur, um die Einstellungen zu öffnen → weiter angehalten
   dialog.addEventListener("close", () => onToggle?.(false));
+  pause.addEventListener("close", () => {
+    if (!toSettings) onToggle?.(false);
+    toSettings = false;
+  });
   root.querySelector("#lab-open")!.addEventListener("click", () => {
+    root.querySelector("#pause-restart")!.textContent = cur.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen";
+    pause.showModal();
+    onToggle?.(true);
+  });
+  root.querySelector("#pause-resume")!.addEventListener("click", () => pause.close());
+  root.querySelector("#pause-restart")!.addEventListener("click", () => {
+    onRestart?.();
+    pause.close();
+  });
+  root.querySelector("#pause-settings")!.addEventListener("click", () => {
+    toSettings = true;
+    pause.close();
     fill();
     dialog.showModal();
-    onToggle?.(true);
   });
   fill();
 }

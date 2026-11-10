@@ -118,6 +118,10 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
   raf = requestAnimationFrame(frame);
 
   return {
+    restart() {
+      made = shots = 0;
+      hud.setStats(0, 0);
+    },
     apply(s) {
       settings = s;
       resize();

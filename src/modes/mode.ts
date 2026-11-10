@@ -6,4 +6,6 @@ export interface Mode {
   stop(): void;
   /** Menü offen: Spielzeit und Fristen anhalten */
   setPaused?(paused: boolean): void;
+  /** Pause-Menü: Spielzug neu starten bzw. Statistik zurücksetzen */
+  restart?(): void;
 }

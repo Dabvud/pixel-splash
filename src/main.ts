@@ -17,10 +17,10 @@ const onChange = (s: Settings): void => {
   if (switched) {
     mode.stop();
     mode = start(s);
-    mode.setPaused?.(app.querySelector<HTMLDialogElement>("#lab")?.open ?? false);
+    mode.setPaused?.(Boolean(app.querySelector("dialog[open]")));
   } else {
     mode.apply(s);
   }
 };
 
-createLabMenu(app, settings, onChange, (open) => mode.setPaused?.(open));
+createLabMenu(app, settings, onChange, (open) => mode.setPaused?.(open), () => mode.restart?.());
