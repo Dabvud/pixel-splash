@@ -162,6 +162,33 @@ describe('attachGesture', () => {
     ]);
   });
 
+  it('bricht bei lostpointercapture genau einmal ab und erlaubt danach eine neue Geste', () => {
+    const { onEvent, pointer } = attach();
+    pointer('pointerdown', 1, 120, 550);
+    expect(onEvent).toHaveBeenCalledExactlyOnceWith({ type: 'start' });
+    pointer('lostpointercapture', 1, 120, 550);
+    pointer('lostpointercapture', 1, 120, 550);
+    expect(onEvent.mock.calls).toEqual([
+      [{ type: 'start' }], [{ type: 'cancel' }],
+    ]);
+    pointer('pointerdown', 2, 120, 550);
+    expect(onEvent.mock.calls).toEqual([
+      [{ type: 'start' }], [{ type: 'cancel' }], [{ type: 'start' }],
+    ]);
+  });
+
+  it('ignoriert lostpointercapture nach normalem Loslassen', () => {
+    const { onEvent, now, pointer } = attach();
+    pointer('pointerdown', 1, 120, 550);
+    now.mockReturnValue(800);
+    pointer('pointerup', 1, 120, 450);
+    expect(onEvent.mock.calls).toEqual([
+      [{ type: 'start' }], [{ type: 'release', holdMs: 700, angleDeg: 0 }],
+    ]);
+    pointer('lostpointercapture', 1, 120, 450);
+    expect(onEvent).toHaveBeenCalledTimes(2);
+  });
+
   it('verarbeitet Loslassen außerhalb des Elements nach Pointer Capture', () => {
     const { onEvent, now, pointer } = attach();
     pointer('pointerdown', 1, 120, 550);
@@ -181,27 +208,32 @@ describe('attachGesture', () => {
     ]);
   });
 
-  it('verträgt fehlgeschlagenes Pointer Capture', () => {
-    const { onEvent, now, capture, pointer } = attach();
-    capture.mockImplementation(() => { throw new Error('nicht verfügbar'); });
+  it('meldet bei fehlgeschlagenem Pointer Capture keinen Start und erlaubt danach eine neue Geste', () => {
+    const { el, onEvent, pointer } = attach();
+    const capture = vi.spyOn(el, 'setPointerCapture').mockImplementationOnce(() => {
+      throw new Error('nicht verfügbar');
+    });
     pointer('pointerdown', 1, 120, 550);
-    now.mockReturnValue(800);
-    pointer('pointerup', 1, 120, 450);
-    expect(onEvent.mock.calls).toEqual([
-      [{ type: 'start' }], [{ type: 'release', holdMs: 700, angleDeg: 0 }],
-    ]);
+    expect(onEvent).not.toHaveBeenCalled();
+    capture.mockImplementation(() => {});
+    pointer('pointerdown', 2, 120, 550);
+    expect(onEvent).toHaveBeenCalledExactlyOnceWith({ type: 'start' });
+    expect(capture.mock.calls).toEqual([[1], [2]]);
   });
 
-  it('entfernt alle drei Listener mit der Rückgabefunktion', () => {
+  it('entfernt alle vier Listener mit der Rückgabefunktion', () => {
     const { el, onEvent, detach, pointer } = attach();
     const remove = vi.spyOn(el, 'removeEventListener');
     pointer('pointerdown', 1, 120, 550);
     detach();
     onEvent.mockClear();
+    pointer('lostpointercapture', 1, 120, 550);
     pointer('pointerup', 1, 120, 450);
     pointer('pointercancel', 1, 120, 450);
     pointer('pointerdown', 2, 120, 550);
     expect(onEvent).not.toHaveBeenCalled();
-    expect(remove.mock.calls.map(([type]) => type).sort()).toEqual(['pointercancel', 'pointerdown', 'pointerup']);
+    expect(remove.mock.calls.map(([type]) => type).sort()).toEqual([
+      'lostpointercapture', 'pointercancel', 'pointerdown', 'pointerup',
+    ]);
   });
 });

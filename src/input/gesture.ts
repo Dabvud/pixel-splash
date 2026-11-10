@@ -54,6 +54,8 @@ export function attachGesture(el: HTMLElement, onEvent: (e: GestureEvent) => voi
         el.setPointerCapture(e.pointerId);
       } catch {
         // Der Pointer kann vor dem Einfangen bereits verschwunden sein.
+        tracker.abort(e.pointerId);
+        return;
       }
       onEvent(event);
     }
@@ -73,9 +75,11 @@ export function attachGesture(el: HTMLElement, onEvent: (e: GestureEvent) => voi
   el.addEventListener('pointerdown', down);
   el.addEventListener('pointerup', up);
   el.addEventListener('pointercancel', cancel);
+  el.addEventListener('lostpointercapture', cancel);
   return () => {
     el.removeEventListener('pointerdown', down);
     el.removeEventListener('pointerup', up);
     el.removeEventListener('pointercancel', cancel);
+    el.removeEventListener('lostpointercapture', cancel);
   };
 }

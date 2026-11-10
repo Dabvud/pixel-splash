@@ -15,9 +15,9 @@ export function cameraPose(mode: 'low' | 'high' | 'auto', shooter: Vec3, flightP
   }
   const progress = mode === 'auto' && flightProgress !== null
     ? Math.max(0, Math.min(1, flightProgress)) : 0;
-  // Über die rechte Schulter, damit der Spieler im Hochformat den Korb nicht verdeckt
+  // Auf der Achse Korb→Werfer, damit „gerade nach oben wischen“ auf dem Bildschirm genau auf den Korb zeigt.
   return {
-    pos: { x: shooter.x + ux * 5.2 + uz * 0.7, y: 3 + 1.5 * progress, z: shooter.z + uz * 5.2 - ux * 0.7 },
+    pos: { x: shooter.x + ux * 5.2, y: 3 + 1.5 * progress, z: shooter.z + uz * 5.2 },
     look: { x: RIM.x, y: RIM.y - 0.75 + 0.75 * progress, z: RIM.z },
   };
 }
