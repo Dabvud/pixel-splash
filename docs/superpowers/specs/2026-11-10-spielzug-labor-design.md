@@ -260,3 +260,12 @@ Diese Regeln gehen den Abschnitten oben vor, wo sie sie genauer fassen.
 
 - **Übersichtskamera:** An jedem Entscheidungspunkt (Kamera-Modus „Automatisch“ und „Erhöht“) müssen der Ballführer, alle anspielbaren Mitspieler und der Korb im Bild sein (Hochformat, mit mindestens 8 % Rand). Blickrichtung: von hinter dem Ballführer zum Korb, solange dabei alle Ziele ins Bild passen; steht der Ballführer näher als 4 m am Korb oder liegen Ziele hinter der Kamera, schaut die Kamera vom Schwerpunkt der Mitspieler aus (von weiter hinten und höher) Richtung Korb. Abstand und Höhe werden so gewählt, dass alle Punkte hineinpassen (Sichtfeld 60°). Für Wurf-/Abschluss-Kombis und das Pfeil-Meter beim Catch-and-Shoot gilt weiter die tiefe Kamera auf der Achse Korb → Schütze. Randpfeile bleiben als Rückfall bestehen.
 - **Steal-Chance:** `Grundwert × (0,15 + 0,85 × (1 − q))` mit Grundwert 0,6 (Verteidiger < 0,5 m am Passweg), 0,2 (< 1 m), sonst 0; q = Passgenauigkeit. Die KI-Wahl „Pass“ nutzt q = 0,5.
+
+## Erweiterung: Brett-Kollision und Bankshots (2026-11-10, Nutzerwunsch)
+
+- Neues Ergebnis `bank_in` (Treffer, Banner „BRETT – DRIN“): Der Ball trifft das Brett oberhalb des Rings und fällt in den Korb.
+- **Brett-Fenster:** normierter Timingfehler `t` (zu spät) im Bereich `1,5 ± 0,3·w` und Richtungsfehler `|r| ≤ 0,6` → `bank_in`; hat Vorrang vor den bisherigen Ring-/Brett-Fehlwürfen in diesem Bereich. `w` hängt vom Winkel φ zwischen der Linie Korb→Werfer und der Mittelachse (z-Achse) ab: φ ≤ 10° → 0,5; 20°–60° → 1,0; ≥ 75° → 0 (kein Bankshot aus der Ecke); dazwischen linear.
+- Gilt für Sprungwürfe, Freiwürfe und das Wurf-Labor (Halten + Wischen). Beim Pfeil-Meter gilt das Fenster ebenfalls (r = 0).
+- Anzeige: schmaler weißer Streifen auf der Wurfanzeige an der Stelle des Brett-Fensters (nur wenn w > 0).
+- Flugbahn `bank_in`: Bogen zum Brettpunkt (etwa 0,25 m über dem Ring, seitlich je nach Wurfwinkel gespiegelt versetzt), Abprall, fällt durch den Ring. Korbleger-Treffer von der Seite (φ ≥ 20°) nutzen dieselbe Brett-Bahn.
+- Fehlwürfe ans Brett prallen wie bisher zurück; der Ball durchdringt das Brett in keiner Bahn.
