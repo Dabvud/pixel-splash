@@ -472,7 +472,7 @@ describe('Spielzug-Labor Integration', () => {
     const remaining = aiShootWindow();
     advance(remaining - .5);
     const before = state().clock, snapshot = JSON.stringify(state());
-    expect(document.querySelector('.phud-markers')!.children).toHaveLength(4);
+    expectDecisionMarkers();
     mode.setPaused!(true);
     now += 5000;
     frame(now);
@@ -655,10 +655,20 @@ describe('Spielzug-Labor Integration', () => {
     advance(1 / 60);
     expect(markers.children).toHaveLength(0);
   });
+  function expectDecisionMarkers(): void {
+    const teammates = Object.values(state().actors).filter(a => ACTORS[a.id].team === 'off' && a.id !== state().handler);
+    const markers = document.querySelector('.phud-markers')!;
+    // Werfen + Ziehen + jeder Mitspieler, auch die zusätzlichen Passziele.
+    expect(markers.children).toHaveLength(2 + teammates.length);
+    expect(markers.querySelectorAll('.phud-m-shoot')).toHaveLength(1);
+    expect(markers.querySelectorAll('.phud-m-drive')).toHaveLength(1);
+    expect([...markers.querySelectorAll('.phud-m-pass b')].map(label => label.textContent).sort())
+      .toEqual(teammates.map(a => `#${ACTORS[a.id].num}`).sort());
+  }
   it('zeigt erst am Wegende nach KI-Werfen nur noch den verbindlichen Wurfmarker', () => {
     const remaining = aiShootWindow();
     advance(remaining - .1);
-    expect(document.querySelector('.phud-markers')!.children).toHaveLength(4);
+    expectDecisionMarkers();
     advance(.2);
     expect(state().phase).toBe('decision');
     const markers = document.querySelector('.phud-markers')!;

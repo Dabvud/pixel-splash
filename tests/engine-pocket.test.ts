@@ -72,7 +72,13 @@ describe('Shooting Pocket und Closeout', () => {
     }
   });
   it('sperrt bei q = 0 alle Aktionen für exakt 0,6 Spielsekunden und senkt P', () => {
-    const c = { ...cfg, animSpeed: .5 }, s = receive(0, c), start = s.gameT;
+    const c = { ...cfg, animSpeed: .5 }, s = setup(fixture(), c);
+    command(s, { kind: 'pass', to: 'r50', quality: 0 }, c, safe);
+    // 4 m Passweg: 0,25 + 0,06 × 4 = 0,49 Spielsekunden. Exakt beim Fang
+    // beginnen; receive() beobachtet ihn erst am Ende eines 1/120-s-Schritts.
+    step(s, .49 / c.animSpeed, c, safe);
+    expect(s.phase).toBe('receiving');
+    const start = s.gameT;
     for (const dt of [.59, .009]) {
       step(s, dt / c.animSpeed, c, safe);
       for (const cmd of [{ kind: 'comboStart' }, { kind: 'drive', lane: 0 },

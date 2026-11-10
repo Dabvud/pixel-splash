@@ -49,7 +49,10 @@ describe('Pocket im Spielzug-Labor', () => {
     const emit = (e: GestureEvent | null) => { if (e) gesture(e); };
     const tracker = new GestureTracker({ flicks: true, holdThresholdMs: 200 });
     const vector = (degrees: number, length?: number) => {
-      const h = s.actors[s.handler].pos, a = s.actors.r11.pos;
+      // #50 liegt weniger als 15° neben #11 und ist näher: Seit alle Mitspieler
+      // anspielbar sind, gewinnt er laut Zielwahlregel auch bei einem Wisch auf #11.
+      // Die q-Fälle beziehen sich deshalb auf die Richtung des näheren Empfängers.
+      const h = s.actors[s.handler].pos, a = s.actors.r50.pos;
       const origin = new Vector3(h.x, 1, h.z).project(camera), target = new Vector3(a.x, 1, a.z).project(camera);
       let dx = (target.x - origin.x) * 400, dy = (origin.y - target.y) * 300;
       if (length) { const k = length / Math.hypot(dx, dy); dx *= k; dy *= k; }
@@ -69,7 +72,7 @@ describe('Pocket im Spielzug-Labor', () => {
     expect(vi.mocked(command).mock.calls.some(([, cmd]) => cmd.kind === 'pass')).toBe(false);
     const release = vector(angle);
     emit(tracker.up(1, release.dx, release.dy, now));
-    expect(command).toHaveBeenCalledWith(s, { kind: 'pass', to: 'r11', quality: expect.closeTo(quality, 10) },
+    expect(command).toHaveBeenCalledWith(s, { kind: 'pass', to: 'r50', quality: expect.closeTo(quality, 10) },
       expect.objectContaining({ passDelayMax: .6, closeoutRandom: 1 }), expect.any(Function));
     expect(vi.mocked(command).mock.calls.filter(([, cmd]) => cmd.kind === 'pass')).toHaveLength(1);
     expect(s.phase).toBe('passing');

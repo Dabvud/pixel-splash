@@ -795,8 +795,9 @@ export function step(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () =>
   let left = dtReal;
   while (left > 1e-10 && s.phase !== 'ended') {
     const r = rt(s);
-    // Der Lob-Idealpunkt liegt exakt beim Fangen; die Pass-Verzögerung endet in Spielzeit.
-    const boundary = s.phase === 'passing' && r.pass!.option.lob ? (r.pass!.duration - r.pass!.elapsed) / cfg.animSpeed
+    // Jeden Pass exakt beim Fangen teilen: Fangpunkt und weiterlaufende Wege
+    // müssen denselben Zeitstand haben. Die Pass-Verzögerung endet in Spielzeit.
+    const boundary = s.phase === 'passing' ? (r.pass!.duration - r.pass!.elapsed) / cfg.animSpeed
       : s.phase === 'receiving' ? (r.reception!.delay - r.reception!.elapsed) / cfg.animSpeed : Infinity;
     const dt = Math.min(left, 1 / 120, boundary > 1e-10 ? boundary : Infinity);
     tick(s, dt, cfg, rng, events);

@@ -196,7 +196,13 @@ describe('Alle Mitspieler anspielbar', () => {
       r3: [{ t: 0, x: 20, z: 5, act: 'run' }, { t: 10, x: 22, z: 5, act: 'run' }],
     }, options: [{ kind: 'shoot' }, { kind: 'drive' }] };
     const { s } = setup(p);
-    pass(s, 'r50');
+    command(s, { kind: 'pass', to: 'r50', quality: 1 }, cfg, safe);
+    // 4 m Passweg: exakt beim Fang prüfen, bevor der Rest eines Frames schon
+    // die Fortsetzung bewegt (0,25 + 0,06 × 4 = 0,49 Spielsekunden).
+    step(s, .49 / cfg.animSpeed, cfg, safe);
+    expect(s.handler).toBe('r50');
+    expect(s.phase).toBe('decision');
+    expect(s.actors.r3.pos.x).toBe(-4);
     const start = s.gameT;
     pass(s, 'r11');
     step(s, .2, cfg, safe);
