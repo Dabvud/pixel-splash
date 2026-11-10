@@ -5,7 +5,7 @@ const MARK_MS = 1500;
 
 export function createHud(root: HTMLElement): {
   setMeter(fill: number | null, zones: Zones, fillMax: number, arrow?: boolean, bank?: BankWindow | null): void;
-  markRelease(fill: number, persist?: boolean): void;
+  markRelease(fill: number, persist?: boolean, zones?: Zones): void;
   showResult(r: ShotResult): void;
   setStats(made: number, shots: number): void;
 } {
@@ -34,6 +34,8 @@ export function createHud(root: HTMLElement): {
       bankEl.hidden = fill === null || bank === null;
       if (fill === null) {
         mark.hidden = true;
+        mark.classList.remove("good");
+        arrowEl.classList.remove("released", "good");
         clearTimeout(markTimer);
         return;
       }
@@ -49,7 +51,11 @@ export function createHud(root: HTMLElement): {
         bankEl.style.height = `${(Math.min(bank.hi, max) - Math.min(bank.lo, max)) / max * 100}%`;
       }
     },
-    markRelease(fill, persist = false) {
+    markRelease(fill, persist = false, zones) {
+      const good = zones !== undefined && Math.abs(fill - 1) <= zones.g + 1e-9;
+      mark.classList.toggle("good", good);
+      arrowEl.classList.toggle("good", good);
+      arrowEl.classList.add("released");
       mark.style.bottom = pct(fill);
       mark.hidden = false;
       clearTimeout(markTimer);

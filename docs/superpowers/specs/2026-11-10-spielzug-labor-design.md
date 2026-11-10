@@ -249,10 +249,10 @@ Diese Regeln gehen den Abschnitten oben vor, wo sie sie genauer fassen.
 
 ## Erweiterung: Pfeil-Meter für Alley-oop und Catch-and-Shoot (2026-11-10, Nutzerwunsch)
 
-- **Pfeil-Meter:** Ein Pfeil läuft genau einmal von unten nach oben durch die Anzeige (Dauer = Anzeigedauer der jeweiligen Kombi inkl. ausgewürfeltem Tempo, Lauf bis Füllstand 1,6). Ein Antippen (Finger aufsetzen, beliebige Stelle im Gestenbereich) löst aus; ausgewertet wird nur das Timing (Richtungsfehler r = 0) mit denselben effektiven Zonen wie bisher (Positions-, Foul-, Kontakt-, Lob-Faktor). Keine 200-ms-Schwelle.
+- **Pfeil-Meter:** Ein Pfeil läuft genau einmal von unten nach oben durch die Anzeige (Dauer = Anzeigedauer der jeweiligen Kombi inkl. ausgewürfeltem Tempo, Lauf bis Füllstand 1,6). Auslösung beim Loslassen: Bei Alley-oop, Catch-and-Shoot und Abschluss zählt der Füllstand beim Loslassen ohne Wisch ≥ 30 px (auch nach frühem Auflegen oder kurzem Antippen), beim durchgehenden Ziehen das Loslassen der bereits konsumierten Wischgeste; ein aufliegender Finger verlängert den Durchlauf nicht. Ausgewertet wird nur das Timing (Richtungsfehler r = 0) mit denselben effektiven Zonen wie bisher (Positions-, Foul-, Kontakt-, Lob-Faktor). Keine 200-ms-Schwelle.
 - **Alley-oop (Lob):** Der Pfeil startet automatisch so, dass der Idealpunkt (Füllstand 1) mit dem Fangen am Korb zusammenfällt (Start = Fangzeit − Anzeigedauer, frühestens beim Abspiel). Tipp → Auswertung wie Abschluss (Dunk-Regeln). Kein Tipp bis Laufende → Fehlversuch („VOM RING“ bzw. bei Kontakt „GEBLOCKT“).
 - **Catch-and-Shoot:** Nach jedem gefangenen Pass (kein Lob), sobald die Pass-Verzögerung abgelaufen ist, startet der Pfeil automatisch, wenn der Empfänger die Option Werfen hat. Tipp → Sprungwurf mit dem Wurf-Wert des Empfängers; P wird beim Tipp eingefroren. Kurzwisch währenddessen → Ziehen/Pass wie bisher (Pfeil endet). Läuft der Pfeil ohne Tipp durch, verschwindet er; danach gilt die normale Entscheidung (Halten + Wischen), die Entscheidungsfrist beginnt dann.
-- Ein Tipp (ohne Wisch, kurz) während des Pfeil-Meters darf nicht als Kurzwisch oder Halten gewertet werden; die Auslösung erfolgt beim Aufsetzen.
+- Ein Tipp (ohne Wisch) während des Pfeil-Meters darf nicht als Kurzwisch oder Halten gewertet werden; die Auslösung erfolgt beim Loslassen.
 - Die übrigen Würfe (aus dem Dribbling, Abschluss nach Ziehen, Freiwürfe) bleiben bei Halten + Wischen.
 - HUD: dieselbe Anzeige mit grüner Zone, statt Füllbalken ein wandernder Pfeil (◄) an der Anzeige; nach dem Tipp bleibt die Markierung stehen.
 

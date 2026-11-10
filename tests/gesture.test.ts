@@ -92,6 +92,22 @@ describe('Spielzug-Haltetimer', () => {
 
   afterEach(() => vi.useRealTimers());
 
+  it('leitet drag vor dem Loslassen weiter und unterdrückt danach hold', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const { pointer, onEvent, detach } = setup();
+    pointer('pointerdown');
+    now.mockReturnValue(80);
+    pointer('pointermove', 1, 420);
+    expect(onEvent.mock.calls.flat()).toEqual([
+      { type: 'start' }, { type: 'drag', dx: 0, dy: -80 },
+    ]);
+    now.mockReturnValue(500);
+    pointer('pointerup', 1, 400);
+    expect(onEvent).toHaveBeenLastCalledWith({ type: 'flick', dx: 0, dy: -100, holdMs: 500 });
+    expect(onEvent.mock.calls.flat().some(event => event.type === 'hold')).toBe(false);
+    detach();
+  });
+
   it('liefert hold nach 200 ms per Timer und ignoriert fremde Finger', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
     const { pointer, onEvent, detach } = setup();
@@ -358,6 +374,22 @@ describe('attachGesture', () => {
 
 describe('Ruhe-Regel: Wisch vs. Wurf im Spielzug-Labor', () => {
   const opts = { flicks: true, holdThresholdMs: 200 };
+
+  it('meldet laufende Wischvektoren nur nach der Ruhe-Regel und nur im flicks-Modus', () => {
+    const t = new GestureTracker(opts);
+    t.down(1, 100, 500, 0);
+    expect(t.move(2, 100, 420, 50)).toBeNull();
+    expect(t.move(1, 100, 490, 50)).toBeNull();
+    expect(t.move(1, 100, 470, 80)).toEqual({ type: 'drag', dx: 0, dy: -30 });
+    expect(t.move(1, 100, 420, 450)).toEqual({ type: 'drag', dx: 0, dy: -80 });
+    expect(t.up(1, 100, 400, 500)).toEqual({ type: 'flick', dx: 0, dy: -100, holdMs: 500 });
+    const shot = new GestureTracker();
+    shot.down(1, 100, 500, 0);
+    expect(shot.move(1, 100, 420, 50)).toBeNull();
+    t.down(1, 100, 500, 600);
+    t.poll(800);
+    expect(t.move(1, 100, 420, 900)).toBeNull();
+  });
 
   it('wertet eine frühe Bewegung über 20 px als Wisch, auch wenn sie länger als die Halteschwelle dauert', () => {
     const t = new GestureTracker(opts);

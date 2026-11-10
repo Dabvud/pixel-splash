@@ -73,7 +73,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
         const result = resolveShot({ holdMs: e.holdMs, angleDeg: e.angleDeg }, params());
         shots++;
         if (result.made) made++;
-        hud.markRelease(result.fill);
+        hud.markRelease(result.fill, false, effectiveZones(params()));
         hud.showResult(result);
         hud.setStats(made, shots);
         state = { k: "flying", t0: performance.now(), flight: buildFlight(result.outcome, player.handPos()), fill: result.fill };

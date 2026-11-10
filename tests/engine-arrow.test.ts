@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { command, createPlayState, step } from '../src/play/engine';
+import { command, createPlayState, lastHint, step } from '../src/play/engine';
 import type { EngineConfig, EngineEvent, PlayState } from '../src/play/engine';
 import { PLAYS } from '../src/play/plays';
 import type { Play } from '../src/play/types';
@@ -78,6 +78,34 @@ describe('Pfeil-Timing', () => {
     const s = createPlayState(fixture(), cfg, safe);
     expect(command(s, { kind: 'tap' }, cfg, safe)).toEqual([]);
     expect(s.arrowMeter).toBeNull();
+  });
+});
+
+describe.each([false, true])('Loslassen beim Pass-Pfeil (Lob=%s)', lob => {
+  it('trifft bei frühem Aufsetzen und Loslassen bei Füllstand 1', () => {
+    const s = createPlayState(fixture(lob), cfg, safe);
+    until(s, () => s.phase === 'decision');
+    command(s, { kind: 'finger', down: true }, cfg, safe);
+    command(s, { kind: 'pass', to: 'r50' }, cfg, safe);
+    if (!lob) until(s, () => s.arrowMeter !== null);
+    fill(s, 1);
+    expect(s.arrowMeter!.fill).toBeNull();
+    command(s, { kind: 'tap' }, cfg, safe);
+    command(s, { kind: 'finger', down: false }, cfg, safe);
+    until(s, () => s.phase === 'ended');
+    expect(s.points).toBe(2);
+  });
+  it('verfehlt bei Aufsetzen bei Füllstand 1 und spätem Loslassen', () => {
+    const s = lob ? pass(true) : ready();
+    fill(s, 1);
+    command(s, { kind: 'finger', down: true }, cfg, safe);
+    fill(s, 1.4);
+    command(s, { kind: 'tap' }, cfg, safe);
+    expect(s.arrowMeter!.fill).toBeCloseTo(1.4, 8);
+    if (lob) expect(s.arrowMeter!.feedback).toBe('ZU SPÄT');
+    until(s, () => s.phase === 'ended');
+    expect(s.points).toBe(0);
+    expect(lastHint(s)).toContain('zu spät');
   });
 });
 
@@ -165,16 +193,17 @@ describe('Catch-and-Shoot-Pfeil', () => {
     until(noShot, () => noShot.handler === 'r50');
     expect(noShot.arrowMeter).toBeNull();
   });
-  it('friert P beim Aufsetzen ein und bestätigt den Tipp erst beim Loslassen', () => {
+  it('wertet Füllstand und aktuelles P erst beim Loslassen aus', () => {
     const s = ready();
-    fill(s, 1);
     command(s, { kind: 'finger', down: true }, cfg, safe);
     expect(s.phase).toBe('decision');
     s.actors.b1.pos = { x: 0, z: .1 };
-    step(s, .15, cfg, safe);
+    fill(s, 1);
+    const zones = { ...s.arrowMeter!.zones };
     command(s, { kind: 'tap' }, cfg, safe);
     command(s, { kind: 'finger', down: false }, cfg, safe);
-    expect(s.combo!.P).toBe(1);
+    expect(s.combo!.P).toBeLessThan(1);
+    expect(s.combo!.zones).toEqual(zones);
     expect(s.arrowMeter!.fill).toBeCloseTo(1, 8);
     until(s, () => s.phase === 'ended');
     expect(s.points).toBe(2);
@@ -208,9 +237,14 @@ describe('Catch-and-Shoot-Pfeil', () => {
     command(s, { kind: 'tap' }, c, safe);
     expect(s.arrowMeter!.fill).toBeCloseTo(1, 8);
   });
-  it('begrenzt eine nie beendete Pfeil-Berührung', () => {
-    const s = ready();
+  it('wechselt auch mit aufliegendem Finger ohne Zusatzfrist zur normalen Entscheidung', () => {
+    const s = ready(), m = s.arrowMeter!;
     command(s, { kind: 'finger', down: true }, cfg, safe);
+    const events = step(s, m.startTime + m.meterMs * 1.6 / 1000 - s.realTime + .001, cfg, safe);
+    expect(s.arrowMeter).toBeNull();
+    expect(s.phase).toBe('decision');
+    expect(events).toContainEqual({ type: 'arrowEnd' });
+    expect(command(s, { kind: 'tap' }, cfg, safe)).toEqual([]);
     until(s, () => s.phase === 'ended');
   });
   it('wechselt nach einem getroffenen Pfeilwurf mit Foul zu Freiwürfen mit normaler Halte-Kombi', () => {
@@ -228,24 +262,21 @@ describe('Catch-and-Shoot-Pfeil', () => {
     until(s, () => s.phase === 'ended', c);
     expect(s.points).toBe(3);
   });
-  it('bewahrt einen rechtzeitigen Tipp über das Meterende hinaus und wertet seinen ursprünglichen Füllstand', () => {
+  it('verwirft Aufsetzen vor Meterende, wenn erst nach dem Durchlauf losgelassen wird', () => {
     const s = ready();
     fill(s, 1.55);
     command(s, { kind: 'finger', down: true }, cfg, safe);
     step(s, .15, cfg, safe);
-    command(s, { kind: 'tap' }, cfg, safe);
-    expect(s.phase).toBe('ballflight');
-    expect(s.arrowMeter!.fill).toBeCloseTo(1.55, 8);
-    until(s, () => s.phase === 'ended');
-    expect(s.points).toBe(0);
+    expect(command(s, { kind: 'tap' }, cfg, safe)).toEqual([]);
+    expect(s.phase).toBe('decision');
+    expect(s.arrowMeter).toBeNull();
   });
-  it.each([99, 100, 101])('akzeptiert Aufsetzen nach %s ms nur strikt vor 0:00, auch bei späterem Loslassen', elapsed => {
+  it.each([99, 100, 101])('akzeptiert Loslassen nach %s ms nur strikt vor 0:00', elapsed => {
     const s = ready();
     fill(s, 1 - elapsed / cfg.shot.meterMs);
+    command(s, { kind: 'finger', down: true }, cfg, safe);
     s.clock = .1 * cfg.slowmo;
     step(s, elapsed / 1000, cfg, safe);
-    command(s, { kind: 'finger', down: true }, cfg, safe);
-    step(s, .15, cfg, safe);
     command(s, { kind: 'tap' }, cfg, safe);
     if (elapsed < 100) {
       expect(s.phase).toBe('ballflight');

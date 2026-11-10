@@ -5,6 +5,22 @@ import { GestureTracker } from '../src/input/gesture';
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers(); });
 
 describe('Pfeil-Anzeige', () => {
+  it.each([false, true])('färbt Markierung und eingefrorenen Pfeil nur in der grünen Zone (Pfeil=%s)', arrow => {
+    const hud = createHud(document.body), zones = { g: .07, a: 6 };
+    const mark = document.querySelector<HTMLElement>('.hud-mark')!;
+    const pointer = document.querySelector<HTMLElement>('.hud-arrow')!;
+    for (const [fill, good] of [[1, true], [1.07, true], [1.2, false], [1 + 1.5 * zones.g, false]] as const) {
+      hud.setMeter(fill, zones, 1.6, arrow, { lo: 1.08, hi: 1.14 });
+      hud.markRelease(fill, true, zones);
+      expect(mark.classList.contains('good')).toBe(good);
+      expect(pointer.classList.contains('good')).toBe(good);
+      expect(pointer.classList.contains('released')).toBe(true);
+    }
+    hud.setMeter(null, zones, 1.6, arrow);
+    hud.setMeter(.5, zones, 1.6, arrow);
+    expect(pointer.classList.contains('good')).toBe(false);
+    expect(pointer.classList.contains('released')).toBe(false);
+  });
   it('bewegt den Pfeil statt des Balkens und hält die Tipp-Markierung bis zum Ausblenden', () => {
     vi.useFakeTimers();
     const hud = createHud(document.body), zones = { g: .1, a: 8 };

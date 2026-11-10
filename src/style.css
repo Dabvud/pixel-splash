@@ -111,6 +111,9 @@ body {
   color: var(--accent);
   font: 18px/1 var(--pixel);
 }
+.hud-mark.good { background: var(--good); }
+.hud-arrow.released { color: #fff; }
+.hud-arrow.released.good { color: var(--good); }
 
 .lab-open {
   position: fixed;
@@ -286,6 +289,26 @@ body {
   transform: translate(-50%, -100%);
   animation: phud-handler-bob 1s ease-in-out infinite;
 }
+.phud-finish-feedback {
+  position: fixed;
+  left: calc(50% + 78px);
+  bottom: calc(18% + 15vh);
+  transform: translateX(-100%);
+  font: 10px/1.5 var(--pixel);
+  color: var(--accent);
+  white-space: nowrap;
+  text-shadow: 2px 2px 0 #000;
+}
+.phud-finish-feedback.perfect { color: var(--good); }
+.phud-poster {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: #ffd84a;
+  font: 12px/1 var(--pixel);
+  text-shadow: 2px 2px 0 #000;
+}
+.phud-poster span { position: absolute; left: -6px; top: -6px; }
 @keyframes phud-handler-bob {
   50% { transform: translate(-50%, calc(-100% - 3px)); }
 }
@@ -293,6 +316,9 @@ body {
   .phud-handler span {
     animation: none;
   }
+  .phud-poster span:nth-child(1) { transform: translate(18px, 0) !important; }
+  .phud-poster span:nth-child(2) { transform: translate(-9px, 6px) !important; }
+  .phud-poster span:nth-child(3) { transform: translate(-9px, -6px) !important; }
 }
 .phud-flash {
   position: absolute;

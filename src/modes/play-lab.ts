@@ -11,7 +11,7 @@ import type { Look } from "../figure/raster";
 import { ACTORS } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
-import { command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
+import { actorHead, command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
 import { positionValue } from "../play/position";
 import { laneFromAngle, passQuality, pickTargetWithAngle, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
@@ -75,6 +75,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let comboT0: number | null = null; // Echtzeit-Start der sichtbaren Anzeige
   let releasedFill: number | null = null;
   let arrowTouch: ArrowMeter | null = null;
+  let touchActive = false;
+  let driveTouch = false; // Dieselbe Berührung darf nach dem Ziehen nur noch das Meter auslösen.
   let endedAt: number | null = null;
   let menuOpen = false;
   let camHold = 0; // Sekunden, in denen nach einem Ballwechsel keine Kombi startet
@@ -101,6 +103,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     options = [];
     comboT0 = releasedFill = endedAt = null;
     arrowTouch = null;
+    touchActive = driveTouch = false;
     lastHandler = s.handler;
     camHold = 0;
     camInit = false;
@@ -108,6 +111,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     detach = menuOpen ? () => {} : attach();
     hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
     phud.setMarkers([]);
+    phud.setFinishFeedback(null);
+    phud.setPoster(0, 0, false);
     phud.setSituation(`4. VIERTEL · ${formatPlayClock(s.clock, false)} · −${s.deficit}`, s.play.name);
     phud.setScoreboard(s.clock, s.deficit, s.points);
     showStats();
@@ -126,7 +131,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       else if (e.type === "arrowStart") {
         comboT0 = releasedFill = null;
         hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
-      } else if (e.type === "arrowTap") hud.markRelease(e.fill, true);
+      } else if (e.type === "arrowTap") {
+        hud.markRelease(e.fill, true, s.arrowMeter?.zones);
+        phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
+      }
       else if (e.type === "arrowEnd") hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
       else if (e.type === "pass" || e.type === "caught") options = [];
       else if (e.type === "pocket") {
@@ -152,10 +160,28 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         st.points += s.points;
         st.turnovers += s.turnovers;
         showStats();
-        hud.showResult({ banner: e.verdict, hint: s.banner ?? "", made: e.verdict !== "VERLOREN" } as ShotResult);
+        hud.showResult({ banner: e.verdict, hint: [s.banner, lastHint(s)].filter(Boolean).join(" · "), made: e.verdict !== "VERLOREN" } as ShotResult);
         endedAt = activeNow;
       }
     }
+  }
+
+  function swipeTarget(dx: number, dy: number): ReturnType<typeof pickTargetWithAngle> {
+    const h = s.actors[s.handler], origin = screen(h.pos.x, 1, h.pos.z);
+    const targets: ScreenTarget[] = [];
+    for (const o of options) {
+      if (o.kind === "pass" && o.to) {
+        const a = s.actors[o.to];
+        targets.push({ id: o.to, ...screen(a.pos.x, 1, a.pos.z), distM: Math.hypot(a.pos.x - h.pos.x, a.pos.z - h.pos.z) });
+      } else if (o.kind === "drive") targets.push({ id: "rim", ...screen(0, 3.05, 0), distM: Math.hypot(h.pos.x, h.pos.z) });
+    }
+    return pickTargetWithAngle(origin, { dx, dy }, targets);
+  }
+
+  function endTouch(): void {
+    arrowTouch = null;
+    touchActive = driveTouch = false;
+    handle(command(s, { kind: "finger", down: false }, cfg(), rng));
   }
 
   function onGesture(e: GestureEvent): void {
@@ -166,21 +192,40 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     if (s.phase === "ended") return;
     const c = cfg();
     if (e.type === "start") {
+      touchActive = true;
+      driveTouch = false;
+      arrowTouch = s.arrowMeter?.fill === null ? s.arrowMeter : null;
       handle(command(s, { kind: "finger", down: true }, c, rng));
-      arrowTouch = s.arrowMeter?.fill === null && s.realTime >= s.arrowMeter.startTime ? s.arrowMeter : null;
+      return;
+    }
+    if (!touchActive) return;
+    // Ein bereits aufliegender Finger gehört auch zum später gestarteten Meter.
+    if (!arrowTouch && s.arrowMeter?.fill === null) arrowTouch = s.arrowMeter;
+    if (e.type === "drag") {
+      if (!driveTouch && s.phase === "decision" && !s.combo && Math.hypot(e.dx, e.dy) >= 60
+        && (!arrowTouch || arrowTouch.kind === "catchshoot")) {
+        const target = swipeTarget(e.dx, e.dy);
+        if (target?.id === "rim") {
+          handle(command(s, { kind: "drive", lane: laneFromAngle(target.angleDeg) }, c, rng));
+          if (s.phase !== "decision") { driveTouch = true; arrowTouch = null; }
+        }
+      }
       return;
     }
     if (arrowTouch) {
-      // Erst beim Loslassen unterscheiden wir Tipp und Kurzwisch. Die Engine hat
-      // Zeitpunkt und P bereits beim Aufsetzen gesichert, auch über das Laufende hinaus.
       if (e.type === "hold") { advanceTo(now); return; }
-      const flick = e.type === "flick" && arrowTouch.kind === "catchshoot";
-      if (e.type === "tap" && arrowTouch === s.arrowMeter) handle(command(s, { kind: "tap" }, c, rng));
-      arrowTouch = null;
+      const flick = e.type === "flick" && arrowTouch.kind === "catchshoot" && !driveTouch;
+      // Beim durchgehenden Ziehen ist der ursprüngliche Wisch bereits konsumiert.
+      const release = e.type === "tap" || (driveTouch && (e.type === "flick" || e.type === "release"));
+      if (release && arrowTouch === s.arrowMeter) handle(command(s, { kind: "tap" }, c, rng));
       if (!flick) {
-        handle(command(s, { kind: "finger", down: false }, c, rng));
+        endTouch();
         return;
       }
+    }
+    if (driveTouch) {
+      if (e.type !== "hold") endTouch();
+      return;
     }
     if (e.type === "hold") {
       const canCombo =
@@ -195,17 +240,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       return;
     }
     if (e.type === "flick" && s.phase === "decision" && !s.combo) {
-      const h = s.actors[s.handler];
-      const origin = screen(h.pos.x, 1, h.pos.z);
-      const targets: ScreenTarget[] = [];
-      for (const o of options) {
-        if (o.kind === "pass" && o.to) {
-          const a = s.actors[o.to];
-          targets.push({ id: o.to, ...screen(a.pos.x, 1, a.pos.z), distM: Math.hypot(a.pos.x - h.pos.x, a.pos.z - h.pos.z) });
-        } else if (o.kind === "drive") targets.push({ id: "rim", ...screen(0, 3.05, 0), distM: Math.hypot(h.pos.x, h.pos.z) });
-      }
-      const swipe = { dx: e.dx, dy: e.dy };
-      const target = pickTargetWithAngle(origin, swipe, targets);
+      const target = swipeTarget(e.dx, e.dy);
       if (target?.id === "rim") {
         const lane = laneFromAngle(target.angleDeg);
         handle(command(s, { kind: "drive", lane }, c, rng));
@@ -213,19 +248,19 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     } else if (e.type === "release" && s.combo && comboT0 !== null) {
       const holdMs = Math.max(0, activeNow - comboT0);
       releasedFill = Math.min(holdMs / s.combo.meterMs, MAX_FILL);
-      hud.markRelease(releasedFill, true);
+      hud.markRelease(releasedFill, true, s.combo.zones);
       handle(command(s, { kind: "comboRelease", holdMs, angleDeg: e.angleDeg }, c, rng));
     } else if (e.type === "cancel" || e.type === "tap") {
       comboT0 = null;
     }
     // Loslassen wird zuerst ausgewertet; ohne Release bedeutet Finger-Ende einen Abbruch.
-    handle(command(s, { kind: "finger", down: false }, c, rng));
+    endTouch();
   }
   const attach = () => attachGesture(stage, onGesture,
     () => {
       if (menuOpen) return true;
       advanceTo(performance.now());
-      if (s.arrowMeter?.fill === null && s.realTime >= s.arrowMeter.startTime) return false;
+      if (s.arrowMeter?.fill === null) return false;
       return camHold > 0 || !["decision", "takeoff", "freethrows", "combo"].includes(s.phase);
     },
     { flicks: true, holdThresholdMs: HOLD_MS });
@@ -316,6 +351,16 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const feet = screen(h.pos.x, 0, h.pos.z);
     phud.setRing(feet.x, feet.y, colorRing ? (s.combo ? s.combo.P : positionValue(h.pos, defenders)) : null, showPlayer);
     phud.setHandler(head.x, head.y, showPlayer);
+    phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
+    const poster = s.poster;
+    // Nach ended steht die Engine-Zeit; die Ergebnisanzeige nutzt weiter aktive
+    // Echtzeit. Dadurch verschwinden die Sterne auch während dieses Banners.
+    const posterElapsed = poster ? s.realTime - poster.startedAt
+      + (endedAt === null ? 0 : (activeNow - endedAt) / 1000) : 0;
+    if (poster && posterElapsed < 1.5) {
+      const p = actorHead(s.actors[poster.defender]), projected = screen(p.x, p.y + .25, p.z);
+      phud.setPoster(projected.x, projected.y, true, posterElapsed);
+    } else phud.setPoster(0, 0, false);
 
     if (s.arrowMeter && s.realTime >= s.arrowMeter.startTime) {
       const meter = s.arrowMeter;
@@ -350,8 +395,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       if (p) {
         detach();
         detach = () => {};
-        arrowTouch = null;
-        handle(command(s, { kind: "finger", down: false }, cfg(), rng));
+        endTouch();
         if (releasedFill === null) comboT0 = null;
       } else detach = attach();
       menuOpen = p;

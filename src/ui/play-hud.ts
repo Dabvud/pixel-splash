@@ -1,3 +1,5 @@
+import type { FinishFeedback } from '../play/engine';
+
 export interface Marker {
   kind: "shoot" | "drive" | "pass";
   /** Bildschirmposition in CSS-Pixeln; außerhalb des Bildes wird ein Randpfeil gezeigt */
@@ -26,6 +28,8 @@ export function createPlayHud(root: HTMLElement): {
   setMarkers(markers: Marker[]): void;
   setRing(x: number, y: number, P: number | null, visible: boolean): void;
   setHandler(x: number, y: number, visible: boolean): void;
+  setFinishFeedback(word: FinishFeedback | null): void;
+  setPoster(x: number, y: number, visible: boolean, elapsed?: number): void;
   setDecision(frac: number | null): void;
   flash(text: string): void;
   dispose(): void;
@@ -40,6 +44,8 @@ export function createPlayHud(root: HTMLElement): {
     <div class="phud-sit" hidden><div class="phud-sit-top"></div><div class="phud-sit-name"></div></div>
     <div class="phud-ring" hidden></div>
     <div class="phud-handler" hidden><span>▼</span></div>
+    <div class="phud-finish-feedback" role="status" hidden></div>
+    <div class="phud-poster" aria-label="Benommen" hidden><span>★</span><span>★</span><span>★</span></div>
     <div class="phud-flash" hidden></div>
     <div class="phud-decision" hidden><div></div></div>
     <div class="phud-markers"></div>`;
@@ -47,6 +53,8 @@ export function createPlayHud(root: HTMLElement): {
   const q = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
   const sit = q(".phud-sit"), ring = q(".phud-ring"), fl = q(".phud-flash"), dec = q(".phud-decision"), box = q(".phud-markers");
   const handler = q(".phud-handler");
+  const feedback = q('.phud-finish-feedback'), poster = q('.phud-poster');
+  const stars = [...poster.querySelectorAll<HTMLElement>('span')];
   const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue');
   const markerNodes: { el: HTMLDivElement; icon: HTMLElement; label: HTMLElement }[] = [];
   let flashTimer = 0;
@@ -106,6 +114,20 @@ export function createPlayHud(root: HTMLElement): {
       handler.hidden = !visible;
       if (visible) handler.style.transform = `translate(${x}px, ${y}px)`;
     },
+    setFinishFeedback(word) {
+      feedback.hidden = word === null;
+      feedback.textContent = word;
+      feedback.classList.toggle('perfect', word === 'PERFEKT');
+    },
+    setPoster(x, y, visible, elapsed = 0) {
+      poster.hidden = !visible;
+      if (!visible) return;
+      poster.style.transform = `translate(${x}px, ${y}px)`;
+      stars.forEach((star, i) => {
+        const angle = elapsed * Math.PI * 2 + i * Math.PI * 2 / 3;
+        star.style.transform = `translate(${Math.cos(angle) * 18}px, ${Math.sin(angle) * 7}px)`;
+      });
+    },
     setDecision(frac) {
       dec.hidden = frac === null;
       if (frac !== null) (dec.firstElementChild as HTMLElement).style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
@@ -122,3 +144,4 @@ export function createPlayHud(root: HTMLElement): {
     },
   };
 }
+

@@ -3,7 +3,7 @@ import { MOVES, moveFrames } from '../figure/moves';
 import { buildFinishFlight } from '../shot/finish-path';
 import { bankWindow, effectiveZones, MAX_FILL, resolveShot } from '../shot/resolve';
 import type { BankWindow, ShotParams, ShotResult, Zones } from '../shot/resolve';
-import { buildFlight } from '../shot/trajectory';
+import { buildFlight, targetPoint } from '../shot/trajectory';
 import type { Flight, Vec3 } from '../shot/trajectory';
 import { finishBanner, finishKind, foulChance, freeThrowCount, meterDuration, shotKindAt, verdict, zoneFactor } from './finish';
 import type { ShotKind } from './finish';
@@ -26,14 +26,17 @@ export interface ActorState { id: string; pos: Vec2; y: number; facing: number; 
 export interface ArrowMeter {
   kind: 'alleyoop' | 'catchshoot' | 'finish'; startTime: number; meterMs: number; zones: Zones;
   bankWindow: BankWindow | null;
-  fill: number | null; // null = läuft; nach dem Tipp bleibt der Füllstand stehen
+  fill: number | null; // null = läuft; nach dem Loslassen bleibt der Füllstand stehen
+  feedback: FinishFeedback | null;
 }
+export type FinishFeedback = 'PERFEKT' | 'ZU FRÜH' | 'ZU SPÄT' | 'ZU LANGSAM';
 export interface PlayState {
   play: Play; variant: string; deficit: number; phase: Phase; gameT: number; clock: number; handler: string;
   actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number;
   combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
+  poster: { defender: string; startedAt: number } | null;
 }
 export type Command = { kind: 'pass'; to: string; quality?: number } | { kind: 'drive'; lane: -1 | 0 | 1 } | { kind: 'comboStart' }
   | { kind: 'comboRelease'; holdMs: number; angleDeg: number } | { kind: 'finger'; down: boolean } | { kind: 'tap' };
@@ -56,7 +59,7 @@ interface Drive { from: Vec2; to: Vec2; duration: number; elapsed: number }
 interface Shot {
   result: ShotResult; kind: ShotKind; fouled: boolean; ft: boolean; elapsed: number; delay: number;
   flight?: Flight; from: Vec2; defender?: string; defenderFrom?: Vec2;
-  lob: boolean;
+  lob: boolean; timedOut: boolean;
 }
 interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams; foulRoll: number }
 interface ArrowInput { holdMs: number; P: number }
@@ -67,7 +70,7 @@ interface Runtime {
   lob?: boolean;
   reception?: Reception;
   comboWait?: { phase: 'decision' | 'takeoff' | 'freethrows'; elapsed: number };
-  arrow?: ComboData & { pressed?: ArrowInput; tapped?: ArrowInput };
+  arrow?: ComboData & { tapped?: ArrowInput; timedOut?: boolean };
 }
 // Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
 const runtimes = new WeakMap<PlayState, Runtime>();
@@ -93,11 +96,18 @@ function frame(a: ActorState): number {
 }
 
 function hand(a: ActorState): Vec3 {
-  const f = frame(a), h = poses[a.move][f][MOVES[a.move].ballHand ?? 'haR'];
+  return jointPosition(a, MOVES[a.move].ballHand ?? 'haR');
+}
+
+function jointPosition(a: ActorState, joint: 'head' | 'haL' | 'haR'): Vec3 {
+  const h = poses[a.move][frame(a)][joint];
   const size = ACTORS[a.id].heightM, co = Math.cos(a.facing), si = Math.sin(a.facing);
   return { x: a.pos.x + size * (h.x * co + h.z * si), y: a.y + size * h.y,
     z: a.pos.z + size * (h.x * si - h.z * co) };
 }
+
+/** Tatsächlicher Kopf der aktuellen Pose, auch beim liegenden Verteidiger. */
+export function actorHead(a: ActorState): Vec3 { return jointPosition(a, 'head'); }
 
 function heldBall(s: PlayState): void {
   const a = s.actors[s.handler];
@@ -134,6 +144,7 @@ function activityMove(act: Activity, moving: boolean): MoveId {
 function updatePaths(s: PlayState, previous: number): void {
   const r = rt(s), paths = { ...r.segment.paths, ...r.variant.defPaths[r.segment.id] };
   for (const a of Object.values(s.actors)) {
+    if (a.move === 'knocked_down') continue;
     if (s.freeThrows || (['receiving', 'driving', 'ballflight', 'combo', 'takeoff'].includes(s.phase) && a.id === s.handler)
       || (s.phase === 'receiving' && a.id === r.reception?.closeout?.id)
       || (s.phase === 'ballflight' && a.id === r.shot?.defender)) continue;
@@ -187,7 +198,7 @@ export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => numbe
   const s: PlayState = {
     play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0,
-    combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null,
+    combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null,
   };
   runtimes.set(s, { segment, variant, segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
   for (const id of play.actors) {
@@ -272,7 +283,7 @@ function clearArrow(s: PlayState, events: EngineEvent[]): void {
 function startArrow(s: PlayState, kind: ArrowMeter['kind'], startTime: number, data: ComboData, events: EngineEvent[]): void {
   rt(s).arrow = data;
   s.arrowMeter = { kind, startTime, meterMs: data.combo.meterMs, zones: data.combo.zones,
-    bankWindow: data.combo.bankWindow, fill: null };
+    bankWindow: data.combo.bankWindow, fill: null, feedback: null };
   events.push({ type: 'arrowStart', kind });
   if (kind === 'alleyoop') events.push({ type: 'combo', fouled: data.combo.fouled, contact: data.combo.kind === 'contact_dunk' });
 }
@@ -302,10 +313,14 @@ function arrowInput(s: PlayState): ArrowInput | undefined {
 function tapArrow(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const m = s.arrowMeter, a = rt(s).arrow;
   if (!m || !a || m.fill !== null) return;
-  const input = a.pressed ?? arrowInput(s);
+  const input = arrowInput(s);
   if (!input) return;
   a.tapped = input;
   m.fill = Math.min(MAX_FILL, input.holdMs / m.meterMs);
+  if (m.kind !== 'catchshoot') {
+    const result = resolveShot({ holdMs: input.holdMs, angleDeg: 0 }, a.params, () => 1);
+    m.feedback = Math.abs(result.t) <= 1 + 1e-9 ? 'PERFEKT' : result.t < -1 ? 'ZU FRÜH' : 'ZU SPÄT';
+  }
   events.push({ type: 'arrowTap', fill: m.fill });
   if (m.kind === 'catchshoot') {
     refreshCatchArrow(s, input.P, cfg);
@@ -313,6 +328,16 @@ function tapArrow(s: PlayState, cfg: EngineConfig, rng: () => number, events: En
     events.push({ type: 'combo', fouled: a.combo.fouled, contact: false });
   }
   if (s.phase !== 'passing') startShot(s, { holdMs: input.holdMs, angleDeg: 0 }, rng);
+}
+
+function timeoutFinishArrow(s: PlayState, rng: () => number, events: EngineEvent[]): void {
+  const m = s.arrowMeter!, data = rt(s).arrow!;
+  m.fill = MAX_FILL;
+  m.feedback = 'ZU LANGSAM';
+  data.timedOut = true;
+  data.tapped = { holdMs: m.meterMs * MAX_FILL, P: data.combo.P };
+  events.push({ type: 'arrowTap', fill: MAX_FILL });
+  if (s.phase !== 'passing') startShot(s, { holdMs: data.tapped.holdMs, angleDeg: 0 }, rng);
 }
 
 function catchLob(s: PlayState, rng: () => number, events: EngineEvent[]): void {
@@ -436,10 +461,15 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
   move(h, id, true);
   const nearest = !s.freeThrows && defenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
   const defender = nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
-  if (defender) { move(defender, combo.fouled ? 'contact' : 'block_jump', true); defender.facing = facingTo(defender.pos, h.pos); }
+  if (defender) {
+    move(defender, combo.kind === 'contact_dunk' && !result.made ? 'block_jump' : combo.fouled ? 'contact' : 'block_jump', true);
+    defender.facing = facingTo(defender.pos, h.pos);
+  }
   r.shot = { result, kind: combo.kind, fouled: combo.fouled, ft: s.freeThrows !== null,
-    elapsed: 0, delay: finishing ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
-    from: { ...h.pos }, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false };
+    elapsed: 0, delay: combo.kind === 'contact_dunk' && !result.made ? .3
+      : finishing ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
+    from: { ...h.pos }, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false,
+    timedOut: r.arrow?.timedOut ?? false };
   phase(s, 'ballflight');
   heldBall(s);
 }
@@ -448,8 +478,6 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
   const events: EngineEvent[] = [], r = rt(s);
   if (s.phase === 'ended') return events;
   if (cmd.kind === 'finger') {
-    if (cmd.down && !s.fingerDown && r.arrow) r.arrow.pressed = arrowInput(s);
-    if (!cmd.down && r.arrow) r.arrow.pressed = undefined;
     if (!cmd.down && s.fingerDown && s.phase === 'combo' && r.comboWait) {
       const wait = r.comboWait, elapsed = wait.elapsed + r.realT;
       phase(s, wait.phase);
@@ -518,6 +546,7 @@ function lineUp(s: PlayState, dtReal: number): void {
   const shooter = s.freeThrows!.shooter;
   let i = 0;
   for (const a of Object.values(s.actors)) {
+    if (a.move === 'knocked_down') continue;
     const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75, z: 1.2 + Math.floor(i / 2) * 0.6 };
     if (a.id !== shooter) i++;
     const d = distance(a.pos, to), stepM = 8 * dtReal;
@@ -550,18 +579,22 @@ function freeThrow(s: PlayState, events: EngineEvent[]): void {
 function finishShot(s: PlayState, events: EngineEvent[]): void {
   const shot = rt(s).shot!, { result, kind, fouled, ft } = shot;
   if (result.made) s.points += ft ? 1 : kind === 'three' ? 3 : 2;
-  s.banner = result.outcome === 'bank_in'
+  s.banner = shot.timedOut ? kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING'
+    : result.outcome === 'bank_in'
     ? `${!ft && s.assisted ? 'ASSIST + ' : ''}${result.banner}${!ft && fouled ? ' + AND-ONE' : ''}`
     : ft ? result.made ? 'TREFFER' : 'DANEBEN' : finishBanner(kind, result.made, fouled, s.assisted);
   events.push({ type: 'result', banner: s.banner, made: result.made });
   s.combo = null;
   clearArrow(s, events);
-  for (const a of Object.values(s.actors)) { a.y = 0; move(a, ACTORS[a.id].team === 'def' ? 'defend' : 'idle'); }
+  for (const a of Object.values(s.actors)) {
+    if (a.move === 'knocked_down') continue;
+    a.y = 0; move(a, ACTORS[a.id].team === 'def' ? 'defend' : 'idle');
+  }
   if (ft) {
     s.freeThrows!.left--;
     if (s.freeThrows!.left > 0) freeThrow(s, events); else end(s, events);
   } else {
-    const count = freeThrowCount(kind, result.made, fouled);
+    const count = shot.timedOut ? 0 : freeThrowCount(kind, result.made, fouled);
     if (count) { s.freeThrows = { shooter: s.handler, left: count }; freeThrow(s, events); }
     else end(s, events);
   }
@@ -571,23 +604,38 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
   const shot = rt(s).shot!, a = s.actors[s.handler], m = MOVES[a.move];
   shot.elapsed += dt;
   const t = shot.elapsed;
+  const blocked = shot.kind === 'contact_dunk' && !shot.result.made && shot.defender !== undefined;
+  if (shot.kind === 'contact_dunk' && shot.result.made && shot.defender && !s.poster
+    && t + 1e-9 >= MOVES.contact_dunk.rimFrame! / MOVES.contact_dunk.fps) {
+    const d = s.actors[shot.defender];
+    d.y = 0;
+    move(d, 'knocked_down', true);
+    s.poster = { defender: d.id, startedAt: s.realTime };
+  }
   if (t >= Math.max(1.1, shot.delay + .2) && shot.flight) {
     a.y = 0;
     move(a, 'idle');
-    if (shot.defender) { const d = s.actors[shot.defender]; d.y = 0; move(d, 'defend'); }
+    if (shot.defender) {
+      const d = s.actors[shot.defender];
+      if (d.move !== 'knocked_down') { d.y = 0; move(d, 'defend'); }
+    }
     s.ball = shot.flight.at(t - shot.delay);
     if (t >= shot.delay + shot.flight.duration) finishShot(s, events);
     return;
   }
-  const f = frame(a), isDunk = shot.kind === 'dunk' || shot.kind === 'contact_dunk';
-  if (isDunk) {
+  const isDunk = shot.kind === 'dunk' || shot.kind === 'contact_dunk';
+  if (isDunk && !blocked) {
     const contactT = m.rimFrame! / m.fps;
-    const reach = poses[a.move][f][m.ballHand!];
-    a.y = Math.max(0, 3.05 - reach.y * ACTORS[a.id].heightM) * (shot.lob ? 1 : Math.min(1, t / contactT));
+    const target = shot.result.made ? { x: 0, y: 3.05, z: 0 }
+      : targetPoint(shot.result.outcome === 'airball' ? 'rim_front' : shot.result.outcome, { ...shot.from, y: 0 });
     const targetHand = poses[a.move][m.rimFrame!][m.ballHand!], size = ACTORS[a.id].heightM;
+    // Bis zum Ringkontakt steigen, anschließend landen; wechselnde Handposen
+    // dürfen den Fußversatz nicht schon während des Absprungs absenken.
+    const jump = Math.max(0, target.y - targetHand.y * size);
+    a.y = jump * (t <= contactT ? t / contactT : Math.max(0, (1.1 - t) / (1.1 - contactT)));
     const co = Math.cos(a.facing), si = Math.sin(a.facing), progress = Math.min(1, t / contactT);
-    a.pos = { x: mix(shot.from.x, -size * (targetHand.x * co + targetHand.z * si), progress),
-      z: mix(shot.from.z, -size * (targetHand.x * si - targetHand.z * co), progress) };
+    a.pos = { x: mix(shot.from.x, target.x - size * (targetHand.x * co + targetHand.z * si), progress),
+      z: mix(shot.from.z, target.z - size * (targetHand.x * si - targetHand.z * co), progress) };
   } else {
     a.pos = { ...shot.from };
     a.y = Math.max(0, Math.sin(Math.PI * Math.min(1, t / 1.1))) * (shot.kind === 'layup' ? .35 : .25);
@@ -595,8 +643,10 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
   if (shot.fouled) a.pos.x += .12 * Math.sin(Math.PI * Math.min(1, t / 1.1));
   if (shot.defender) {
     const d = s.actors[shot.defender];
-    d.y = shot.fouled ? 0 : .3 * Math.max(0, Math.sin(Math.PI * Math.min(1, t / .8)));
-    if (shot.fouled && shot.defenderFrom) {
+    if (blocked) d.moveT = Math.min(t, shot.delay);
+    if (d.move !== 'knocked_down') d.y = shot.fouled && !blocked ? 0
+      : .3 * Math.max(0, Math.sin(Math.PI * Math.min(1, (blocked ? Math.min(t, shot.delay) : t) / .8)));
+    if (shot.fouled && !blocked && d.move !== 'knocked_down' && shot.defenderFrom) {
       const from = shot.defenderFrom, len = distance(from, shot.from) || 1, p = Math.min(1, t / .4) * .15;
       d.pos = { x: from.x + (shot.from.x - from.x) / len * p, z: from.z + (shot.from.z - from.z) / len * p };
     }
@@ -604,7 +654,8 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
   if (t < shot.delay - 1e-9) { heldBall(s); return; }
   if (!shot.flight) {
     const release = hand(a);
-    shot.flight = shot.kind === 'layup' || isDunk ? buildFinishFlight(shot.kind as 'layup' | 'dunk' | 'contact_dunk', shot.result.outcome, release, .1)
+    shot.flight = shot.kind === 'layup' || isDunk ? buildFinishFlight(shot.kind as 'layup' | 'dunk' | 'contact_dunk', shot.result.outcome, release, .1,
+      { from: { ...shot.from, y: 0 }, block: blocked ? hand(s.actors[shot.defender!]) : undefined })
       : buildFlight(shot.result.outcome, release);
   }
   s.ball = shot.flight.at(Math.max(0, t - shot.delay));
@@ -630,8 +681,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     if (s.clock < 1e-10) s.clock = 0;
   }
   const finishing = s.combo && s.combo.kind !== 'jump2' && s.combo.kind !== 'three';
-  const pendingTap = s.arrowMeter?.kind === 'catchshoot' && r.arrow?.pressed;
-  if (s.clock <= 0 && !s.freeThrows && oldPhase !== 'ballflight' && !pendingTap && !(finishing && (oldPhase === 'takeoff' || oldPhase === 'combo'))) {
+  if (s.clock <= 0 && !s.freeThrows && oldPhase !== 'ballflight' && !(finishing && (oldPhase === 'takeoff' || oldPhase === 'combo'))) {
     end(s, events, 'ZEIT ABGELAUFEN'); return;
   }
   for (const a of Object.values(s.actors)) a.moveT += dt;
@@ -697,6 +747,8 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     a.pos = { x: mix(d.from.x, d.to.x, f), z: mix(d.from.z, d.to.z, f) };
     if (f >= 1) takeoff(s, cfg, rng, events);
   } else if (oldPhase === 'takeoff') {
+    // Nur die Wartepose einfrieren. startShot setzt Bild 0 und ballflight
+    // spielt danach mit normalem Spieltempo (ohne Entscheidungs-Zeitlupe).
     s.actors[s.handler].moveT = 0;
     if (!s.arrowMeter && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) miss(s, events, r.aiSelected ? 'ZU LANGE GEZÖGERT' : 'VERLEGT');
   } else if (oldPhase === 'combo') {
@@ -707,12 +759,12 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   } else if (oldPhase === 'ballflight') shotAnimation(s, dt, events);
   const meter = s.arrowMeter;
   if (meter && meter.fill === null) {
-    if (meter.kind === 'catchshoot') refreshCatchArrow(s, r.arrow?.pressed?.P ?? currentP(s), cfg);
+    if (meter.kind === 'catchshoot') refreshCatchArrow(s, currentP(s), cfg);
     const endTime = meter.startTime + meter.meterMs * MAX_FILL / 1000;
-    // Aufsetzzeit bleibt bis zur Bestätigung gültig; ein verlorener Pointer kann nichts aufhalten.
-    if (s.realTime + 1e-9 >= endTime && (!r.arrow?.pressed || s.realTime >= endTime + cfg.decisionS)) {
-      if (r.arrow?.pressed) s.fingerDown = false;
-      if (meter.kind !== 'catchshoot') miss(s, events, r.arrow!.combo.kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING');
+    // Auch ein aufliegender Finger verlängert den einmaligen Durchlauf nicht.
+    if (s.realTime + 1e-9 >= endTime) {
+      s.fingerDown = false;
+      if (meter.kind !== 'catchshoot') timeoutFinishArrow(s, rng, events);
       else { clearArrow(s, events); decision(s, events); }
     }
   }

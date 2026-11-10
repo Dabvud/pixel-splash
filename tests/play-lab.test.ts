@@ -10,7 +10,9 @@ import { MAX_FILL } from '../src/shot/resolve';
 import type { Mode } from '../src/modes/mode';
 import { ACTORS } from '../src/play/teams';
 import { PLAYS } from '../src/play/plays';
-import { playCameraPose } from '../src/render/camera-pose';
+import { finishCameraPose, playCameraPose } from '../src/render/camera-pose';
+import { MOVES, moveFrames } from '../src/figure/moves';
+import { frameAt } from '../src/render/actors';
 
 vi.mock('../src/render/scene', async () => {
   const THREE = await import('three');
@@ -21,7 +23,10 @@ vi.mock('../src/figure/atlas', async () => {
   const THREE = await import('three');
   return { buildAtlas: () => ({ texture: new THREE.Texture(), uv: () => [0, 0, 1, 1] }) };
 });
-vi.mock('../src/render/actors', () => ({ createActors: () => ({ sync: vi.fn(), dispose: vi.fn() }) }));
+vi.mock('../src/render/actors', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/render/actors')>(),
+  createActors: () => ({ sync: vi.fn(), dispose: vi.fn() }),
+}));
 vi.mock('../src/input/gesture', () => ({ attachGesture: vi.fn(() => vi.fn()) }));
 vi.mock('../src/play/engine', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/play/engine')>();
@@ -49,6 +54,78 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('projiziert Poster-Sterne über den liegenden Kopf, pausiert ihre Frist und entfernt sie nach 1,5 s auch in ended', () => {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    const stage = document.querySelector<HTMLElement>('#stage')!;
+    Object.defineProperties(stage, { clientWidth: { value: 800 }, clientHeight: { value: 600 } });
+    const s = state(), d = s.actors.b1;
+    s.phase = 'ballflight';
+    s.poster = { defender: d.id, startedAt: s.realTime };
+    d.move = 'knocked_down'; d.moveT = .35; d.y = 0; d.facing = .7;
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; return []; });
+    advance(1 / 60);
+    const stars = document.querySelector<HTMLElement>('.phud-poster')!;
+    const f = Math.min(MOVES.knocked_down.frames - 1, Math.floor(d.moveT * MOVES.knocked_down.fps));
+    const head = moveFrames('knocked_down')[f].head, size = ACTORS[d.id].heightM;
+    const v = new Vector3(d.pos.x + size * (head.x * Math.cos(d.facing) + head.z * Math.sin(d.facing)),
+      size * head.y + .25, d.pos.z + size * (head.x * Math.sin(d.facing) - head.z * Math.cos(d.facing)))
+      .project(look.mock.contexts.at(-1) as PerspectiveCamera);
+    const sign = v.z > 1 ? -1 : 1;
+    expect(stars.hidden).toBe(false);
+    expect(stars.style.transform).toBe(`translate(${(v.x * sign + 1) / 2 * 800}px, ${(1 - v.y * sign) / 2 * 600}px)`);
+    advance(.6);
+    mode.setPaused!(true); advance(5); mode.setPaused!(false);
+    expect(stars.hidden).toBe(false);
+    vi.mocked(step).mockImplementationOnce(() => {
+      s.phase = 'ended'; return [{ type: 'end', verdict: 'OVERTIME' }];
+    });
+    advance(.7);
+    expect(stars.hidden).toBe(false);
+    advance(.3);
+    expect(stars.hidden).toBe(true);
+    expect(d.move).toBe('knocked_down');
+  });
+
+  it('zeigt das Abschlusswort sofort beim Loslassen, hält Pfeil und Markierung bis result und räumt beim Neustart auf', () => {
+    advance(2.3);
+    const s = state(), c = vi.mocked(step).mock.calls.at(-1)![2];
+    command(s, { kind: 'drive', lane: 0 }, c, () => 1);
+    for (let i = 0; i < 300 && s.phase !== 'takeoff'; i++) advance(1 / 60);
+    expect(s.phase).toBe('takeoff');
+    gesture({ type: 'start' });
+    advance(1 / 60);
+    const feedback = document.querySelector<HTMLElement>('.phud-finish-feedback')!;
+    const arrow = document.querySelector<HTMLElement>('.hud-arrow')!;
+    const mark = document.querySelector<HTMLElement>('.hud-mark')!;
+    expect(feedback.hidden).toBe(true);
+    expect(mark.hidden).toBe(true);
+    expect(s.phase).toBe('takeoff');
+    gesture({ type: 'tap' });
+    expect(feedback.textContent).toBe('ZU FRÜH');
+    expect(feedback.hidden).toBe(false);
+    frame(now);
+    const bottom = arrow.style.bottom;
+    advance(.4);
+    expect(arrow.style.bottom).toBe(bottom);
+    expect(mark.style.bottom).toBe(bottom);
+    expect(mark.hidden).toBe(false);
+    for (let i = 0; i < 400 && s.phase !== 'ended'; i++) {
+      if (s.phase === 'freethrows') {
+        gesture({ type: 'start' }); gesture({ type: 'hold' });
+        now += s.combo!.meterMs;
+        gesture({ type: 'release', holdMs: s.combo!.meterMs + 200, angleDeg: 0 });
+      }
+      advance(1 / 60);
+    }
+    expect(s.phase).toBe('ended');
+    expect(feedback.hidden).toBe(true);
+    expect(document.querySelector('.hud-hint')!.textContent).toContain(actualEngine.lastHint(s));
+    expect(document.querySelector<HTMLElement>('#hud-meter')!.hidden).toBe(true);
+    mode.restart!(); advance(1 / 60);
+    expect(feedback.hidden).toBe(true);
+    expect(document.querySelector<HTMLElement>('.phud-poster')!.hidden).toBe(true);
+  });
+
   it('zeigt das Brett-Fenster aus der Engine bei Halte-Kombi und Pfeil', () => {
     advance(2.3);
     gesture({ type: 'start' });
@@ -164,19 +241,116 @@ describe('Spielzug-Labor Integration', () => {
     expect(s.arrowMeter?.kind).toBe('catchshoot');
     return s;
   }
-  it('bestätigt den Pfeil-Tipp beim Loslassen mit Aufsetzzeit und hält seine Markierung fest', () => {
-    const s = catchArrow();
+  function swipeTo(id: string): { dx: number; dy: number } {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    const stage = document.querySelector<HTMLElement>('#stage')!;
+    Object.defineProperties(stage, { clientWidth: { value: 800, configurable: true }, clientHeight: { value: 600, configurable: true } });
+    advance(1 / 60);
+    const s = state(), camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+    const h = s.actors[s.handler].pos, to = id === 'rim' ? { x: 0, z: 0 } : s.actors[id].pos;
+    const origin = new Vector3(h.x, 1, h.z).project(camera);
+    const target = new Vector3(to.x, id === 'rim' ? 3.05 : 1, to.z).project(camera);
+    const dx = (target.x - origin.x) * 400, dy = (origin.y - target.y) * 300, len = Math.hypot(dx, dy);
+    return { dx: dx / len * 80, dy: dy / len * 80 };
+  }
+  it.each([false, true])('zieht ohne Loslassen und löst bei Füllstand 1 aus (vorher abheben=%s)', liftEarly => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, fouls: 'off', camera: 'low' });
+    advance(2.3);
+    const s = state();
+    swipeTo('rim'); // Sichtbare Bühne und aktuelle Kamera auch für die laufende Zielwahl.
+    gesture({ type: 'start' });
+    gesture({ type: 'drag', dx: 0, dy: -59 });
+    expect(s.phase).toBe('decision');
+    gesture({ type: 'drag', dx: 0, dy: -80 });
+    expect(s.phase).toBe('driving');
+    expect(s.fingerDown).toBe(true);
+    if (liftEarly) {
+      gesture({ type: 'flick', dx: 0, dy: -80, holdMs: 100 });
+      expect(s.phase).toBe('driving');
+      expect(s.fingerDown).toBe(false);
+    }
+    for (let i = 0; i < 300 && s.phase !== 'takeoff'; i++) advance(1 / 60);
+    expect(s.phase).toBe('takeoff');
+    expect(s.arrowMeter!.fill).toBeNull();
+    expect(s.fingerDown).toBe(!liftEarly);
+    if (liftEarly) {
+      advance(.1);
+      expect(s.arrowMeter!.fill).toBeNull();
+      gesture({ type: 'start' });
+    }
     now += (s.arrowMeter!.startTime + s.arrowMeter!.meterMs / 1000 - s.realTime) * 1000;
+    gesture(liftEarly ? { type: 'tap' } : { type: 'flick', dx: 0, dy: -80, holdMs: 1500 });
+    expect(s.phase).toBe('ballflight');
+    expect(s.arrowMeter!.fill).toBeCloseTo(1, 8);
+    expect(s.arrowMeter!.feedback).toBe('PERFEKT');
+    expect(s.fingerDown).toBe(false);
+    for (let i = 0; i < 300 && s.phase !== 'ended'; i++) advance(1 / 60);
+    expect(s.points).toBe(2);
+  });
+  it('wartet bei 80 px Richtung Mitspieler bis zum Loslassen und nutzt den Gesamtvektor', () => {
+    advance(2.3);
+    const s = state(), vector = swipeTo('r50');
+    gesture({ type: 'start' });
+    gesture({ type: 'drag', ...vector });
+    expect(s.phase).toBe('decision');
+    expect(s.fingerDown).toBe(true);
+    gesture({ type: 'flick', dx: vector.dx * 1.5, dy: vector.dy * 1.5, holdMs: 100 });
+    expect(s.phase).toBe('passing');
+    expect(s.arrowMeter).toBeNull();
+    for (let i = 0; i < 120 && s.handler !== 'r50'; i++) advance(1 / 60);
+    expect(s.handler).toBe('r50');
+  });
+  it('startet Ziehen auch beim Catch-and-Shoot mit 80 px schon vor dem Loslassen', () => {
+    const s = catchArrow(), vector = swipeTo('rim');
+    gesture({ type: 'start' });
+    gesture({ type: 'drag', ...vector });
+    expect(s.phase).toBe('driving');
+    expect(s.fingerDown).toBe(true);
+    expect(s.arrowMeter).toBeNull();
+  });
+  it.each([false, true])('zeigt nach tap alle Abschlussbilder und hält finishCameraPose bis result (halten=%s)', hold => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, fouls: 'off' });
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    advance(2.3);
+    const s = state(), c = vi.mocked(step).mock.calls.at(-1)![2];
+    command(s, { kind: 'drive', lane: 0 }, c, () => 1);
+    for (let i = 0; i < 300 && s.phase !== 'takeoff'; i++) advance(1 / 60);
+    const a = s.actors[s.handler], expected = finishCameraPose(a.pos);
+    if (hold) gesture({ type: 'start' });
+    now += (s.arrowMeter!.startTime + s.arrowMeter!.meterMs / 1000 - s.realTime) * 1000;
+    if (!hold) gesture({ type: 'start' });
+    gesture({ type: 'tap' });
+    const move = a.move, started = s.gameT, indices = [frameAt(move, a.moveT)];
+    expect(indices).toEqual([0]);
+    for (let i = 0; i < 300 && s.phase === 'ballflight'; i++) {
+      advance(1 / 60);
+      if (s.phase !== 'ballflight') break;
+      const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+      expect(camera.fov).toBeCloseTo(expected.fov, 0);
+      expect(Math.atan2(camera.position.x, camera.position.z)).toBeCloseTo(Math.atan2(expected.pos.x, expected.pos.z), 8);
+      expect(camera.position.y).toBeCloseTo(expected.pos.y, 0);
+      if (a.move === move) {
+        const index = frameAt(move, a.moveT);
+        if (index !== indices.at(-1)) indices.push(index);
+      }
+    }
+    expect(s.gameT - started).toBeGreaterThanOrEqual(.6);
+    expect(indices).toEqual(Array.from({ length: MOVES[move].frames }, (_, i) => i));
+    expect(s.points).toBe(2);
+  });
+  it('bestätigt den Pfeil-Tipp mit Loslasszeit und hält seine grüne Markierung fest', () => {
+    const s = catchArrow();
     gesture({ type: 'start' });
     expect(s.phase).toBe('decision');
-    now += 120;
-    frame(now);
+    now += (s.arrowMeter!.startTime + s.arrowMeter!.meterMs / 1000 - s.realTime) * 1000;
     gesture({ type: 'tap' });
     frame(now);
     expect(s.phase).toBe('ballflight');
     expect(s.arrowMeter!.fill).toBeCloseTo(1, 8);
     const arrow = document.querySelector<HTMLElement>('.hud-arrow')!;
     const mark = document.querySelector<HTMLElement>('.hud-mark')!;
+    expect(mark.classList.contains('good')).toBe(true);
+    expect(arrow.classList.contains('good')).toBe(true);
     expect(arrow.hidden).toBe(false);
     const bottom = arrow.style.bottom;
     expect(mark.style.bottom).toBe(bottom);

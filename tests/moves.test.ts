@@ -7,7 +7,7 @@ import type { Joint, Pose } from '../src/figure/skeleton';
 const counts: Record<MoveId, number> = {
   idle: 2, run: 8, dribble: 6, dribble_run: 8, pass: 6, catch: 4,
   jumpshot: 6, layup: 8, dunk: 8, contact_dunk: 8, defend: 6,
-  block_jump: 6, contact: 4,
+  block_jump: 6, contact: 4, knocked_down: 4,
 };
 const ids = Object.keys(counts) as MoveId[];
 const bones: [Joint, Joint][] = [
@@ -46,7 +46,7 @@ describe('Bewegungen', () => {
     }
   });
 
-  it.each(ids)('%s hat den Kopf oben, mit Ausnahme der angehobenen Hände beim Abschluss oder Block', (id) => {
+  it.each(ids.filter(id => id !== 'knocked_down'))('%s hat den Kopf oben, mit Ausnahme der angehobenen Hände beim Abschluss oder Block', (id) => {
     // Korbleger und Kontakt-Dunk verlangen laut Spec ebenfalls Arme über dem Kopf.
     const overhead = ['jumpshot', 'layup', 'dunk', 'contact_dunk', 'block_jump'].includes(id);
     const hands: Joint[] = ['haL', 'haR'];
@@ -76,6 +76,19 @@ describe('Bewegungen', () => {
       const hand = MOVES[id].ballHand;
       expect(ballHandAt(id, frame)).toEqual(hand === null ? null : p[hand]);
     });
+  });
+
+  it('knocked_down zeigt getroffen, fallend und zweimal liegend mit Kopf und Becken unter 0,25 Körpergrößen', () => {
+    const frames = moveFrames('knocked_down');
+    expect(frames[0].head.y).toBeGreaterThan(frames[1].head.y);
+    expect(frames[1].head.y).toBeGreaterThan(frames[2].head.y);
+    for (const p of frames.slice(2)) {
+      expect(p.head.y).toBeLessThan(.25);
+      expect(p.pelvis.y).toBeLessThan(.25);
+      for (const j of JOINTS) expect(p[j].y).toBeGreaterThanOrEqual(0);
+    }
+    expect(frames[3]).toEqual(frames[2]);
+    expect(MOVES.knocked_down.ballHand).toBeNull();
   });
 
   it.each(['layup', 'dunk', 'contact_dunk'] as const)('%s benennt das Ring- bzw. Loslassbild mit hochgestreckter Ballhand', (id) => {

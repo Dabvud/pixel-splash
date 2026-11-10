@@ -16,7 +16,7 @@ function expectPoint(actual: Vec3, expected: Vec3): void {
 
 describe('Seitlicher Korbleger-Bogen (φ ≈ 26,6°)', () => {
   it.each(outcomes)('erreicht für %s nach 0,4–0,5 Sekunden den spezifizierten Zielpunkt', (outcome) => {
-    const expectedOutcome = made.includes(outcome) ? 'bank_in' : outcome;
+    const expectedOutcome = made.includes(outcome) ? 'bank_in' : outcome === 'airball' ? 'rim_front' : outcome;
     const target = targetPoint(expectedOutcome, release);
     const flight = buildFinishFlight('layup', outcome, release, rimContactS);
     expect(flight.arcEnd).toBeGreaterThanOrEqual(0.4);
@@ -26,7 +26,7 @@ describe('Seitlicher Korbleger-Bogen (φ ≈ 26,6°)', () => {
     expect(Math.max(...heights)).toBeGreaterThan(Math.max(release.y, target.y));
   });
 
-  it.each(outcomes)('führt Fallen, Abpraller und Aufspringen für %s mit der passenden buildFlight-Bahn fort', (outcome) => {
+  it.each(outcomes.filter(o => !['airball', 'board', 'rim_back'].includes(o)))('führt Fallen, Abpraller und Aufspringen für %s mit der passenden buildFlight-Bahn fort', (outcome) => {
     const flight = buildFinishFlight('layup', outcome, release, rimContactS);
     const original = buildFlight(made.includes(outcome) ? 'bank_in' : outcome, release);
     const remaining = original.duration - original.arcEnd;
@@ -82,6 +82,39 @@ for (const kind of ['layup', 'dunk', 'contact_dunk'] as const) {
     });
   });
 }
+
+describe('Abschlussbahn zeigt den Timingfehler', () => {
+  for (const kind of ['layup', 'dunk', 'contact_dunk'] as const) {
+    it.each(['rim_front', 'airball'] as const)(`${kind}: %s prallt am vorderen Ring zum Werfer zurück`, outcome => {
+      for (const from of [{ x: 0, y: 3.1, z: 1.2 }, { x: -1, y: 3.1, z: 1 }]) {
+        const flight = buildFinishFlight(kind, outcome, from, .3);
+        const contact = flight.at(flight.arcEnd), end = flight.at(flight.duration);
+        expect(contact.y).toBeCloseTo(RIM.y, 8);
+        expect(contact.x * from.x + contact.z * from.z).toBeGreaterThan(0);
+        expect(end.x * from.x + end.z * from.z).toBeGreaterThan(.3);
+      }
+    });
+    it.each(['rim_back', 'board'] as const)(`${kind}: %s prallt hinter dem Ring nach oben ab und landet hinten`, outcome => {
+      const from = { x: 0, y: 3.1, z: 1.2 }, flight = buildFinishFlight(kind, outcome, from, .3);
+      const contact = flight.at(flight.arcEnd);
+      expect(contact.z).toBeLessThan(0);
+      expect(flight.at(flight.arcEnd + .1).y).toBeGreaterThan(contact.y);
+      expect(flight.at(flight.duration).z).toBeLessThan(0);
+    });
+  }
+
+  it('stoppt den Kontakt-Dunk an der Blockhand und fällt zur Werferseite weg', () => {
+    const from = { x: 0, y: 2.8, z: 1.2 }, block = { x: .1, y: 2.9, z: .7 };
+    const flight = buildFinishFlight('contact_dunk', 'rim_front', from, .2, { block, from });
+    expectPoint(flight.at(flight.arcEnd), block);
+    for (let i = 0; i <= 500; i++) {
+      const p = flight.at(flight.duration * i / 500);
+      expect(p.y).toBeLessThanOrEqual(block.y);
+      expect(p.z).toBeGreaterThanOrEqual(block.z);
+    }
+    expect(flight.at(flight.duration).z).toBeGreaterThan(from.z);
+  });
+});
 
 for (const kind of ['dunk', 'contact_dunk'] as const) {
   describe(`Ringkontakt ${kind}`, () => {

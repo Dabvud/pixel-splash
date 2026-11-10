@@ -3,6 +3,7 @@ export type GestureEvent =
   | { type: 'release'; holdMs: number; angleDeg: number }
   | { type: 'cancel' }
   | { type: 'tap' }
+  | { type: 'drag'; dx: number; dy: number }
   | { type: 'flick'; dx: number; dy: number; holdMs: number }
   | { type: 'hold'; startedAt?: number };
 export interface GestureOptions { flicks: boolean; holdThresholdMs: number }
@@ -28,10 +29,12 @@ export class GestureTracker {
     return { type: 'start' };
   }
 
-  move(id: number, x: number, y: number, t: number): void {
+  move(id: number, x: number, y: number, t: number): GestureEvent | null {
     const p = this.pointer;
-    if (!p || p.id !== id || this.held || t - p.t >= this.opts.holdThresholdMs) return;
-    if (Math.hypot(x - p.x, y - p.y) > REST_PX) this.moved = true;
+    if (!p || p.id !== id || this.held) return null;
+    const dx = x - p.x, dy = y - p.y;
+    if (t - p.t < this.opts.holdThresholdMs && Math.hypot(dx, dy) > REST_PX) this.moved = true;
+    return this.opts.flicks && this.moved ? { type: 'drag', dx, dy } : null;
   }
 
   poll(t: number, id = this.pointer?.id): GestureEvent | null {
@@ -121,7 +124,8 @@ export function attachGesture(el: HTMLElement, onEvent: (e: GestureEvent) => voi
 
   function moved(e: PointerEvent): void {
     const bounds = el.getBoundingClientRect();
-    tracker.move(e.pointerId, e.clientX - bounds.left, e.clientY - bounds.top, performance.now());
+    const event = tracker.move(e.pointerId, e.clientX - bounds.left, e.clientY - bounds.top, performance.now());
+    if (event) onEvent(event);
   }
 
   function cancel(e: PointerEvent): void {

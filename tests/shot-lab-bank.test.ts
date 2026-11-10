@@ -16,6 +16,17 @@ vi.mock('../src/input/gesture', () => ({ attachGesture: vi.fn(() => vi.fn()) }))
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); document.body.replaceChildren(); });
 
 describe('Brett-Fenster im Wurf-Labor', () => {
+  it.each([1, 1.2])('färbt die Loslass-Markierung bei Füllstand %s nach der angezeigten Zone', fill => {
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const mode = startShotLab(document.body, { ...DEFAULTS, greenZone: .07 });
+    const gesture = vi.mocked(attachGesture).mock.calls.at(-1)![1];
+    gesture({ type: 'start' });
+    gesture({ type: 'release', holdMs: DEFAULTS.meterMs * fill, angleDeg: 0 });
+    expect(document.querySelector('.hud-mark')!.classList.contains('good')).toBe(fill === 1);
+    mode.stop();
+  });
   it.each(['wing_l', 'corner_l', 'ft'] as const)('zeigt und wertet vom Spot %s dasselbe Fenster', spot => {
     let frame: FrameRequestCallback = () => {};
     vi.spyOn(performance, 'now').mockReturnValue(0);

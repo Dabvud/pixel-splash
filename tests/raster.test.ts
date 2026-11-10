@@ -56,6 +56,19 @@ describe('32×64 Figurenraster mit Füßen in Zeile 62', () => {
     const rows = (heightM: number) => new Set(pixels(rasterPose(project(idle, 'back'), { ...look, heightM }, 'back')).map(p => p.y)).size;
     expect(rows(2.13)).toBeGreaterThan(rows(1.88));
   });
+  it.each(['back', 'front', 'left', 'right'] as Dir[])('hält die liegende Pose auch bei 2,13 m vollständig in der Atlas-Zelle: %s', dir => {
+    const p = project(moveFrames('knocked_down')[3], dir);
+    const size = 2.13 * 16;
+    // Einschließlich Kopf/Haaren, Schuhen und Umriss.
+    for (const [joint, point] of Object.entries(p)) {
+      const padding = joint === 'head' ? 5 : 3;
+      const x = CELL_W / 2 + point.u * size;
+      expect(x - padding).toBeGreaterThanOrEqual(0);
+      expect(x + padding).toBeLessThan(CELL_W);
+    }
+    const image = rasterPose(p, { ...look, heightM: 2.13 }, dir);
+    expect(pixels(image, [27, 20, 16, 255]).length).toBeGreaterThan(0);
+  });
   it('zeichnet nach project die größere kameranahe Tiefe zuletzt', () => {
     const p = project(idle, 'right');
     // Überlagerte Arme mit verschiedenen Tiefen machen die Reihenfolge messbar.

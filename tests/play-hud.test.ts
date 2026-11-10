@@ -35,6 +35,33 @@ describe('Digitale Anzeigetafel', () => {
 });
 
 describe('Spielzug-Optionsmarker', () => {
+  it('zeigt das Abschlusswort neben dem Meter, PERFEKT grün, und entfernt es beim Ergebnis', () => {
+    const hud = createPlayHud(document.body);
+    for (const word of ['PERFEKT', 'ZU FRÜH', 'ZU SPÄT', 'ZU LANGSAM'] as const) {
+      hud.setFinishFeedback(word);
+      const feedback = document.querySelector<HTMLElement>('.phud-finish-feedback')!;
+      expect(feedback.hidden).toBe(false);
+      expect(feedback.textContent).toBe(word);
+      expect(feedback.classList.contains('perfect')).toBe(word === 'PERFEKT');
+    }
+    hud.setFinishFeedback(null);
+    expect(document.querySelector<HTMLElement>('.phud-finish-feedback')!.hidden).toBe(true);
+    hud.dispose();
+  });
+
+  it('positioniert drei Sterne an der projizierten Kopfposition und blendet sie aus', () => {
+    const hud = createPlayHud(document.body);
+    hud.setPoster(123, 234, true);
+    const stars = document.querySelector<HTMLElement>('.phud-poster')!;
+    expect(stars.hidden).toBe(false);
+    expect(stars.style.transform).toBe('translate(123px, 234px)');
+    expect(stars.querySelectorAll('span')).toHaveLength(3);
+    expect(stars.textContent).toBe('★★★');
+    hud.setPoster(0, 0, false);
+    expect(stars.hidden).toBe(true);
+    hud.dispose();
+  });
+
   it('verwendet Marker und Unterelemente wieder und mutiert unveränderte Frames nicht', () => {
     const hud = createPlayHud(document.body);
     const markers = [{ kind: 'pass' as const, x: 100, y: 120, label: '#50' }];

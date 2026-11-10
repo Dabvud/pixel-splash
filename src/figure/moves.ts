@@ -1,7 +1,7 @@
 import { framesFromKeys } from './skeleton';
 import type { Pose, V3 } from './skeleton';
 
-export type MoveId = 'idle'|'run'|'dribble'|'dribble_run'|'pass'|'catch'|'jumpshot'|'layup'|'dunk'|'contact_dunk'|'defend'|'block_jump'|'contact';
+export type MoveId = 'idle'|'run'|'dribble'|'dribble_run'|'pass'|'catch'|'jumpshot'|'layup'|'dunk'|'contact_dunk'|'defend'|'block_jump'|'contact'|'knocked_down';
 export interface MoveDef { frames: number; fps: number; loop: boolean; keys: Pose[]; ballHand: 'haL' | 'haR' | null; rimFrame?: number }
 
 type Limb = [upperPitch: number, lowerPitch: number, upperSpread?: number, lowerSpread?: number];
@@ -81,6 +81,20 @@ function dunkKeys(contact: boolean): Pose[] {
   ];
 }
 
+function knockedDownKeys(): Pose[] {
+  // Den ganzen Körper drehen: Segmentlängen bleiben beim Fallen erhalten.
+  // Angezogene Beine halten die liegende Figur innerhalb der Atlas-Zelle.
+  const base = pose({ arms: [[25, 90], [25, 90]], legs: [[70, -70], [70, -70]] });
+  return [0, 50, 90, 90].map(degrees => {
+    const angle = rad(degrees), co = Math.cos(angle), si = Math.sin(angle);
+    return Object.fromEntries(Object.entries(base).map(([joint, p]) => [joint, {
+      x: p.x,
+      y: .14 + .36 * co + (p.y - .5) * co + p.z * si,
+      z: .18 * si - (p.y - .5) * si + p.z * co,
+    }])) as Pose;
+  });
+}
+
 export const MOVES: Record<MoveId, MoveDef> = {
   idle: { frames: 2, fps: 10, loop: true, ballHand: null, keys: [
     pose(), pose({ height: 0.505 }),
@@ -139,6 +153,7 @@ export const MOVES: Record<MoveId, MoveDef> = {
     pose({ height: 0.45, forward: 0.09, lean: 12, legs: [[45, 0], [0, -45]], arms: [[75, 80], [75, 80]] }),
     pose({ height: 0.46, forward: 0.09, lean: 8, legs: [[30, -15], [15, -30]], arms: [[60, 95], [60, 95]] }),
   ] },
+  knocked_down: { frames: 4, fps: 10, loop: false, ballHand: null, keys: knockedDownKeys() },
 };
 
 export function moveFrames(id: MoveId): Pose[] {
