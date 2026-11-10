@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { PerspectiveCamera, Vector3 } from 'three';
 import { cameraPose } from '../src/render/camera-pose';
+import { RIM } from '../src/shot/trajectory';
 
 const top = { x: 0, y: 0, z: 6.9 };
 const corner = { x: -6.6, y: 0, z: 0.5 };
@@ -85,5 +87,48 @@ describe('Spielzug-Kamera', () => {
     expect(pose.pos.x).toBeCloseTo(0, 6);
     expect(pose.pos.z).toBeGreaterThan(0);
     expect(Number.isFinite(pose.pos.z)).toBe(true);
+  });
+
+  it.each([{ x: 0, z: 1.2 }, { x: .72, z: .96 }, { x: -1.2, z: 0 }])(
+    'hält aim bei 1,2 m auf der Korbachse mit mindestens 7 m Abstand für %j', handler => {
+      const pose = playCameraPose('aim', handler);
+      onAxis(pose, handler);
+      expect(Math.hypot(pose.pos.x - handler.x, pose.pos.z - handler.z)).toBeCloseTo(7.5, 8);
+      expect(Math.hypot(pose.pos.x - handler.x, pose.pos.z - handler.z)).toBeGreaterThanOrEqual(7);
+      expect(pose.pos.y).toBeCloseTo(4.2, 8);
+      expect(pose.look).toEqual({ x: RIM.x, y: 2.6, z: RIM.z });
+    },
+  );
+
+  it.each([3, 3.25, 3.5, 3.75, 4, 5])('blendet aim bei %s m linear zur bisherigen Pose über', d => {
+    const handler = { x: d * .6, z: d * .8 };
+    const pose = playCameraPose('aim', handler), t = Math.min(1, d - 3);
+    onAxis(pose, handler);
+    expect(pose.pos.x).toBeCloseTo(.6 * (d + 7.5 + (5.2 - 7.5) * t), 8);
+    expect(pose.pos.z).toBeCloseTo(.8 * (d + 7.5 + (5.2 - 7.5) * t), 8);
+    expect(pose.pos.y).toBeCloseTo(4.2 + (3 - 4.2) * t, 8);
+    expect(pose.look.y).toBeCloseTo(2.6 + (RIM.y - .75 - 2.6) * t, 8);
+    expect(pose.fov).toBe(50);
+  });
+
+  it.each([top, wing, corner])('zeigt wide im Hochformat mit Ballführer im unteren Drittel und Korb im Bild für %j', handler => {
+    const pose = playCameraPose('wide', handler);
+    const camera = new PerspectiveCamera(pose.fov, 390 / 844, .1, 100);
+    camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
+    camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
+    camera.updateMatrixWorld(true);
+    const feet = new Vector3(handler.x, 0, handler.z).project(camera);
+    const center = new Vector3(handler.x, 1, handler.z).project(camera);
+    const head = new Vector3(handler.x, 2.2, handler.z).project(camera);
+    const rim = new Vector3(RIM.x, RIM.y, RIM.z).project(camera);
+    expect(pose.fov).toBe(60);
+    for (const point of [feet, center, head, rim]) {
+      for (const coordinate of [point.x, point.y, point.z]) {
+        expect(coordinate).toBeGreaterThanOrEqual(-1);
+        expect(coordinate).toBeLessThanOrEqual(1);
+      }
+    }
+    // NDC-y -1/3 entspricht 2/3 der Bildhöhe von oben.
+    expect(center.y).toBeLessThanOrEqual(-1 / 3);
   });
 });

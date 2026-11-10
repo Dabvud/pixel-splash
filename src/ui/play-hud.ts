@@ -13,7 +13,8 @@ export function createPlayHud(root: HTMLElement): {
   setSituation(top: string | null, name?: string): void;
   setClock(text: string): void;
   setMarkers(markers: Marker[]): void;
-  setRing(x: number, y: number, P: number | null): void;
+  setRing(x: number, y: number, P: number | null, visible: boolean): void;
+  setHandler(x: number, y: number, visible: boolean): void;
   setDecision(frac: number | null): void;
   flash(text: string): void;
   dispose(): void;
@@ -23,12 +24,14 @@ export function createPlayHud(root: HTMLElement): {
   el.innerHTML = `<div class="phud-clock"></div>
     <div class="phud-sit" hidden><div class="phud-sit-top"></div><div class="phud-sit-name"></div></div>
     <div class="phud-ring" hidden></div>
+    <div class="phud-handler" hidden><span>▼</span></div>
     <div class="phud-flash" hidden></div>
     <div class="phud-decision" hidden><div></div></div>
     <div class="phud-markers"></div>`;
   root.append(el);
   const q = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
   const sit = q(".phud-sit"), ring = q(".phud-ring"), fl = q(".phud-flash"), dec = q(".phud-decision"), box = q(".phud-markers");
+  const handler = q(".phud-handler");
   let flashTimer = 0;
 
   return {
@@ -41,6 +44,8 @@ export function createPlayHud(root: HTMLElement): {
       q(".phud-clock").textContent = text;
     },
     setMarkers(markers) {
+      // display:grid der Marker übersteuert das native hidden; unbenutzte Knoten entfernen.
+      while (box.children.length > markers.length) box.lastElementChild!.remove();
       while (box.children.length < markers.length) box.append(document.createElement("div"));
       [...box.children].forEach((c, i) => {
         const d = c as HTMLElement;
@@ -58,11 +63,15 @@ export function createPlayHud(root: HTMLElement): {
         d.innerHTML = `<i style="transform:rotate(${rot}rad)">${off || m.kind === "drive" ? "➤" : m.kind === "shoot" ? "◎" : ""}</i>${m.label ? `<b>${m.label}</b>` : ""}`;
       });
     },
-    setRing(x, y, P) {
-      ring.hidden = P === null;
-      if (P === null) return;
+    setRing(x, y, P, visible) {
+      ring.hidden = !visible;
+      if (!visible) return;
       ring.style.transform = `translate(${x}px, ${y}px)`;
-      ring.style.borderColor = `hsl(${Math.round(P * 120)} 85% 55%)`; // rot → gelb → grün
+      ring.style.borderColor = P === null ? "white" : `hsl(${Math.round(P * 120)} 85% 55%)`; // rot → gelb → grün
+    },
+    setHandler(x, y, visible) {
+      handler.hidden = !visible;
+      if (visible) handler.style.transform = `translate(${x}px, ${y}px)`;
     },
     setDecision(frac) {
       dec.hidden = frac === null;

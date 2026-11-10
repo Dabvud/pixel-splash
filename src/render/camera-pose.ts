@@ -26,12 +26,15 @@ export function cameraPose(mode: 'low' | 'high' | 'auto', shooter: Vec3, flightP
 // Beide stehen auf der Achse Korb→Ballführer, damit „gerade nach oben wischen“ immer zum Korb zeigt.
 export function playCameraPose(view: 'wide' | 'aim', handler: { x: number; z: number }): Pose & { fov: number } {
   const distance = Math.hypot(handler.x, handler.z);
-  const ux = distance > 0.5 ? handler.x / distance : 0;
-  const uz = distance > 0.5 ? handler.z / distance : 1;
+  const ux = distance > 0 ? handler.x / distance : 0;
+  const uz = distance > 0 ? handler.z / distance : 1;
   if (view === 'aim') {
+    const t = Math.max(0, Math.min(1, distance - 3));
+    const radius = distance + 7.5 + (5.2 - 7.5) * t;
+    const ax = distance < .5 ? 0 : ux, az = distance < .5 ? 1 : uz;
     return {
-      pos: { x: handler.x + ux * 5.2, y: 3, z: handler.z + uz * 5.2 },
-      look: { x: RIM.x, y: RIM.y - 0.75, z: RIM.z },
+      pos: { x: RIM.x + ax * radius, y: 4.2 + (3 - 4.2) * t, z: RIM.z + az * radius },
+      look: { x: RIM.x, y: 2.6 + (RIM.y - .75 - 2.6) * t, z: RIM.z },
       fov: 50,
     };
   }

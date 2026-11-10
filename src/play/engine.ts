@@ -1,0 +1,506 @@
+import type { MoveId } from '../figure/moves';
+import { MOVES, moveFrames } from '../figure/moves';
+import { buildFinishFlight } from '../shot/finish-path';
+import { effectiveZones, resolveShot } from '../shot/resolve';
+import type { ShotParams, ShotResult, Zones } from '../shot/resolve';
+import { buildFlight } from '../shot/trajectory';
+import type { Flight, Vec3 } from '../shot/trajectory';
+import { finishBanner, finishKind, foulChance, freeThrowCount, meterDuration, shotKindAt, verdict, zoneFactor } from './finish';
+import type { ShotKind } from './finish';
+import { passTime, stealChance } from './pass';
+import { positionValue } from './position';
+import type { Vec2 } from './position';
+import { ACTORS } from './teams';
+import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types';
+
+export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
+export interface EngineConfig {
+  slowmo: number; decisionS: number; animSpeed: number; foulMult: number; zoneFloor: number; tempoSpread: number;
+  shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
+  finish: { meterMs: number; greenZone: number; aimDeg: number };
+}
+export interface ActorState { id: string; pos: Vec2; y: number; facing: number; move: MoveId; moveT: number }
+export interface PlayState {
+  play: Play; variant: string; deficit: number; phase: Phase; gameT: number; clock: number; handler: string;
+  actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number;
+  combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean };
+  freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
+}
+export type Command = { kind: 'pass'; to: string } | { kind: 'drive'; lane: -1 | 0 | 1 } | { kind: 'comboStart' }
+  | { kind: 'comboRelease'; holdMs: number; angleDeg: number } | { kind: 'finger'; down: boolean };
+export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pass'; from: string; to: string; steal: boolean }
+  | { type: 'caught'; by: string } | { type: 'takeoff'; kind: 'layup' | 'dunk' | 'contact_dunk' }
+  | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
+  | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
+
+interface Pass {
+  option: Option; from: Vec3; to: Vec3; catchPos: Vec2; duration: number; elapsed: number; stolenBy?: string;
+}
+interface Drive { from: Vec2; to: Vec2; duration: number; elapsed: number }
+interface Shot {
+  result: ShotResult; kind: ShotKind; fouled: boolean; ft: boolean; elapsed: number; delay: number;
+  flight?: Flight; from: Vec2; defender?: string; defenderFrom?: Vec2;
+  lob: boolean;
+}
+interface Runtime {
+  segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: boolean;
+  clockStarted: boolean; pass?: Pass; drive?: Drive; shot?: Shot; params?: ShotParams;
+  offsets: Record<string, Vec2>;
+  lob?: boolean;
+  comboWait?: { phase: 'decision' | 'takeoff' | 'freethrows'; elapsed: number };
+}
+// Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
+const runtimes = new WeakMap<PlayState, Runtime>();
+const poses = Object.fromEntries(Object.keys(MOVES).map(id => [id, moveFrames(id as MoveId)])) as Record<MoveId, ReturnType<typeof moveFrames>>;
+const facingTo = (from: Vec2, to: Vec2) => Math.atan2(to.x - from.x, -(to.z - from.z));
+const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
+const mix = (a: number, b: number, f: number) => a + (b - a) * f;
+const rt = (s: PlayState) => runtimes.get(s)!;
+const defenders = (s: PlayState) => Object.values(s.actors).filter(a => ACTORS[a.id].team === 'def');
+const currentP = (s: PlayState) => positionValue(s.actors[s.handler].pos, defenders(s).map(a => a.pos));
+
+function point(path: Waypoint[], time: number): Waypoint {
+  const index = path.findIndex(p => p.t > time);
+  if (index < 0) return path[path.length - 1];
+  if (index === 0) return path[0];
+  const a = path[index - 1], b = path[index], f = (time - a.t) / (b.t - a.t);
+  return { t: time, x: mix(a.x, b.x, f), z: mix(a.z, b.z, f), act: a.act };
+}
+
+function frame(a: ActorState): number {
+  const m = MOVES[a.move], n = Math.floor((a.moveT + 1e-10) * m.fps);
+  return m.loop ? n % m.frames : Math.min(n, m.frames - 1);
+}
+
+function hand(a: ActorState): Vec3 {
+  const f = frame(a), h = poses[a.move][f][MOVES[a.move].ballHand ?? 'haR'];
+  const size = ACTORS[a.id].heightM, co = Math.cos(a.facing), si = Math.sin(a.facing);
+  return { x: a.pos.x + size * (h.x * co + h.z * si), y: a.y + size * h.y,
+    z: a.pos.z + size * (h.x * si - h.z * co) };
+}
+
+function heldBall(s: PlayState): void {
+  const a = s.actors[s.handler];
+  s.ball = hand(a);
+  if (a.move === 'dribble' || a.move === 'dribble_run') {
+    const beat = Math.abs(Math.cos(a.moveT * MOVES[a.move].fps / MOVES[a.move].frames * Math.PI * 2));
+    s.ball.y = .12 + (s.ball.y - .12) * beat;
+  }
+}
+
+function move(a: ActorState, id: MoveId, reset = false): void {
+  if (a.move !== id || reset) a.moveT = 0;
+  a.move = id;
+}
+
+function phase(s: PlayState, next: Phase): void {
+  s.phase = next;
+  rt(s).phaseT = rt(s).realT = 0;
+}
+
+function activityMove(act: Activity, moving: boolean): MoveId {
+  if (act === 'dribble') return moving ? 'dribble_run' : 'dribble';
+  if (act === 'defend') return 'defend';
+  return moving && act === 'run' ? 'run' : 'idle';
+}
+
+function updatePaths(s: PlayState, previous: number): void {
+  const r = rt(s), paths = { ...r.segment.paths, ...r.variant.defPaths[r.segment.id] };
+  for (const a of Object.values(s.actors)) {
+    if (s.freeThrows || (['driving', 'ballflight', 'combo', 'takeoff'].includes(s.phase) && a.id === s.handler)
+      || (s.phase === 'ballflight' && a.id === r.shot?.defender)) continue;
+    const path = paths[a.id];
+    if (!path?.length) continue;
+    const p = point(path, r.segT), before = point(path, Math.max(0, r.segT - .01));
+    const moving = distance(p, before) > 1e-8;
+    if (r.segT === 0 || previous < path[path.length - 1].t) {
+      const off = r.offsets[a.id] ?? { x: 0, z: 0 };
+      a.pos = { x: p.x + off.x, z: p.z + off.z };
+    }
+    if (s.phase === 'passing' && (a.id === s.handler || a.id === r.pass?.option.to || a.id === r.pass?.stolenBy)) continue;
+    if (a.move === 'catch' && a.moveT < MOVES.catch.frames / MOVES.catch.fps) continue;
+    move(a, activityMove(p.act, moving));
+    a.facing = moving ? facingTo(before, p) : facingTo(a.pos,
+      ACTORS[a.id].team === 'def' ? s.actors[s.handler].pos : { x: 0, z: 0 });
+  }
+}
+
+function end(s: PlayState, events: EngineEvent[], banner?: string): void {
+  if (s.phase === 'ended') return;
+  if (banner) s.banner = banner;
+  phase(s, 'ended');
+  s.combo = null;
+  s.freeThrows = null;
+  s.fingerDown = false;
+  s.verdict = verdict(s.points, s.deficit);
+  events.push({ type: 'end', verdict: s.verdict });
+}
+
+function miss(s: PlayState, events: EngineEvent[], banner: string): void {
+  s.banner = banner;
+  events.push({ type: 'result', banner, made: false });
+  end(s, events);
+}
+
+function decision(s: PlayState, events: EngineEvent[]): void {
+  phase(s, 'decision');
+  rt(s).aiSelected = false;
+  events.push({ type: 'decision', options: rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }] });
+}
+
+export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => number): PlayState {
+  const total = play.variants.reduce((sum, v) => sum + v.weight, 0);
+  let pick = rng() * total;
+  const variant = play.variants.find(v => (pick -= v.weight) < 0) ?? play.variants[play.variants.length - 1];
+  const segment = play.segments[play.start];
+  const deficit = typeof play.deficit === 'number' ? play.deficit
+    : play.deficit[0] + Math.min(play.deficit[1] - play.deficit[0], Math.floor(rng() * (play.deficit[1] - play.deficit[0] + 1)));
+  const s: PlayState = {
+    play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
+    actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0,
+    combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false,
+  };
+  runtimes.set(s, { segment, variant, segT: 0, phaseT: 0, realT: 0, aiSelected: false, clockStarted: !play.inboundBy, offsets: {} });
+  for (const id of play.actors) {
+    const p = (variant.defPaths[segment.id]?.[id] ?? segment.paths[id])?.[0];
+    s.actors[id] = { id, pos: { x: p?.x ?? 0, z: p?.z ?? 0 }, y: 0, facing: 0, move: 'idle', moveT: 0 };
+  }
+  updatePaths(s, -1);
+  heldBall(s);
+  return s;
+}
+
+function predicted(s: PlayState, id: string, ahead: number): Vec2 {
+  const r = rt(s), path = r.variant.defPaths[r.segment.id]?.[id] ?? r.segment.paths[id];
+  if (!path?.length || path[path.length - 1].t <= r.segT) return s.actors[id].pos;
+  const p = point(path, r.segT + ahead), off = r.offsets[id] ?? { x: 0, z: 0 };
+  return { x: p.x + off.x, z: p.z + off.z };
+}
+
+function catchPoint(s: PlayState, id: string): { pos: Vec2; duration: number } {
+  const from = s.actors[s.handler].pos;
+  let duration = passTime(distance(from, s.actors[id].pos));
+  for (let i = 0; i < 20; i++) duration = passTime(distance(from, predicted(s, id, duration)));
+  return { pos: predicted(s, id, duration), duration };
+}
+
+function takeoffPoint(from: Vec2, lane = 0): Vec2 {
+  const len = Math.hypot(from.x, from.z) || 1, ux = from.x / len, uz = from.z / len;
+  return { x: ux * 1.2 + uz * lane, z: uz * 1.2 - ux * lane };
+}
+
+export function aiChoice(s: PlayState): Option {
+  const options = rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }];
+  const rank = { shoot: 0, drive: 1, pass: 2 };
+  const value = (o: Option): number => {
+    if (o.kind === 'shoot') return currentP(s);
+    const from = s.actors[s.handler].pos;
+    const target = o.kind === 'drive' ? { pos: takeoffPoint(from), duration: Math.max(1, distance(from, takeoffPoint(from)) / 8) }
+      : catchPoint(s, o.to!);
+    return positionValue(target.pos, defenders(s).map(a => predicted(s, a.id, target.duration)));
+  };
+  return [...options].sort((a, b) => value(a) - value(b) || rank[a.kind] - rank[b.kind])[0];
+}
+
+function prepareCombo(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
+  const ft = s.freeThrows !== null, finishing = kind !== 'jump2' && kind !== 'three';
+  const fouled = !ft && rng() < foulChance(kind, P, cfg.foulMult);
+  const base = finishing ? cfg.finish : cfg.shot;
+  const meterMs = ft ? base.meterMs : meterDuration(base.meterMs, P, cfg.tempoSpread, rng);
+  const a = ACTORS[s.handler];
+  rt(s).params = { ...base, meterMs, influence: cfg.shot.influence,
+    rating: finishing ? a.athleticism : a.shot,
+    distance: finishing ? 4.6 : distance(s.actors[s.handler].pos, { x: 0, z: 0 }),
+    zoneFactor: ft ? 1 : zoneFactor(P, cfg.zoneFloor, fouled, kind === 'contact_dunk') };
+  s.combo = { kind, P, meterMs, zones: effectiveZones(rt(s).params!), fouled };
+  move(s.actors[s.handler], finishing ? kind as MoveId : 'jumpshot', true);
+  s.actors[s.handler].facing = facingTo(s.actors[s.handler].pos, { x: 0, z: 0 });
+  events.push({ type: 'combo', fouled, contact: kind === 'contact_dunk' });
+  heldBall(s);
+}
+
+function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[], lob = false): void {
+  const P = currentP(s), kind = finishKind(ACTORS[s.handler].athleticism, P, rng);
+  phase(s, 'takeoff');
+  rt(s).lob = lob;
+  events.push({ type: 'takeoff', kind });
+  prepareCombo(s, kind, P, cfg, rng, events);
+  const a = s.actors[s.handler];
+  a.y = lob ? Math.max(.35, 3.05 - (hand(a).y - a.y)) : .06;
+  heldBall(s);
+}
+
+function nextSegment(s: PlayState, option: Option): void {
+  const r = rt(s), next = option.next && s.play.segments[option.next];
+  r.segment = next || { id: 'received', handler: option.to!, paths: {}, decisionAt: .4, options: [{ kind: 'shoot' }, { kind: 'drive' }] };
+  r.segT = 0;
+  r.offsets = {};
+  // Bewegte Empfänger bleiben am tatsächlichen Fangpunkt; Fortsetzungen sind relativ dazu.
+  for (const [id, path] of Object.entries(r.segment.paths)) {
+    const a = s.actors[id];
+    if (a && path.length) r.offsets[id] = { x: a.pos.x - path[0].x, z: a.pos.z - path[0].z };
+  }
+}
+
+function startPass(s: PlayState, option: Option, rng: () => number, events: EngineEvent[]): void {
+  const r = rt(s), catcher = s.actors[option.to!], target = catchPoint(s, catcher.id), h = s.actors[s.handler];
+  const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos));
+  let stolenBy: string | undefined;
+  if (steal) {
+    const dx = target.pos.x - h.pos.x, dz = target.pos.z - h.pos.z, len2 = dx * dx + dz * dz;
+    const laneDistance = (a: ActorState) => {
+      const f = Math.max(0, Math.min(1, ((a.pos.x - h.pos.x) * dx + (a.pos.z - h.pos.z) * dz) / (len2 || 1)));
+      return distance(a.pos, { x: h.pos.x + f * dx, z: h.pos.z + f * dz });
+    };
+    stolenBy = defenders(s).sort((a, b) => laneDistance(a) - laneDistance(b))[0]?.id;
+  }
+  h.facing = facingTo(h.pos, target.pos);
+  move(h, 'pass', true);
+  move(catcher, 'catch', true);
+  catcher.facing = facingTo(target.pos, h.pos);
+  const receiving = stolenBy ? s.actors[stolenBy] : catcher;
+  if (stolenBy) { move(receiving, 'catch', true); receiving.facing = facingTo(receiving.pos, h.pos); }
+  const catchPose = { ...receiving, pos: stolenBy ? receiving.pos : target.pos, moveT: 0 };
+  if (option.lob && !stolenBy) catchPose.y = Math.max(.35, 3.05 - (hand(catchPose).y - catchPose.y));
+  r.pass = { option, from: hand(h), to: hand(catchPose), catchPos: target.pos,
+    duration: target.duration, elapsed: 0, stolenBy };
+  phase(s, 'passing');
+  s.ball = { ...r.pass.from };
+  events.push({ type: 'pass', from: s.handler, to: catcher.id, steal });
+}
+
+function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rng: () => number): void {
+  const r = rt(s), combo = s.combo!, result = resolveShot(input, r.params!, rng), h = s.actors[s.handler];
+  const finishing = combo.kind !== 'jump2' && combo.kind !== 'three';
+  const id: MoveId = finishing ? combo.kind as MoveId : 'jumpshot';
+  move(h, id, true);
+  const nearest = !s.freeThrows && defenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
+  const defender = nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
+  if (defender) { move(defender, combo.fouled ? 'contact' : 'block_jump', true); defender.facing = facingTo(defender.pos, h.pos); }
+  r.shot = { result, kind: combo.kind, fouled: combo.fouled, ft: s.freeThrows !== null,
+    elapsed: 0, delay: finishing ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
+    from: { ...h.pos }, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false };
+  phase(s, 'ballflight');
+  heldBall(s);
+}
+
+export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => number): EngineEvent[] {
+  const events: EngineEvent[] = [], r = rt(s);
+  if (s.phase === 'ended') return events;
+  if (cmd.kind === 'finger') {
+    if (!cmd.down && s.fingerDown && s.phase === 'combo' && r.comboWait) {
+      const wait = r.comboWait, elapsed = wait.elapsed + r.realT;
+      phase(s, wait.phase);
+      r.realT = elapsed;
+      if (wait.phase !== 'takeoff') {
+        s.combo = null;
+        move(s.actors[s.handler], wait.phase === 'decision' ? 'dribble' : 'idle');
+      }
+      heldBall(s);
+    }
+    s.fingerDown = cmd.down;
+    return events;
+  }
+  if (s.phase === 'intro' || s.phase === 'running' || s.phase === 'passing' || s.phase === 'driving' || s.phase === 'ballflight') return events;
+  const finishing = s.combo && s.combo.kind !== 'jump2' && s.combo.kind !== 'three';
+  // Nur ein begonnener Abschluss und Freiwürfe dürfen nach Ablauf noch ausgewertet werden.
+  if (s.clock <= 0 && !s.freeThrows && !(finishing && (s.phase === 'takeoff' || s.phase === 'combo'))) {
+    end(s, events, 'ZEIT ABGELAUFEN'); return events;
+  }
+  if (cmd.kind === 'comboRelease') {
+    if ((s.phase === 'combo' || s.phase === 'takeoff') && s.combo) startShot(s, cmd, rng);
+    return events;
+  }
+  if (cmd.kind === 'comboStart') {
+    if (s.phase === 'combo') return events;
+    if (s.phase === 'takeoff') {
+      r.comboWait = { phase: 'takeoff', elapsed: r.realT };
+      phase(s, 'combo'); return events;
+    }
+    if (s.phase === 'freethrows' || (s.phase === 'decision' && (r.segment.options ?? [{ kind: 'shoot' }]).some(o => o.kind === 'shoot'))) {
+      r.comboWait = { phase: s.phase, elapsed: r.realT };
+      phase(s, 'combo');
+      prepareCombo(s, shotKindAt(s.actors[s.handler].pos), s.freeThrows ? 1 : currentP(s), cfg, rng, events);
+    }
+    return events;
+  }
+  if (s.phase !== 'decision' || s.combo) return events;
+  if (cmd.kind === 'pass') {
+    const option = r.segment.options?.find(o => o.kind === 'pass' && o.to === cmd.to);
+    if (option && s.actors[cmd.to]) startPass(s, option, rng, events);
+  } else if (cmd.kind === 'drive' && (r.segment.options ?? [{ kind: 'drive' }]).some(o => o.kind === 'drive')) {
+    const h = s.actors[s.handler], to = takeoffPoint(h.pos, cmd.lane);
+    r.drive = { from: { ...h.pos }, to, duration: Math.max(1, distance(h.pos, to) / 8), elapsed: 0 };
+    phase(s, 'driving');
+    move(h, 'dribble_run', true);
+    h.facing = facingTo(h.pos, to);
+    heldBall(s);
+  }
+  return events;
+}
+
+function freeThrow(s: PlayState, events: EngineEvent[]): void {
+  phase(s, 'freethrows');
+  s.combo = null;
+  const h = s.actors[s.freeThrows!.shooter];
+  s.handler = h.id;
+  h.pos = { x: 0, z: 4.2 };
+  h.y = 0; h.facing = 0;
+  rt(s).lob = false;
+  move(h, 'idle', true);
+  heldBall(s);
+  events.push({ type: 'freethrow', left: s.freeThrows!.left });
+}
+
+function finishShot(s: PlayState, events: EngineEvent[]): void {
+  const shot = rt(s).shot!, { result, kind, fouled, ft } = shot;
+  if (result.made) s.points += ft ? 1 : kind === 'three' ? 3 : 2;
+  s.banner = ft ? result.made ? 'TREFFER' : 'DANEBEN' : finishBanner(kind, result.made, fouled, s.assisted);
+  events.push({ type: 'result', banner: s.banner, made: result.made });
+  s.combo = null;
+  for (const a of Object.values(s.actors)) { a.y = 0; move(a, ACTORS[a.id].team === 'def' ? 'defend' : 'idle'); }
+  if (ft) {
+    s.freeThrows!.left--;
+    if (s.freeThrows!.left > 0) freeThrow(s, events); else end(s, events);
+  } else {
+    const count = freeThrowCount(kind, result.made, fouled);
+    if (count) { s.freeThrows = { shooter: s.handler, left: count }; freeThrow(s, events); }
+    else end(s, events);
+  }
+}
+
+function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
+  const shot = rt(s).shot!, a = s.actors[s.handler], m = MOVES[a.move];
+  shot.elapsed += dt;
+  const t = shot.elapsed;
+  if (t >= Math.max(1.1, shot.delay + .2) && shot.flight) {
+    a.y = 0;
+    move(a, 'idle');
+    if (shot.defender) { const d = s.actors[shot.defender]; d.y = 0; move(d, 'defend'); }
+    s.ball = shot.flight.at(t - shot.delay);
+    if (t >= shot.delay + shot.flight.duration) finishShot(s, events);
+    return;
+  }
+  const f = frame(a), isDunk = shot.kind === 'dunk' || shot.kind === 'contact_dunk';
+  if (isDunk) {
+    const contactT = m.rimFrame! / m.fps;
+    const reach = poses[a.move][f][m.ballHand!];
+    a.y = Math.max(0, 3.05 - reach.y * ACTORS[a.id].heightM) * (shot.lob ? 1 : Math.min(1, t / contactT));
+    const targetHand = poses[a.move][m.rimFrame!][m.ballHand!], size = ACTORS[a.id].heightM;
+    const co = Math.cos(a.facing), si = Math.sin(a.facing), progress = Math.min(1, t / contactT);
+    a.pos = { x: mix(shot.from.x, -size * (targetHand.x * co + targetHand.z * si), progress),
+      z: mix(shot.from.z, -size * (targetHand.x * si - targetHand.z * co), progress) };
+  } else {
+    a.pos = { ...shot.from };
+    a.y = Math.max(0, Math.sin(Math.PI * Math.min(1, t / 1.1))) * (shot.kind === 'layup' ? .35 : .25);
+  }
+  if (shot.fouled) a.pos.x += .12 * Math.sin(Math.PI * Math.min(1, t / 1.1));
+  if (shot.defender) {
+    const d = s.actors[shot.defender];
+    d.y = shot.fouled ? 0 : .3 * Math.max(0, Math.sin(Math.PI * Math.min(1, t / .8)));
+    if (shot.fouled && shot.defenderFrom) {
+      const from = shot.defenderFrom, len = distance(from, shot.from) || 1, p = Math.min(1, t / .4) * .15;
+      d.pos = { x: from.x + (shot.from.x - from.x) / len * p, z: from.z + (shot.from.z - from.z) / len * p };
+    }
+  }
+  if (t < shot.delay - 1e-9) { heldBall(s); return; }
+  if (!shot.flight) {
+    const release = hand(a);
+    shot.flight = shot.kind === 'layup' || isDunk ? buildFinishFlight(shot.kind as 'layup' | 'dunk' | 'contact_dunk', shot.result.outcome, release, .1)
+      : buildFlight(shot.result.outcome, release);
+  }
+  s.ball = shot.flight.at(Math.max(0, t - shot.delay));
+  if (t >= shot.delay + shot.flight.duration) finishShot(s, events);
+}
+
+function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
+  const r = rt(s), oldPhase = s.phase;
+  if (oldPhase === 'ended') return;
+  const slow = oldPhase === 'decision' || oldPhase === 'combo' || oldPhase === 'takeoff';
+  const dt = dtReal * cfg.animSpeed * (slow ? cfg.slowmo : 1);
+  r.phaseT += dt; r.realT += dtReal;
+  if (oldPhase === 'intro') {
+    if (r.phaseT >= .7) phase(s, 'running');
+    return;
+  }
+  s.gameT += dt;
+  if (r.clockStarted && !s.freeThrows) {
+    s.clock = Math.max(0, s.clock - dt);
+    // Rundungsreste dürfen einen Release genau bei 0:00 nicht nachträglich erlauben.
+    if (s.clock < 1e-10) s.clock = 0;
+  }
+  const finishing = s.combo && s.combo.kind !== 'jump2' && s.combo.kind !== 'three';
+  if (s.clock <= 0 && !s.freeThrows && oldPhase !== 'ballflight' && !(finishing && (oldPhase === 'takeoff' || oldPhase === 'combo'))) {
+    end(s, events, 'ZEIT ABGELAUFEN'); return;
+  }
+  for (const a of Object.values(s.actors)) a.moveT += dt;
+  const previous = r.segT;
+  r.segT += dt;
+  updatePaths(s, previous);
+  if (oldPhase === 'running') {
+    if (r.segT >= (r.segment.decisionAt ?? 0)) decision(s, events);
+  } else if (oldPhase === 'decision' && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) {
+    if (r.aiSelected) miss(s, events, 'ZU LANGE GEZÖGERT');
+    else {
+      const option = aiChoice(s);
+      r.aiSelected = true;
+      r.realT = 0;
+      if (option.kind === 'pass') events.push(...command(s, { kind: 'pass', to: option.to! }, cfg, rng));
+      else if (option.kind === 'drive') events.push(...command(s, { kind: 'drive', lane: 0 }, cfg, rng));
+    }
+  } else if (oldPhase === 'passing') {
+    const p = r.pass!;
+    p.elapsed += dt;
+    const f = Math.min(1, p.elapsed / p.duration);
+    s.ball = { x: mix(p.from.x, p.to.x, f), y: mix(p.from.y, p.to.y, f) + .35 * 4 * f * (1 - f), z: mix(p.from.z, p.to.z, f) };
+    if (f >= 1) {
+      if (p.stolenBy) {
+        s.ball = hand(s.actors[p.stolenBy]); s.turnovers++;
+        end(s, events, 'STEAL');
+      } else {
+        s.handler = p.option.to!;
+        const a = s.actors[s.handler];
+        a.pos = { ...p.catchPos };
+        move(a, 'catch', true);
+        s.assisted = true; r.clockStarted = true;
+        nextSegment(s, p.option);
+        events.push({ type: 'caught', by: s.handler });
+        if (p.option.lob) takeoff(s, cfg, rng, events, true);
+        else { phase(s, 'running'); heldBall(s); }
+      }
+    }
+  } else if (oldPhase === 'driving') {
+    const d = r.drive!, a = s.actors[s.handler];
+    d.elapsed += dt;
+    const f = Math.min(1, d.elapsed / d.duration);
+    a.pos = { x: mix(d.from.x, d.to.x, f), z: mix(d.from.z, d.to.z, f) };
+    if (f >= 1) takeoff(s, cfg, rng, events);
+  } else if (oldPhase === 'takeoff') {
+    s.actors[s.handler].moveT = 0;
+    if (r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) miss(s, events, r.aiSelected ? 'ZU LANGE GEZÖGERT' : 'VERLEGT');
+  } else if (oldPhase === 'combo') {
+    s.actors[s.handler].moveT = 0;
+    // Auch abgebrochene Kombis und Freiwürfe haben eine endliche Wartezeit.
+    if (r.realT >= cfg.decisionS + s.combo!.meterMs * 1.6 / 1000) {
+      if (s.freeThrows) startShot(s, { holdMs: 0, angleDeg: 80 }, rng);
+      else miss(s, events, finishing ? 'VERLEGT' : 'ZU LANGE GEZÖGERT');
+    }
+  } else if (oldPhase === 'freethrows' && r.realT >= cfg.decisionS) {
+    prepareCombo(s, 'jump2', 1, cfg, rng, events);
+    startShot(s, { holdMs: 0, angleDeg: 80 }, rng);
+  } else if (oldPhase === 'ballflight') shotAnimation(s, dt, events);
+  if (s.phase !== 'passing' && s.phase !== 'ballflight' && s.phase !== 'ended') heldBall(s);
+}
+
+export function step(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number): EngineEvent[] {
+  const events: EngineEvent[] = [];
+  if (!Number.isFinite(dtReal) || dtReal <= 0) return events;
+  // Kleine Teilintervalle bewahren Ereignisreihenfolge auch nach einem langsamen Render-Frame.
+  let left = dtReal;
+  while (left > 1e-10 && s.phase !== 'ended') {
+    const dt = Math.min(left, 1 / 120);
+    tick(s, dt, cfg, rng, events);
+    left -= dt;
+  }
+  return events;
+}

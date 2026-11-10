@@ -74,8 +74,9 @@ function dunkKeys(contact: boolean): Pose[] {
   return [
     pose({ height: 0.44, lean, arms: [[90, 120], [90, 120]], legs: [[30, -30], [30, -30]] }),
     pose({ x: -side, height: 0.54, lean, arms: [[115, 135], [115, 135]], legs: [[20, -45], [20, -45]] }),
-    pose({ x: side, height: 0.94, lean, arms: [[140, 150], [140, 150]], legs: [[10, -65], [10, -65]] }),
-    pose({ x: side, height: 0.94 + touch.y - hang.y, forward: touch.z - hang.z, lean,
+    // Die Engine ergänzt die Sprunghöhe; auch der größte Big erreicht so den Ring ohne negativen Fußversatz.
+    pose({ x: side, height: 0.86, lean, arms: [[140, 150], [140, 150]], legs: [[10, -65], [10, -65]] }),
+    pose({ x: side, height: 0.86 + touch.y - hang.y, forward: touch.z - hang.z, lean,
       arms: [[170, 180], [170, 180]], legs: [[-15, -80], [-15, -80]] }),
   ];
 }

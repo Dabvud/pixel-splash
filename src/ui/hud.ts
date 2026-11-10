@@ -5,7 +5,7 @@ const MARK_MS = 1500;
 
 export function createHud(root: HTMLElement): {
   setMeter(fill: number | null, zones: Zones, fillMax: number): void;
-  markRelease(fill: number): void;
+  markRelease(fill: number, persist?: boolean): void;
   showResult(r: ShotResult): void;
   setStats(made: number, shots: number): void;
 } {
@@ -29,17 +29,21 @@ export function createHud(root: HTMLElement): {
   return {
     setMeter(fill, zones, fillMax) {
       meter.hidden = fill === null;
-      if (fill === null) return;
+      if (fill === null) {
+        mark.hidden = true;
+        clearTimeout(markTimer);
+        return;
+      }
       max = fillMax;
       fillEl.style.height = pct(fill);
       green.style.bottom = pct(1 - zones.g);
       green.style.height = `${((2 * zones.g) / max) * 100}%`;
     },
-    markRelease(fill) {
+    markRelease(fill, persist = false) {
       mark.style.bottom = pct(fill);
       mark.hidden = false;
       clearTimeout(markTimer);
-      markTimer = window.setTimeout(() => (mark.hidden = true), MARK_MS);
+      if (!persist) markTimer = window.setTimeout(() => (mark.hidden = true), MARK_MS);
     },
     showResult(r) {
       banner.querySelector(".hud-title")!.textContent = r.banner;

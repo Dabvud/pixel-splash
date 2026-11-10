@@ -74,7 +74,9 @@ function courtTexture(): THREE.CanvasTexture {
   g.beginPath();
   g.arc(X(0), c.height, 1.8 * S, Math.PI, 2 * Math.PI);
   g.stroke();
-  return new THREE.CanvasTexture(c);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function crowdTexture(repeat: number, rows: number): THREE.CanvasTexture {
@@ -90,6 +92,7 @@ function crowdTexture(repeat: number, rows: number): THREE.CanvasTexture {
       g.fillRect(x, y, 1, 2);
     }
   const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
   t.magFilter = THREE.NearestFilter;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.repeat.set(repeat, rows);
@@ -116,7 +119,9 @@ function addHoop(scene: THREE.Scene): void {
     scene.add(m);
     return m;
   };
-  part(new THREE.BoxGeometry(1.8, 1.05, 0.05), new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(c) }), 0, 3.42, -0.4);
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  part(new THREE.BoxGeometry(1.8, 1.05, 0.05), new THREE.MeshLambertMaterial({ map: texture }), 0, 3.42, -0.4);
   const rim = part(new THREE.TorusGeometry(0.23, 0.02, 8, 24), new THREE.MeshLambertMaterial({ color: 0xe8601c }), 0, 3.05, 0);
   rim.rotation.x = Math.PI / 2;
   part(new THREE.CylinderGeometry(0.23, 0.15, 0.42, 12, 3, true), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }), 0, 2.84, 0);

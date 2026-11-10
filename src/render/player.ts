@@ -99,6 +99,7 @@ function figure(armsUp: boolean): THREE.CanvasTexture {
     }
   q.putImageData(d, 0, 0);
   const t = new THREE.CanvasTexture(o);
+  t.colorSpace = THREE.SRGBColorSpace;
   t.magFilter = t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
   return t;
