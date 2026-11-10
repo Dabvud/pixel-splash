@@ -68,7 +68,7 @@ body {
 }
 .hud-meter {
   position: fixed;
-  left: calc(50% + 64px);
+  left: calc(50% + 88px);
   bottom: 18%;
   width: 14px;
   height: 30vh;
