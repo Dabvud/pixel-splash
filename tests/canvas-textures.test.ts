@@ -4,7 +4,10 @@ import { buildAtlas } from '../src/figure/atlas';
 import { createActors } from '../src/render/actors';
 import { createScene } from '../src/render/scene';
 import { createPlayer } from '../src/render/player';
-import { ACTORS, RED, BLUE } from '../src/play/teams';
+import { ACTORS, RED, BLUE, BENCH_RED, BENCH_BLUE, DOC } from '../src/play/teams';
+import { BENCH_MOVES, DOC_MOVES } from '../src/render/bench';
+import { MOVES } from '../src/figure/moves';
+import { createBenchSeats } from '../src/render/bench-view';
 // Die zehn Teamspieler (ohne Schiri)
 const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
@@ -21,6 +24,40 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Canvas-Texturfarben', () => {
+  it.each([false, true])('baut Bank und Arzt nur mit benötigten Moves und kleinen Atlas-Seiten (lazy=%s)', lazy => {
+    const bench = [...BENCH_RED, ...BENCH_BLUE], all = [...bench, DOC];
+    const moves = Object.fromEntries(all.map(a => [a.id, a === DOC ? DOC_MOVES : BENCH_MOVES]));
+    const atlas = buildAtlas(Object.fromEntries(all.map(a => [a.id, a])), { lazy, moves });
+    if (!lazy) {
+      const calls = vi.mocked(HTMLCanvasElement.prototype.getContext).mock.results
+        .reduce((n, r) => n + vi.mocked((r.value as CanvasRenderingContext2D).putImageData).mock.calls.length, 0);
+      expect(calls).toBe(all.reduce((sum, a) => sum + moves[a.id].reduce((n, m) => n + MOVES[m].frames * 4, 0), 0));
+    }
+    for (const a of all) for (const move of moves[a.id]) for (const dir of ['front', 'back', 'left', 'right'] as const) {
+      const [u, v, w, h] = atlas.uv(a.id, move, dir, MOVES[move].frames - 1);
+      expect(u).toBeGreaterThanOrEqual(0); expect(v).toBeGreaterThanOrEqual(0);
+      expect(u + w).toBeLessThanOrEqual(1); expect(v + h).toBeLessThanOrEqual(1);
+    }
+    const bytes = atlas.textures!.reduce((n, t) => n + t.image.width * t.image.height * 4, 0);
+    expect(bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+    for (const t of atlas.textures!) {
+      expect(t.image.width).toBeLessThanOrEqual(4096); expect(t.image.height).toBeLessThanOrEqual(4096); t.dispose();
+    }
+    expect(() => atlas.uv(bench[0].id, 'idle', 'front', 0)).toThrow();
+  });
+  it('stellt zwei dunkelgraue Bankboxen bei x ±8,4 zwischen Feld und Banden auf', () => {
+    const scene = new THREE.Scene(), seats = createBenchSeats(scene);
+    const boxes = scene.children.filter((o): o is THREE.Mesh<THREE.BoxGeometry, THREE.MeshLambertMaterial> => o instanceof THREE.Mesh);
+    expect(boxes).toHaveLength(2);
+    for (const b of boxes) {
+      expect(Math.abs(b.position.x)).toBe(8.4);
+      expect(b.position.y + b.geometry.parameters.height / 2).toBe(.45);
+      expect(b.position.z - b.geometry.parameters.depth / 2).toBe(2.5);
+      expect(b.position.z + b.geometry.parameters.depth / 2).toBe(5.5);
+      expect(b.material.color.getHex()).toBe(0x333338);
+    }
+    seats.dispose(); expect(scene.children).toHaveLength(0);
+  });
   it('blendet nur das Brettglas aus und wieder ein', () => {
     const { scene, hoop } = createScene();
     const before = scene.children.map(o => o.visible);

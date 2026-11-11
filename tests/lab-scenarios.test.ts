@@ -5,6 +5,23 @@ import { createLabMenu } from '../src/ui/lab-menu';
 afterEach(() => { localStorage.clear(); document.body.innerHTML = ''; });
 
 describe('Test-Szenarien: Einstellungen', () => {
+  it('validiert forceFaint als Boolean und speichert Ohnmacht auf der Bank erzwingen', () => {
+    expect(DEFAULTS.forceFaint).toBe(false);
+    for (const value of [undefined, 'true', null, 1, {}, false, true]) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ forceFaint: value }));
+      expect(loadSettings().forceFaint).toBe(value === true);
+    }
+    const change = vi.fn();
+    createLabMenu(document.body, { ...DEFAULTS, mode: 'play' }, change);
+    const toggle = document.querySelector<HTMLInputElement>('#lab-test-scenarios #lab-forceFaint')!;
+    expect(toggle.type).toBe('checkbox'); expect(toggle.checked).toBe(false);
+    expect(toggle.closest('label')!.textContent).toContain('Ohnmacht auf der Bank erzwingen');
+    for (const checked of [true, false]) {
+      toggle.checked = checked; toggle.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(loadSettings().forceFaint).toBe(checked);
+      expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ forceFaint: checked }));
+    }
+  });
   it('validiert forceGlass als Boolean mit Standard false und speichert den Schalter', () => {
     expect(DEFAULTS.forceGlass).toBe(false);
     for (const value of [undefined, 'true', null, 1, false, true]) {

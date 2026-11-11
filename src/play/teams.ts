@@ -1,4 +1,5 @@
 import type { ActorDef } from './types';
+import type { Look } from '../figure/raster';
 
 export const RED: ActorDef[] = [
   { id: 'r3', team: 'off', num: 3, heightM: 1.88, build: 'slim', skin: '#8d5a3b', hair: 'cornrows', beard: 'none', headband: null, armSleeve: 'none', shoes: '#f4eee0', socks: 'low', jersey: '#c8322b', shorts: '#9e241f', shot: .7, athleticism: .6 },
@@ -20,3 +21,17 @@ export const REF: ActorDef = { id: 'ref', team: 'ref', num: -1, heightM: 1.86, b
 export const MOP: ActorDef = { id: 'mop', team: 'crew', num: -1, heightM: 1.55, build: 'slim', skin: '#d5a078', hair: 'short', beard: 'none', headband: null, armSleeve: 'none', shoes: '#ffffff', socks: 'low', jersey: '#ffffff', shorts: '#162849', mop: true, shot: 0, athleticism: 0 };
 
 export const ACTORS: Record<string, ActorDef> = Object.fromEntries([...RED, ...BLUE, REF, MOP].map(a => [a.id, a]));
+
+type BenchLook = Look & { id: string };
+export const BENCH_RED: BenchLook[] = [
+  { id: 'bench-r4', num: 4, heightM: 1.8, build: 'slim', skin: '#d5a078', hair: 'short', jersey: RED[0].jersey, shorts: RED[0].shorts, towel: true },
+  { id: 'bench-r12', num: 12, heightM: 1.94, build: 'normal', skin: '#70452f', hair: 'afro', jersey: RED[0].jersey, shorts: RED[0].shorts, towel: true },
+  { id: 'bench-r31', num: 31, heightM: 2.1, build: 'broad', skin: '#8d5a3b', hair: 'bald', jersey: RED[0].jersey, shorts: RED[0].shorts, towel: true },
+];
+export const BENCH_BLUE: BenchLook[] = [
+  { id: 'bench-b2', num: 2, heightM: 1.83, build: 'slim', skin: '#513427', hair: 'buzz', jersey: BLUE[0].jersey, shorts: BLUE[0].shorts, towel: true },
+  { id: 'bench-b18', num: 18, heightM: 1.99, build: 'normal', skin: '#b77b53', hair: 'cornrows', jersey: BLUE[0].jersey, shorts: BLUE[0].shorts, towel: true },
+  { id: 'bench-b33', num: 33, heightM: 2.08, build: 'broad', skin: '#d5a078', hair: 'flattop', jersey: BLUE[0].jersey, shorts: BLUE[0].shorts, towel: true },
+];
+export const DOC: BenchLook = { id: 'doc', num: -1, heightM: 1.8, build: 'normal', skin: '#d5a078', hair: 'bald',
+  jersey: '#ffffff', shorts: '#ffffff', cross: true };

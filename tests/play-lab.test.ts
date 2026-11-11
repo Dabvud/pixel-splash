@@ -8,7 +8,7 @@ import { startPlayLab } from '../src/modes/play-lab';
 import { DEFAULTS } from '../src/settings';
 import { MAX_FILL } from '../src/shot/resolve';
 import type { Mode } from '../src/modes/mode';
-import { ACTORS, RED, BLUE } from '../src/play/teams';
+import { ACTORS, RED, BLUE, BENCH_RED, BENCH_BLUE } from '../src/play/teams';
 // Die zehn Teamspieler (ohne Schiri)
 const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
@@ -63,6 +63,61 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  const benchViews = () => sceneSpies.sync.mock.calls.map(c => c[0] as import('../src/render/actors').ActorView[])
+    .filter(v => v.some(a => a.id === BENCH_RED[0].id)).at(-1)!;
+
+  it('reicht forceFaint an die Bank durch, pausiert sie mit und setzt sie beim newPlay zurück', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, forceFaint: true });
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }]); advance(.3);
+    expect(benchViews().filter(v => v.move === 'bench_cheer')).toHaveLength(3);
+    mode.setPaused!(true); advance(2); mode.setPaused!(false);
+    expect(benchViews().some(v => v.move === 'knocked_down')).toBe(false);
+    advance(.8);
+    expect(benchViews().filter(v => v.move === 'knocked_down')).toHaveLength(1);
+    expect(vi.mocked(step).mock.calls.at(-1)![2]).not.toHaveProperty('forceFaint');
+    mode.restart!(); advance(1 / 60);
+    expect(benchViews().filter(v => v.visible && v.move === 'sit')).toHaveLength(6);
+    expect(benchViews().find(v => v.id === 'doc')!.visible).toBe(false);
+  });
+
+  it('lässt beim Block die blaue Bank jubeln und zeigt sie auch im Replay im aktuellen Zustand', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(.5);
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    advance(.4);
+    const s = state();
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: false, banner: 'WEGGEBLOCKT' }]); advance(.3);
+    for (const a of BENCH_BLUE) expect(benchViews().find(v => v.id === a.id)!.move).toBe('bench_cheer');
+    s.poster = { victim: s.handler, kind: 'block', variant: 'classic', startedAt: s.realTime };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: false, banner: 'GEBLOCKT' }]); advance(1 / 60);
+    const before = structuredClone(benchViews());
+    sceneSpies.sync.mockClear(); advance(.1);
+    expect(benchViews()).toEqual(before);
+    document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+  });
+
+  it('startet den nächsten Spielzug während einer Ohnmacht normal und füllt die Bank wieder auf', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, forceFaint: true });
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    const previous = state();
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }, { type: 'end', verdict: 'VERLOREN' }]);
+    advance(1.1);
+    expect(benchViews().filter(v => v.move === 'knocked_down')).toHaveLength(1);
+    advance(1.1);
+    expect(state()).not.toBe(previous);
+    expect(benchViews().filter(v => v.visible && v.move === 'sit')).toHaveLength(6);
+    expect(benchViews().find(v => v.id === 'doc')!.visible).toBe(false);
+  });
+
+  it('erkennt auch einen getroffenen Brett-Dreier über die drei hinzugekommenen Punkte', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(.5);
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    state().points = 3;
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: true, banner: 'ÜBERS BRETT' }]);
+    advance(.3);
+    for (const a of BENCH_RED) expect(benchViews().find(v => v.id === a.id)!.move).toBe('bench_cheer');
+    for (const a of BENCH_BLUE) expect(benchViews().find(v => v.id === a.id)!.move).toBe('sit');
+  });
   it('zeigt Glas-Flash, Scherben, Mop und Reparatur und setzt beim Neustart alles zurück', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', forceGlass: true });
     const s = state();

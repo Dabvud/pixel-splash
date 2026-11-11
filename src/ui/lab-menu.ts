@@ -68,6 +68,7 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
            <p id="lab-finishFoulChance-steps">${FINISH_FOUL_STEPS.map(finishFoulLabel).join(' / ')}</p>
            <label>Poster erzwingen <input type="checkbox" role="switch" id="lab-forcePoster"></label>
            <label>Brett zerbrechen erzwingen <input type="checkbox" role="switch" id="lab-forceGlass"></label>
+           <label>Ohnmacht auf der Bank erzwingen <input type="checkbox" role="switch" id="lab-forceFaint"></label>
            <label>Poster-Variante <select id="lab-posterVariant">
              <option value="random">Zufall</option><option value="classic">Klassisch</option>
              <option value="flyout">Abflug</option><option value="grave">Grabstein</option>
@@ -104,6 +105,7 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     el('finishFoulChance-out').textContent = finishFoulLabel(cur.finishFoulChance);
     el<HTMLInputElement>('forcePoster').checked = cur.forcePoster;
     el<HTMLInputElement>('forceGlass').checked = cur.forceGlass;
+    el<HTMLInputElement>('forceFaint').checked = cur.forceFaint;
     el<HTMLSelectElement>('posterVariant').value = cur.posterVariant;
     dialog.querySelectorAll<HTMLElement>("[data-show]").forEach((l) => (l.hidden = l.dataset.show !== "all" && l.dataset.show !== cur.mode));
   };
@@ -115,6 +117,7 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     next.finishFoulChance = FINISH_FOUL_STEPS[Number(el<HTMLInputElement>('finishFoulChance').value)];
     next.forcePoster = el<HTMLInputElement>('forcePoster').checked;
     next.forceGlass = el<HTMLInputElement>('forceGlass').checked;
+    next.forceFaint = el<HTMLInputElement>('forceFaint').checked;
     next.posterVariant = el<HTMLSelectElement>('posterVariant').value;
     cur = next as unknown as Settings;
     fill();

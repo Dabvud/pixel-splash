@@ -21,12 +21,12 @@ const image = (dir: Dir, features: Partial<Look> = {}, pose = project(idle, dir)
 
 describe('Figuren-Baukasten: bisherige Pixel', () => {
   // Vor der Implementierung aus dem unveränderten Raster berechnet; Reihenfolge:
-  // Alle bisherigen Moves, jedes Frame, front/back/left/right; der neue Mopp hat eigene Tests.
+  // Alle bisherigen Moves bleiben im Hash; neue Mopp-/Bank-Moves haben eigene Tests.
   it.each(legacy)('bewahrt alle alten Bewegungsbilder für Nummer $look.num mit $look.hair pixelgleich', reference => {
     const original = reference.look as Look;
     const hash = createHash('sha256');
     let frames = 0;
-    for (const move of (Object.keys(MOVES) as MoveId[]).filter(id => id !== 'mop_sweep')) for (const pose of moveFrames(move)) for (const dir of dirs) {
+    for (const move of (Object.keys(MOVES) as MoveId[]).filter(id => !['mop_sweep', 'sit', 'bench_cheer'].includes(id))) for (const pose of moveFrames(move)) for (const dir of dirs) {
       hash.update(rasterPose(project(pose, dir), original, dir));
       frames++;
     }
@@ -36,6 +36,44 @@ describe('Figuren-Baukasten: bisherige Pixel', () => {
 
   it.each(dirs)('zeichnet explizite Standardmerkmale wie fehlende Merkmale: %s', dir => {
     expect(image(dir, { beard: 'none', headband: null, armSleeve: 'none', shoes: '#222226', socks: 'low' })).toEqual(image(dir));
+  });
+});
+
+describe('Bank und Arzt: Pixel und Posen', () => {
+  it.each(dirs)('behält alle bisherigen Pixel bei deaktiviertem towel/cross: %s', dir => {
+    for (const move of Object.keys(MOVES) as MoveId[]) for (const pose of moveFrames(move)) {
+      const p = project(pose, dir);
+      expect(rasterPose(p, { ...look, towel: false, cross: false }, dir)).toEqual(rasterPose(p, look, dir));
+    }
+  });
+  it.each(dirs)('zeichnet genau ein weißes 3×4-Handtuch an der oberen Hand: %s', dir => {
+    const p = project(moveFrames('bench_cheer')[0], dir), buf = image(dir, { towel: true }, p);
+    const hand = xy(p.haL.v > p.haR.v ? p.haL : p.haR);
+    for (let y = 0; y < 4; y++) for (let x = -1; x <= 1; x++) {
+      expect(rgba(buf, Math.round(hand.x) + x, Math.round(hand.y) - 3 + y)).toEqual([255, 255, 255, 255]);
+    }
+    expect(buf).not.toEqual(image(dir, {}, p));
+  });
+  it('ersetzt die Brustnummer durch ein rotes Kreuz in einem 5×5-Feld', () => {
+    const p = project(idle, 'front');
+    const c = xy({ u: (p.shL.u + p.shR.u) / 2 * .55 + p.pelvis.u * .45,
+      v: (p.shL.v + p.shR.v) / 2 * .55 + p.pelvis.v * .45 });
+    const buf = image('front', { jersey: '#ffffff', num: -1, cross: true }, p);
+    expect(buf).toEqual(image('front', { jersey: '#ffffff', num: 23, cross: true }, p));
+    for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) {
+      if (x === 0 || y === 0) expect(rgba(buf, Math.round(c.x) + x, Math.round(c.y) + y)).toEqual([220, 32, 40, 255]);
+    }
+    expect(image('back', { cross: true, num: -1 })).toEqual(image('back', { num: -1 }));
+  });
+  it('sit hält Hände auf Kniehöhe und bench_cheer schwingt einen Arm über den Kopf; beide loopen', () => {
+    for (const p of moveFrames('sit')) {
+      expect(p.pelvis.y).toBeLessThan(.3);
+      expect(Math.abs(p.haL.y - p.knL.y)).toBeLessThan(.07);
+      expect(Math.abs(p.haR.y - p.knR.y)).toBeLessThan(.07);
+    }
+    expect(MOVES.sit.loop).toBe(true); expect(MOVES.bench_cheer.loop).toBe(true);
+    for (const p of moveFrames('bench_cheer')) expect(p.haR.y).toBeGreaterThan(p.head.y);
+    expect(moveFrames('bench_cheer')[0].haR).not.toEqual(moveFrames('bench_cheer')[3].haR);
   });
 });
 

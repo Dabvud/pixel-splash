@@ -5,12 +5,14 @@ import { attachGesture, type GestureEvent } from "../input/gesture";
 import { createScene } from "../render/scene";
 import { createGrave } from "../render/grave";
 import { createGlassShards } from "../render/glass";
+import { BENCH_MOVES, DOC_MOVES, benchHighlightTeam, createBenchState } from "../render/bench";
+import { createBenchSeats } from "../render/bench-view";
 import { createPixelRenderer } from "../render/pixel";
 import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, spriteJointWorld, type ActorView } from "../render/actors";
 import { createRecorder, replayAt, REPLAY_SECONDS, type Snap } from "../render/replay";
 import { buildAtlas } from "../figure/atlas";
-import { ACTORS } from "../play/teams";
+import { ACTORS, BENCH_RED, BENCH_BLUE, DOC } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
 import { command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
@@ -53,6 +55,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const { scene, ball, updateNet, crowd, hoop } = createScene();
   const grave = createGrave(scene);
   const shards = createGlassShards(scene);
+  const bench = createBenchState(() => Math.random());
+  const benchSeats = createBenchSeats(scene);
+  const benchViews = [...bench.figures, bench.doctor];
+  let benchPoints = 0;
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
   let atlas: ReturnType<typeof buildAtlas>;
@@ -129,6 +135,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function newPlay(): void {
+    bench.reset(); bench.forceFaint = settings.forceFaint; benchPoints = 0;
     recorder.reset();
     blockReplayQueued = false;
     glassReplayPlayed = false;
@@ -185,6 +192,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     // Die Engine meldet die Freiwurf-Serie vor dem Pfiff; beides kommt im selben Schritt
     if (events.some((e) => e.type === "foul")) foulJustCalled = true;
     for (const e of events) {
+      const offense = ACTORS[s.handler].team === 'def' ? 'def' : 'off';
+      const benchTeam = benchHighlightTeam(e, offense)
+        ?? (e.type === 'result' && e.made && s.points - benchPoints === 3 ? offense : null);
+      if (benchTeam) bench.highlight(s.realTime, benchTeam);
+      if (e.type === 'result') benchPoints = s.points;
       if (e.type === "decision") options = e.options;
       else if (e.type === "arrowStart") {
         comboT0 = releasedFill = null;
@@ -361,6 +373,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         if ((activeNow - endedAt) / 1000 >= NEXT_PLAY_S) newPlay();
         else step(s, dt, c, rng);
       } else handle(step(s, dt, c, rng));
+      bench.update(s.realTime);
       camHold = Math.max(0, camHold - dt);
       if (s.handler !== lastHandler) {
         lastHandler = s.handler;
@@ -401,6 +414,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     camera.lookAt(0, 2.4, 0);
     camera.updateMatrixWorld(true);
     const yaw = Math.atan2(-camera.position.x, camera.position.z);
+    benchActors.sync(benchViews, yaw);
     actors.sync(snap.actors, yaw);
     ball.position.set(snap.ball.x, snap.ball.y, snap.ball.z);
     // Auch im Replay beginnen die Sterne erst nach dem Aufprall.
@@ -474,6 +488,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       v.x = a.pos.x; v.y = a.y; v.z = a.pos.z; v.facing = a.facing;
       v.move = a.move; v.moveT = a.moveT; v.moveSide = a.moveSide;
     }
+    benchActors.sync(benchViews, yaw);
     actors.sync(views, yaw);
     grave.sync(s.grave, s.realTime);
     hoop.setGlassBroken(s.glass !== null);
@@ -557,6 +572,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   document.addEventListener("visibilitychange", visibility);
   addEventListener("resize", resize);
   newPlay();
+  const benchLooks = [...BENCH_RED, ...BENCH_BLUE, DOC];
+  const benchAtlas = buildAtlas(Object.fromEntries(benchLooks.map(a => [a.id, a])), {
+    lazy: true, moves: Object.fromEntries(benchLooks.map(a => [a.id, a === DOC ? DOC_MOVES : BENCH_MOVES])),
+  });
+  const benchActors = createActors(scene, benchAtlas, benchLooks.map(a => a.id));
   resize();
   raf = requestAnimationFrame(frame);
 
@@ -564,6 +584,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     apply(next) {
       const restart = next.play !== settings.play || next.defenseRandom !== settings.defenseRandom || next.decisionS !== settings.decisionS;
       settings = next;
+      bench.forceFaint = settings.forceFaint;
       resize();
       if (restart) newPlay();
     },
@@ -590,6 +611,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       document.removeEventListener("visibilitychange", visibility);
       detach();
       actors.dispose();
+      benchActors.dispose(); benchSeats.dispose();
+      (benchAtlas.textures ?? [benchAtlas.texture]).forEach(texture => texture.dispose());
       grave.dispose();
       (atlas.textures ?? [atlas.texture]).forEach(texture => texture.dispose());
       hud.dispose();

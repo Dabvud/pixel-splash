@@ -16,6 +16,8 @@ export interface Look {
   /** Farbe senkrechter Trikotstreifen (Schiri), jede zweite Pixelspalte */
   stripes?: string;
   mop?: boolean;
+  towel?: boolean;
+  cross?: boolean;
 }
 export type Projected = Record<Joint, { u: number; v: number; depth: number }>;
 
@@ -112,10 +114,10 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
   // Rumpf: dicke Linie Schultermitte → Becken, Breite aus Schulterabstand bzw. Statur
   const shMid = mid(p.shL, p.shR);
   const span = Math.abs(p.shL.u - p.shR.u) * s;
-  const number = side || look.num < 0 ? '' : String(look.num);
+  const number = side || look.num < 0 || look.cross === true ? '' : String(look.num);
   const numberWidth = number.length * 4 - 1; // 3 px je Ziffer, 1 px Zwischenraum
   // Die Nummer braucht beidseitig einen Trikotpixel Abstand zum Umriss.
-  const tw = Math.max(Math.round(span - 1), Math.round((side ? 0.13 : 0.17) * s * bw), side ? 0 : numberWidth + 2);
+  const tw = Math.max(Math.round(span - 1), Math.round((side ? 0.13 : 0.17) * s * bw), side ? 0 : numberWidth + 2, look.cross === true && dir === 'front' ? 7 : 0);
   line(p.neck, shMid, limb, skin);
   band(shMid, p.pelvis, tw, jersey, look.stripes ? rgb(look.stripes) : undefined);
   band(p.pelvis, mid(mid(p.hipL, p.hipR), mid(p.knL, p.knR), 0.25), tw, shorts);
@@ -185,6 +187,16 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
     const c = mid(shMid, p.pelvis, 0.45);
     const x0 = Math.round(X(c.u) - (numberWidth - 1) / 2), y0 = Math.round(Y(c.v) - 2);
     [...number].forEach((d, i) => DIGITS[d].forEach((row, y) => [...row].forEach((b, x) => b === "1" && set(x0 + i * 4 + x, y0 + y, [255, 255, 255]))));
+  }
+
+  if (look.cross === true && dir === 'front') {
+    const c = mid(shMid, p.pelvis, .45), cx = Math.round(X(c.u)), cy = Math.round(Y(c.v));
+    for (let d = -2; d <= 2; d++) { set(cx + d, cy, [220, 32, 40]); set(cx, cy + d, [220, 32, 40]); }
+  }
+  if (look.towel === true) {
+    const hand = p.haL.v > p.haR.v ? p.haL : p.haR;
+    const hx = Math.round(X(hand.u)), hy = Math.round(Y(hand.v));
+    for (let dy = -3; dy <= 0; dy++) for (let dx = -1; dx <= 1; dx++) set(hx + dx, hy + dy, [255, 255, 255]);
   }
 
   if (look.mop === true) {
