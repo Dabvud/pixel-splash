@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { benchHighlightTeam, createBenchState } from '../src/render/bench';
-import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, RED, BLUE } from '../src/play/teams';
+import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, MEDIC2, RED, BLUE } from '../src/play/teams';
 
 describe('Bank-Reaktionen', () => {
-  it.each(['off', 'def'] as const)('meldet die Ohnmacht ab dem Fall bis zum Verschwinden beider Figuren, höchstens sechs Sekunden: %s', team => {
+  it.each(['off', 'def'] as const)('meldet die Ohnmacht bis zum Verschwinden von Sanitätern und Trage, höchstens sechs Sekunden: %s', team => {
     const bank = createBenchState(() => 0);
     bank.forceFaint = true;
     bank.highlight(10, team);
@@ -12,10 +12,11 @@ describe('Bank-Reaktionen', () => {
     expect(bank.faint).toEqual({ x: team === 'off' ? -7.6 : 7.6, z: 3 });
     bank.update(15.5);
     expect(bank.faint).not.toBeNull();
-    expect(bank.doctor.visible).toBe(true);
+    expect(bank.medics.every(m => m.visible)).toBe(true);
     bank.update(17);
     expect(bank.faint).toBeNull();
-    expect(bank.doctor.visible).toBe(false);
+    expect(bank.medics.every(m => !m.visible)).toBe(true);
+    expect(bank.stretcher.visible).toBe(false);
     expect(bank.figures.filter(f => f.visible)).toHaveLength(5);
     bank.reset(); expect(bank.faint).toBeNull();
   });
@@ -30,48 +31,86 @@ describe('Bank-Reaktionen', () => {
     expect(rng).toHaveBeenCalledTimes(1);
   });
 
-  it.each([false, true])('lässt genau einen Spieler umfallen und vom Arzt abholen (forceFaint=%s)', forced => {
+  it.each((['off', 'def'] as const).flatMap(team => [false, true].map(forced => ({ team, forced }))))(
+    'transportiert genau einen Liegenden mit zwei Sanitätern und einer Trage: $team, forceFaint=$forced', ({ team, forced }) => {
     const rng = vi.fn(() => forced ? .8 : .02), bank = createBenchState(rng);
     bank.forceFaint = forced;
-    bank.highlight(0, 'off');
-    bank.update(.9);
+    bank.highlight(0, team); bank.update(.9);
     expect(bank.figures.some(f => f.move === 'knocked_down')).toBe(false);
     bank.update(1.01);
     const down = bank.figures.filter(f => f.move === 'knocked_down');
     expect(down).toHaveLength(1);
-    expect(down[0].x).toBeCloseTo(-7.6);
-    expect(bank.doctor.visible).toBe(false);
-    bank.update(2.2);
-    expect(bank.doctor).toMatchObject({ visible: true, x: -9.5, z: 9, move: 'run' });
-    const target = { x: down[0].x, z: down[0].z + .45 };
-    const travel = Math.hypot(target.x + 9.5, target.z - 9) / 3;
-    bank.update(2.2 + travel / 2);
-    expect(bank.doctor.x).toBeCloseTo((-9.5 + target.x) / 2);
-    expect(bank.doctor.z).toBeCloseTo((9 + target.z) / 2);
-    bank.update(2.2 + travel + .01);
-    expect(bank.doctor).toMatchObject({ visible: true, move: 'idle', ...target });
-    expect(down[0].move).toBe('knocked_down');
-    const leave = 2.2 + travel + 1.5;
-    bank.update(leave + .1);
-    expect(down[0].move).toBe('run');
-    expect(bank.doctor.move).toBe('run');
-    const x = down[0].x, z = down[0].z, t = down[0].moveT;
-    bank.update(leave + .3);
-    expect(Math.hypot(down[0].x - x, down[0].z - z)).toBeCloseTo(.4);
-    expect(down[0].moveT - t).toBeCloseTo(.1);
-    bank.update(30);
-    expect(down[0]).toMatchObject({ visible: false, x: -9.5, z: 9 });
-    expect(bank.doctor).toMatchObject({ visible: false, x: -9.5, z: 9 });
+    const victim = down[0], x = team === 'off' ? -7.6 : 7.6, z = victim.z, tunnelX = Math.sign(x) * 9.5;
+    expect(victim.x).toBeCloseTo(x);
+    expect(bank.medics.every(m => !m.visible)).toBe(true);
+    bank.update(1.8);
+    expect(bank.medics.map(m => m.id)).toEqual([DOC.id, MEDIC2.id]);
+    expect(bank.stretcher).toMatchObject({ visible: true, x: tunnelX, z: 9, y: .8 });
+    function expectFormation(): void {
+      const [front, rear] = bank.medics, bed = bank.stretcher;
+      expect(front.visible && rear.visible && bed.visible).toBe(true);
+      expect(front.x).toBeCloseTo(bed.x); expect(rear.x).toBeCloseTo(bed.x);
+      expect(Math.abs(front.z - rear.z)).toBeCloseTo(2.2);
+      expect((front.z + rear.z) / 2).toBeCloseTo(bed.z);
+    }
+    expectFormation();
+    expect(bank.medics.every(m => m.move === 'carry')).toBe(true);
+    const target = { x: x - Math.sign(x) * .35, z };
+    const travel = Math.hypot(target.x - tunnelX, z - 9) / 3.5, arrival = 1.8 + travel;
+    bank.update(1.8 + travel / 2);
+    expect(bank.stretcher.x).toBeCloseTo((tunnelX + target.x) / 2);
+    expect(bank.stretcher.z).toBeCloseTo((9 + z) / 2);
+    expectFormation();
+    bank.update(arrival + .01);
+    expect(bank.stretcher).toMatchObject({ ...target, y: .12, visible: true });
+    expect(bank.medics.every(m => m.move === 'idle')).toBe(true);
+    expect(victim).toMatchObject({ x, z, y: 0, move: 'knocked_down' });
+    bank.update(arrival + .49); expect(victim.x).toBe(x);
+    bank.update(arrival + .51);
+    expect(victim.x).toBe(bank.stretcher.x); expect(victim.z).toBe(bank.stretcher.z);
+    expect(victim.y).toBeCloseTo(bank.stretcher.y + .05);
+    bank.update(arrival + .85);
+    expect(bank.stretcher.y).toBe(.8);
+    expect(victim.move).toBe('knocked_down'); expect(victim.y).toBeCloseTo(.85);
+    expect(bank.medics.every(m => m.move === 'carry')).toBe(true);
+    expectFormation();
+    const before = { ...bank.stretcher };
+    bank.update(arrival + 1.05);
+    expect(Math.hypot(bank.stretcher.x - before.x, bank.stretcher.z - before.z)).toBeCloseTo(.6);
+    expect(Math.hypot(bank.stretcher.x - tunnelX, bank.stretcher.z - 9))
+      .toBeLessThan(Math.hypot(before.x - tunnelX, before.z - 9));
+    expect(victim.x).toBe(bank.stretcher.x); expect(victim.z).toBe(bank.stretcher.z);
+    expect(victim.y).toBeCloseTo(bank.stretcher.y + .05);
+    expectFormation();
+    bank.update(7);
+    expect(victim).toMatchObject({ visible: false, x: tunnelX, z: 9 });
+    expect(bank.medics.every(m => !m.visible)).toBe(true);
+    expect(bank.stretcher).toMatchObject({ visible: false, x: tunnelX, z: 9 });
+    expect(bank.faint).toBeNull();
     expect(bank.figures.filter(f => f.visible)).toHaveLength(5);
-    bank.highlight(31, 'off'); bank.update(31.3);
-    expect(down[0].visible).toBe(false);
+    bank.highlight(8, team); bank.update(8.3); expect(victim.visible).toBe(false);
+    expect(rng).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['off', 'def'] as const)('beendet jeden Opferweg binnen sechs aktiven Sekunden ab Fall: %s', team => {
+    for (const choice of [0, .4, .9]) {
+      const bank = createBenchState(() => choice);
+      bank.forceFaint = true; bank.highlight(0, team);
+      for (let t = 1; t < 7; t += .025) bank.update(t);
+      bank.update(7);
+      expect(bank.faint).toBeNull();
+      expect(bank.medics.every(m => !m.visible)).toBe(true);
+      expect(bank.stretcher.visible).toBe(false);
+      expect(bank.figures.filter(f => !f.visible)).toHaveLength(1);
+    }
   });
 
   it.each([.03, .5, .999])('erzeugt bei rng=%s ohne Erzwingen keine Ohnmacht', value => {
     const bank = createBenchState(() => value);
     bank.highlight(0, 'off'); bank.update(1.1); bank.update(20);
     expect(bank.figures.every(f => f.visible && f.move === 'sit')).toBe(true);
-    expect(bank.doctor.visible).toBe(false);
+    expect(bank.medics.every(m => !m.visible)).toBe(true);
+    expect(bank.stretcher.visible).toBe(false);
   });
 
   it('zieht pro Highlight einmal und erzeugt während einer Ohnmacht keine zweite', () => {
@@ -89,18 +128,20 @@ describe('Bank-Reaktionen', () => {
       bank.highlight(0, 'def'); bank.update(1.1);
       const victim = bank.figures.find(f => f.move === 'knocked_down')!;
       expect(victim.team).toBe('def'); expect(victim.x).toBeCloseTo(7.6);
-      bank.update(2.2); expect(bank.doctor.x).toBe(9.5);
+      bank.update(1.8); expect(bank.medics.every(m => m.x === 9.5)).toBe(true);
       return victim.id;
     });
     expect(new Set(victims).size).toBe(3);
   });
 
-  it.each([.5, 1.1, 3, 30])('reset stellt alle sechs Spieler wieder her und bricht die Arzt-Szene ab bei %s s', time => {
+  it.each([.5, 1.1, 3, 4.5, 5.3, 30])('reset stellt alle sechs Spieler wieder her und bricht die Tragen-Szene ab bei %s s', time => {
     const bank = createBenchState(() => 0);
     bank.highlight(0, 'off'); bank.update(time); bank.reset(); bank.update(50);
     expect(bank.figures).toHaveLength(6);
     expect(bank.figures.every(f => f.visible && f.move === 'sit' && Math.abs(f.x) === 8.4)).toBe(true);
-    expect(bank.doctor.visible).toBe(false);
+    expect(bank.figures.every(f => f.y === 0)).toBe(true);
+    expect(bank.medics.every(m => !m.visible)).toBe(true);
+    expect(bank.stretcher.visible).toBe(false);
   });
 
   it.each([
@@ -128,7 +169,12 @@ describe('Bank-Reaktionen', () => {
         expect(a.jersey).toBe(players[0].jersey); expect(a.shorts).toBe(players[0].shorts);
       }
     }
-    expect(ACTORS[DOC.id]).toBeUndefined();
-    expect(DOC).toMatchObject({ jersey: '#ffffff', shorts: '#ffffff', cross: true, num: -1 });
+    for (const medic of [DOC, MEDIC2]) {
+      expect(ACTORS[medic.id]).toBeUndefined();
+      expect(medic).toMatchObject({ jersey: '#ffffff', shorts: '#ffffff', cross: true, num: -1 });
+    }
+    expect(MEDIC2.skin).not.toBe(DOC.skin);
+    expect(MEDIC2.hair).not.toBe(DOC.hair);
+    expect(MEDIC2.heightM).not.toBe(DOC.heightM);
   });
 });

@@ -1,3 +1,4 @@
+import { DOC, MEDIC2 } from '../src/play/teams';
 import { describe, expect, it } from 'vitest';
 import { CELL_H, CELL_W, FEET_ROW, PX_PER_M, rasterPose } from '../src/figure/raster';
 import type { Look } from '../src/figure/raster';
@@ -146,5 +147,19 @@ describe('Schiri-Trikot', () => {
     // Streifen sind spaltenweise: jede Spalte trägt im Rumpf nur eine der beiden Farben
     const greyCols = new Set(grey.map(p => p.x)), blackCols = new Set(black.filter(p => p.y < 48).map(p => p.x));
     expect([...blackCols].some(x => greyCols.has(x))).toBe(false);
+  });
+});
+
+
+describe('Sanitäter-Kittel', () => {
+  it.each([DOC, MEDIC2])('$id zeichnet im weißen Kittel ein rotes Kreuz auch beim Tragen', medic => {
+    for (const move of ['idle', 'carry'] as const) for (const pose of moveFrames(move)) {
+      const image = rasterPose(project(pose, 'front'), medic, 'front');
+      const red = pixels(image, [220, 32, 40, 255]);
+      expect(red).toHaveLength(9);
+      expect(new Set(red.map(p => p.x)).size).toBe(5);
+      expect(new Set(red.map(p => p.y)).size).toBe(5);
+      expect(pixels(image, [255, 255, 255, 255]).length).toBeGreaterThan(10);
+    }
   });
 });

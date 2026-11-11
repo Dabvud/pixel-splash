@@ -8,7 +8,7 @@ import { startPlayLab } from '../src/modes/play-lab';
 import { DEFAULTS } from '../src/settings';
 import { MAX_FILL } from '../src/shot/resolve';
 import type { Mode } from '../src/modes/mode';
-import { ACTORS, RED, BLUE, BENCH_RED, BENCH_BLUE } from '../src/play/teams';
+import { ACTORS, RED, BLUE, BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from '../src/play/teams';
 // Die zehn Teamspieler (ohne Schiri)
 const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
@@ -53,6 +53,7 @@ beforeEach(() => {
   vi.mocked(step).mockReset().mockImplementation(actualEngine.step);
   vi.mocked(command).mockReset().mockImplementation(actualEngine.command);
   vi.mocked(createPlayState).mockReset().mockImplementation(actualEngine.createPlayState);
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ fillRect: vi.fn(), fillText: vi.fn() } as unknown as CanvasRenderingContext2D);
   now = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => now);
   vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { frame = callback; return 1; }));
@@ -66,6 +67,22 @@ describe('Spielzug-Labor Integration', () => {
   const benchViews = () => sceneSpies.sync.mock.calls.map(c => c[0] as import('../src/render/actors').ActorView[])
     .filter(v => v.some(a => a.id === BENCH_RED[0].id)).at(-1)!;
 
+  it('verdrahtet beide Sanitäter im kleinen Bank-Atlas und räumt die Trage beim Neustart und Stoppen auf', () => {
+    const call = vi.mocked(buildAtlas).mock.calls.find(c => DOC.id in c[0])!;
+    expect(call[0][MEDIC2.id]).toBe(MEDIC2);
+    for (const a of [DOC, MEDIC2]) expect(call[1]!.moves![a.id]).toEqual(['idle', 'carry']);
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, forceFaint: true });
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }]); advance(2);
+    const scene = sceneSpies.render.mock.calls.at(-1)![0] as import('three').Scene;
+    const bed = scene.children.find(o => o.name === 'bench-stretcher')!;
+    expect(bed.visible).toBe(true);
+    expect([DOC, MEDIC2].every(a => benchViews().find(v => v.id === a.id)!.visible)).toBe(true);
+    mode.restart!(); advance(1 / 60);
+    expect(bed.visible).toBe(false);
+    mode.stop(); expect(scene.children).not.toContain(bed);
+  });
+
   it('reicht forceFaint an die Bank durch, pausiert sie mit und setzt sie beim newPlay zurück', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, forceFaint: true });
     vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
@@ -78,7 +95,7 @@ describe('Spielzug-Labor Integration', () => {
     expect(vi.mocked(step).mock.calls.at(-1)![2]).not.toHaveProperty('forceFaint');
     mode.restart!(); advance(1 / 60);
     expect(benchViews().filter(v => v.visible && v.move === 'sit')).toHaveLength(6);
-    expect(benchViews().find(v => v.id === 'doc')!.visible).toBe(false);
+    expect([DOC, MEDIC2].every(a => !benchViews().find(v => v.id === a.id)!.visible)).toBe(true);
   });
 
   it('lässt beim Block die blaue Bank jubeln und zeigt sie auch im Replay im aktuellen Zustand', () => {
@@ -96,7 +113,7 @@ describe('Spielzug-Labor Integration', () => {
     document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
   });
 
-  it('zeigt nach dem Umfallen die Bank-Kamera und startet newPlay erst nach der Arzt-Szene', () => {
+  it('zeigt nach dem Umfallen die Bank-Kamera und startet newPlay erst nach der Tragen-Szene', () => {
     const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, forceFaint: true });
     vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
@@ -113,13 +130,15 @@ describe('Spielzug-Labor Integration', () => {
     expect(camera.fov).toBe(60);
     advance(1.1);
     expect(state()).toBe(previous);
-    advance(3.8);
+    advance(2.3);
     expect(state()).toBe(previous);
-    expect(benchViews().find(v => v.id === 'doc')!.visible).toBe(true);
-    advance(1.2);
+    expect([DOC, MEDIC2].every(a => benchViews().find(v => v.id === a.id)!.visible)).toBe(true);
+    const scene = sceneSpies.render.mock.calls.at(-1)![0] as import('three').Scene;
+    expect(scene.children.find(o => o.name === 'bench-stretcher')!.visible).toBe(true);
+    advance(2.8);
     expect(state()).not.toBe(previous);
     expect(benchViews().filter(v => v.visible && v.move === 'sit')).toHaveLength(6);
-    expect(benchViews().find(v => v.id === 'doc')!.visible).toBe(false);
+    expect([DOC, MEDIC2].every(a => !benchViews().find(v => v.id === a.id)!.visible)).toBe(true);
   });
 
   it('gibt dem Replay Vorrang und zeigt danach die pausierte Ohnmacht mit der Bank-Kamera', () => {

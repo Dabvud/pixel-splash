@@ -11,7 +11,7 @@ const counts: Record<MoveId, number> = {
   reverse_layup: 8, block_jump_hit: 8, crossover: 8, behind_back: 8, spin_move: 8,
   hesitation: 8, euro_step: 8, finger_roll: 8, tomahawk_dunk: 8, two_hand_dunk: 8,
   step_back: 8, fadeaway: 8, celebrate: 8, dejected: 8, pass_bounce: 8, pass_overhead: 8,
-  ref_whistle: 8, flex: 8, high_five: 8, mop_sweep: 8, sit: 2, bench_cheer: 8,
+  ref_whistle: 8, flex: 8, high_five: 8, mop_sweep: 8, sit: 2, bench_cheer: 8, carry: 8,
 };
 const additions = Object.keys(counts).slice(14);
 const ids = Object.keys(counts) as MoveId[];
@@ -34,7 +34,7 @@ describe('Bewegungen', () => {
     expect(move.fps).toBe(id === 'sit' ? 3 : ['crossover', 'behind_back', 'spin_move', 'hesitation'].includes(id) ? 20 : id === 'run' || id === 'dribble_run' ? 12 : 10);
     expect(move.keys.length).toBeGreaterThanOrEqual(2);
     expect(move.keys.length).toBeLessThanOrEqual(additions.includes(id) ? 8 : 4);
-    expect(move.loop).toBe(['idle', 'run', 'dribble', 'dribble_run', 'defend', 'mop_sweep', 'sit', 'bench_cheer'].includes(id));
+    expect(move.loop).toBe(['idle', 'run', 'dribble', 'dribble_run', 'defend', 'mop_sweep', 'sit', 'bench_cheer', 'carry'].includes(id));
     expect(moveFrames(id)).toEqual(framesFromKeys(move.keys, move.frames, move.loop));
     expect(moveFrames(id)).toHaveLength(counts[id]);
     expect(moveFrames(id)[0]).toEqual(move.keys[0]);
@@ -83,6 +83,19 @@ describe('Bewegungen', () => {
       const hand = MOVES[id].ballHand;
       expect(ballHandAt(id, frame)).toEqual(hand === null ? null : p[hand]);
     });
+  });
+
+  it('carry hält beide Hände vorwärts auf Griffhöhe und geht mit wechselnden Beinen im Loop', () => {
+    expect(MOVES.carry).toMatchObject({ loop: true, ballHand: null });
+    const frames = moveFrames('carry');
+    for (const p of frames) for (const side of ['L', 'R'] as const) {
+      expect(p[`ha${side}`].z).toBeGreaterThan(p[`sh${side}`].z + .08);
+      expect(p[`ha${side}`].y).toBeLessThan(p[`el${side}`].y);
+      expect(p[`ha${side}`].y * 1.8).toBeGreaterThan(.7);
+      expect(p[`ha${side}`].y * 1.92).toBeLessThan(.95);
+    }
+    expect(frames[0].ftL.z).toBeGreaterThan(frames[0].ftR.z);
+    expect(frames[4].ftR.z).toBeGreaterThan(frames[4].ftL.z);
   });
 
   it('knocked_down zeigt getroffen, fallend und zweimal liegend mit Kopf und Becken unter 0,25 Körpergrößen', () => {

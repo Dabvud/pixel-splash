@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { PerspectiveCamera, Vector3 } from 'three';
 import { benchCameraPose, cameraPose } from '../src/render/camera-pose';
+import { createBenchState } from '../src/render/bench';
+import { BENCH_RED, BENCH_BLUE } from '../src/play/teams';
+import { spriteJointWorld } from '../src/render/actors';
 import { RIM } from '../src/shot/trajectory';
 
 const top = { x: 0, y: 0, z: 6.9 };
 const corner = { x: -6.6, y: 0, z: 0.5 };
 
 describe('Bank-Kamera', () => {
-  it.each([-8.4, 8.4].flatMap(x => [2.5, 3, 4, 5, 5.5].flatMap(z =>
+  it.each([-8.4, 8.4, -7.6, 7.6].flatMap(x => [2.5, 3, 4, 5, 5.5].flatMap(z =>
     [390 / 844, 16 / 9].map(aspect => ({ x, z, aspect })))))('zeigt Korb, Boden, Bankspieler und Abtransport bei %j', ({ x, z, aspect }) => {
     const pose = benchCameraPose({ x, z }, aspect);
     expect(Math.abs(pose.pos.x)).toBeLessThan(9.6);
@@ -19,7 +22,13 @@ describe('Bank-Kamera', () => {
     const points = [new Vector3(0, 3.05, 0), new Vector3(0, 0, .5),
       ...[0, 1.9].map(y => new Vector3(x, y, z)),
       new Vector3(x - Math.sign(x) * .8, .2, z),
-      ...[0, 1.9].map(y => new Vector3(Math.sign(x) * 9.5, y, 9))];
+      ...[0, 1.9].map(y => new Vector3(Math.sign(x) * 9.5, y, 9)),
+      ...Array.from({ length: 11 }, (_, i) => i / 10).flatMap(t => {
+        const cx = (x - Math.sign(x) * 1.15) * (1 - t) + Math.sign(x) * 9.5 * t;
+        const cz = z * (1 - t) + 9 * t;
+        return [-1.1, 1.1].flatMap(dz => [0, 2.1].map(y => new Vector3(cx, y, cz + dz)))
+          .concat([-.33, .33].flatMap(dx => [-1.1, 1.1].map(dz => new Vector3(cx + dx, .85, cz + dz))));
+      })];
     for (const p of points) {
       expect(p.clone().applyMatrix4(camera.matrixWorldInverse).z).toBeLessThan(0);
       const ndc = p.project(camera);
@@ -28,6 +37,28 @@ describe('Bank-Kamera', () => {
       expect(Math.abs(ndc.z)).toBeLessThan(1);
     }
   });
+});
+
+it.each(['off', 'def'] as const)('zeigt den liegenden Billboard-Körper oberhalb der Trage bis zum Tunnel: %s', team => {
+  const bank = createBenchState(() => .8);
+  bank.forceFaint = true; bank.highlight(0, team); bank.update(1);
+  const pose = benchCameraPose(bank.faint!, 390 / 844);
+  const yaw = Math.atan2(pose.look.x - pose.pos.x, -(pose.look.z - pose.pos.z));
+  let samples = 0;
+  for (let t = 1; t < 7; t += .025) {
+    bank.update(t);
+    const victim = bank.figures.find(f => f.visible && f.move === 'knocked_down');
+    if (!victim || victim.y === 0) continue;
+    samples++;
+    const look = [...BENCH_RED, ...BENCH_BLUE].find(a => a.id === victim.id)!;
+    const head = spriteJointWorld(victim, 'head', look.heightM, yaw);
+    const pelvis = spriteJointWorld(victim, 'pelvis', look.heightM, yaw);
+    expect(head.y - .08).toBeGreaterThan(bank.stretcher.y + .05);
+    expect(pelvis.y - .08).toBeGreaterThan(bank.stretcher.y + .05);
+    expect(Math.abs(head.z - pelvis.z)).toBeGreaterThan(.6);
+    expect(victim.x).toBe(bank.stretcher.x); expect(victim.z).toBe(bank.stretcher.z);
+  }
+  expect(samples).toBeGreaterThan(20);
 });
 
 describe('Kamera-Pose', () => {

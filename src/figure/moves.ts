@@ -5,7 +5,7 @@ export type MoveId = 'idle'|'run'|'dribble'|'dribble_run'|'pass'|'catch'|'jumpsh
   | 'reverse_layup'|'block_jump_hit'|'crossover'|'behind_back'|'spin_move'|'hesitation'
   | 'euro_step'|'finger_roll'|'tomahawk_dunk'|'two_hand_dunk'|'step_back'|'fadeaway'
   | 'celebrate'|'dejected'|'pass_bounce'|'pass_overhead'
-  | 'ref_whistle'|'flex'|'high_five'|'mop_sweep'|'sit'|'bench_cheer';
+  | 'ref_whistle'|'flex'|'high_five'|'mop_sweep'|'sit'|'bench_cheer'|'carry';
 export interface MoveDef { frames: number; fps: number; loop: boolean; keys: Pose[]; ballHand: 'haL' | 'haR' | null; rimFrame?: number }
 
 type Limb = [upperPitch: number, lowerPitch: number, upperSpread?: number, lowerSpread?: number];
@@ -156,6 +156,11 @@ function knockedDownKeys(): Pose[] {
 }
 
 export const MOVES: Record<MoveId, MoveDef> = {
+  carry: { frames: 8, fps: 10, loop: true, ballHand: null, keys: [
+    [[14, -3], [-12, -26]], [[0, -12], [0, -12]],
+    [[-12, -26], [14, -3]], [[0, -12], [0, -12]],
+  ].map((legs, i) => pose({ height: i % 2 ? .5 : .25 * (Math.cos(rad(14)) + Math.cos(rad(3))),
+    arms: [[15, 15, -8, -8], [15, 15, 8, 8]], legs: legs as [Limb, Limb] })) },
   sit: { frames: 2, fps: 3, loop: true, ballHand: null, keys: [
     pose({ height: .25, lean: 8, arms: [[25, 65, -8, -5], [25, 65, 8, 5]], legs: [[90, 0], [90, 0]] }),
     pose({ height: .255, lean: 10, arms: [[25, 65, -8, -5], [25, 65, 8, 5]], legs: [[90, 0], [90, 0]] }),

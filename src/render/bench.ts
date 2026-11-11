@@ -1,11 +1,12 @@
 import type { ActorView } from './actors';
 import type { MoveId } from '../figure/moves';
-import { BENCH_RED, BENCH_BLUE } from '../play/teams';
+import { BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from '../play/teams';
 
 export type BenchTeam = 'off' | 'def';
 export interface BenchFigure extends ActorView { team: BenchTeam }
-export const BENCH_MOVES: readonly MoveId[] = ['sit', 'bench_cheer', 'knocked_down', 'run'];
-export const DOC_MOVES: readonly MoveId[] = ['idle', 'run'];
+export interface BenchStretcher { x: number; z: number; y: number; visible: boolean }
+export const BENCH_MOVES: readonly MoveId[] = ['sit', 'bench_cheer', 'knocked_down'];
+export const DOC_MOVES: readonly MoveId[] = ['idle', 'carry'];
 
 type HighlightEvent = { type: string; made?: boolean; banner?: string; andOne?: boolean };
 export function benchHighlightTeam(event: HighlightEvent, offense: BenchTeam): BenchTeam | null {
@@ -21,15 +22,19 @@ export function createBenchState(rng: () => number) {
     z: 3 + i % 3, facing: i < 3 ? Math.PI / 2 : -Math.PI / 2,
     move: 'sit', moveT: 0, visible: true,
   }));
-  const doctor: ActorView = { id: 'doc', x: 0, y: 0, z: 9, facing: 0, move: 'idle', moveT: 0, visible: false };
+  const medics: [BenchFigure, BenchFigure] = [DOC, MEDIC2].map(look => ({
+    id: look.id, team: 'off', x: 0, y: 0, z: 9, facing: 0, move: 'idle', moveT: 0, visible: false,
+  })) as [BenchFigure, BenchFigure];
+  const stretcher: BenchStretcher = { x: 0, y: .12, z: 9, visible: false };
   const cheers = new Map<string, { start: number; end: number }>();
   let faint: { victim: BenchFigure; at: number; tunnelX: number } | null = null;
   let faintPosition: { x: number; z: number } | null = null;
-  const state = { figures, doctor, forceFaint: false, highlight, update, reset,
+  const state = { figures, medics, stretcher, forceFaint: false, highlight, update, reset,
     get faint() { return faintPosition; } };
 
   function reset(): void {
-    faint = null; faintPosition = null; cheers.clear(); doctor.visible = false;
+    faint = null; faintPosition = null; cheers.clear(); stretcher.visible = false;
+    medics.forEach(m => { m.visible = false; m.move = 'idle'; m.moveT = 0; });
     figures.forEach((f, i) => {
       f.x = f.team === 'off' ? -8.4 : 8.4; f.y = 0; f.z = 3 + i % 3;
       f.facing = f.team === 'off' ? Math.PI / 2 : -Math.PI / 2;
@@ -51,11 +56,19 @@ export function createBenchState(rng: () => number) {
     update(nowS);
   }
 
-  function walk(f: ActorView, x: number, z: number, tx: number, tz: number, elapsed: number, speed: number): void {
-    const distance = Math.hypot(tx - x, tz - z), t = distance ? Math.min(1, elapsed * speed / distance) : 1;
-    f.x = x + (tx - x) * t; f.z = z + (tz - z) * t;
-    f.facing = Math.atan2(tx - x, -(tz - z)); f.move = 'run';
-    f.moveT = elapsed * (speed === 2 ? .5 : 1);
+  function transport(x: number, z: number, tx: number, tz: number, elapsed: number, speed: number): void {
+    const distance = Math.hypot(tx - x, tz - z), t = distance ? Math.min(1, Math.max(0, elapsed) * speed / distance) : 1;
+    stretcher.x = x + (tx - x) * t; stretcher.z = z + (tz - z) * t;
+  }
+
+  function formation(team: BenchTeam, carrying: boolean, elapsed: number): void {
+    medics.forEach((m, i) => {
+      m.visible = true; m.team = team;
+      m.x = stretcher.x; m.z = stretcher.z + (i === 0 ? -1.1 : 1.1);
+      // Beide greifen zur Mitte; die Längsachse bleibt für die Bank-Kamera quer im Bild.
+      m.facing = i === 0 ? Math.PI : 0;
+      m.move = carrying ? 'carry' : 'idle'; m.moveT = elapsed;
+    });
   }
 
   function update(nowS: number): void {
@@ -70,22 +83,31 @@ export function createBenchState(rng: () => number) {
     const x = victim.team === 'off' ? -7.6 : 7.6;
     const z = 3 + figures.indexOf(victim) % 3;
     faintPosition ??= { x, z };
-    victim.x = x; victim.z = z; victim.move = 'knocked_down'; victim.moveT = nowS - at;
-    const spawn = at + 1.2, targetZ = z + .45;
-    const arrival = spawn + Math.hypot(x - tunnelX, targetZ - 9) / 3, leave = arrival + 1.5;
-    doctor.visible = nowS >= spawn;
+    victim.x = x; victim.y = 0; victim.z = z; victim.move = 'knocked_down'; victim.moveT = nowS - at;
+    const spawn = at + .8, targetX = x - Math.sign(x) * .35;
+    const distance = Math.hypot(targetX - tunnelX, z - 9);
+    const arrival = spawn + distance / 3.5, load = arrival + .5, lift = load + .15, leave = lift + .15;
+    stretcher.visible = nowS >= spawn;
     if (nowS < spawn) return;
-    if (nowS < arrival) walk(doctor, tunnelX, 9, x, targetZ, nowS - spawn, 3);
-    else if (nowS < leave) {
-      doctor.x = x; doctor.z = targetZ; doctor.move = 'idle'; doctor.moveT = nowS - arrival;
+    if (nowS < arrival) {
+      stretcher.y = .8;
+      transport(tunnelX, 9, targetX, z, nowS - spawn, 3.5);
     } else {
-      walk(victim, x, z, tunnelX, 9, nowS - leave, 2);
-      walk(doctor, x, targetZ, tunnelX, 9, nowS - leave, 2);
-      const end = leave + Math.max(Math.hypot(x - tunnelX, z - 9), Math.hypot(x - tunnelX, targetZ - 9)) / 2;
-      if (nowS >= Math.min(end, at + 6)) {
-        victim.x = doctor.x = tunnelX; victim.z = doctor.z = 9;
-        victim.visible = doctor.visible = false; cheers.delete(victim.id); faint = null; faintPosition = null;
-      }
+      stretcher.x = targetX; stretcher.z = z;
+      stretcher.y = .12 + .68 * Math.min(1, Math.max(0, (nowS - lift) / .15));
+      if (nowS >= leave) transport(targetX, z, tunnelX, 9, nowS - leave, 3);
+    }
+    formation(victim.team, nowS < arrival || nowS >= lift, nowS < arrival ? nowS - spawn : nowS - arrival);
+    if (nowS >= load) {
+      victim.x = stretcher.x; victim.z = stretcher.z; victim.y = stretcher.y + .05;
+      // Die Seitenansicht hält den liegenden Billboard-Körper entlang der sichtbaren Trage.
+      victim.facing = victim.team === 'off' ? Math.PI : 0;
+    }
+    if (nowS >= leave + distance / 3) {
+      victim.x = stretcher.x = tunnelX; victim.z = stretcher.z = 9;
+      victim.visible = stretcher.visible = false;
+      medics.forEach(m => { m.visible = false; });
+      cheers.delete(victim.id); faint = null; faintPosition = null;
     }
   }
   return state;

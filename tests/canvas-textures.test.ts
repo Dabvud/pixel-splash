@@ -4,10 +4,10 @@ import { buildAtlas } from '../src/figure/atlas';
 import { createActors } from '../src/render/actors';
 import { createScene } from '../src/render/scene';
 import { createPlayer } from '../src/render/player';
-import { ACTORS, RED, BLUE, BENCH_RED, BENCH_BLUE, DOC } from '../src/play/teams';
+import { ACTORS, RED, BLUE, BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from '../src/play/teams';
 import { BENCH_MOVES, DOC_MOVES } from '../src/render/bench';
 import { MOVES } from '../src/figure/moves';
-import { createBenchSeats } from '../src/render/bench-view';
+import { createBenchSeats, createBenchStretcher } from '../src/render/bench-view';
 // Die zehn Teamspieler (ohne Schiri)
 const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
@@ -24,9 +24,9 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Canvas-Texturfarben', () => {
-  it.each([false, true])('baut Bank und Arzt nur mit benötigten Moves und kleinen Atlas-Seiten (lazy=%s)', lazy => {
-    const bench = [...BENCH_RED, ...BENCH_BLUE], all = [...bench, DOC];
-    const moves = Object.fromEntries(all.map(a => [a.id, a === DOC ? DOC_MOVES : BENCH_MOVES]));
+  it.each([false, true])('baut Bank und beide Sanitäter nur mit benötigten Moves und kleinen Atlas-Seiten (lazy=%s)', lazy => {
+    const bench = [...BENCH_RED, ...BENCH_BLUE], all = [...bench, DOC, MEDIC2];
+    const moves = Object.fromEntries(all.map(a => [a.id, a.cross ? DOC_MOVES : BENCH_MOVES]));
     const atlas = buildAtlas(Object.fromEntries(all.map(a => [a.id, a])), { lazy, moves });
     if (!lazy) {
       const calls = vi.mocked(HTMLCanvasElement.prototype.getContext).mock.results
@@ -57,6 +57,37 @@ describe('Canvas-Texturfarben', () => {
       expect(b.material.color.getHex()).toBe(0x333338);
     }
     seats.dispose(); expect(scene.children).toHaveLength(0);
+  });
+  it('zeigt die Pixel-Trage mit Welt-z-Holmen, synchronisiert Sichtbarkeit und entsorgt alle Ressourcen', () => {
+    const scene = new THREE.Scene(), view = createBenchStretcher(scene);
+    const group = scene.children.find(o => o.name === 'bench-stretcher')!;
+    expect(group.visible).toBe(false);
+    const meshes = group.children as THREE.Mesh<THREE.BoxGeometry, THREE.MeshLambertMaterial>[];
+    const bed = meshes.find(m => m.name === 'stretcher-bed')!;
+    expect(bed.geometry.parameters).toMatchObject({ width: .55, height: .05, depth: 1.9 });
+    const rails = meshes.filter(m => m.name === 'stretcher-rail');
+    expect(rails).toHaveLength(2);
+    for (const rail of rails) {
+      expect(rail.geometry.parameters.depth).toBeCloseTo(2.2);
+      expect(Math.abs(rail.position.x)).toBeCloseTo(.3);
+    }
+    expect(bed.material.map).toBeInstanceOf(THREE.CanvasTexture);
+    const texture = bed.material.map!;
+    expect(texture.magFilter).toBe(THREE.NearestFilter);
+    expect(texture.minFilter).toBe(THREE.NearestFilter);
+    expect(texture.colorSpace).toBe(THREE.SRGBColorSpace);
+    const context = vi.mocked(HTMLCanvasElement.prototype.getContext).mock.results.at(-1)!.value as CanvasRenderingContext2D;
+    expect(context.fillRect).toHaveBeenCalledWith(0, 0, 16, 48);
+    expect(context.fillRect).toHaveBeenCalledWith(6, 18, 4, 12);
+    expect(context.fillRect).toHaveBeenCalledWith(2, 22, 12, 4);
+    const resources = [...new Set(meshes.flatMap(m => [m.geometry, m.material])), texture];
+    const disposals = resources.map(r => vi.spyOn(r, 'dispose'));
+    view.sync({ x: -7, z: 4, y: .8, visible: true });
+    expect(group.visible).toBe(true); expect(group.position.toArray()).toEqual([-7, .8, 4]);
+    expect(bed.position.y + .025).toBeCloseTo(.05);
+    view.sync({ x: 9.5, z: 9, y: .12, visible: false }); expect(group.visible).toBe(false);
+    view.dispose(); expect(scene.children).toHaveLength(0);
+    disposals.forEach(spy => expect(spy).toHaveBeenCalledTimes(1));
   });
   it('blendet nur das Brettglas aus und wieder ein', () => {
     const { scene, hoop } = createScene();

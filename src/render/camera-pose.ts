@@ -7,8 +7,9 @@ export function benchCameraPose(benchPos: { x: number; z: number }, aspect: numb
   const side = Math.sign(benchPos.x) || 1;
   // Entlang der Grundlinie liegen Korb und Bank auch im Hochformat hintereinander im Bild.
   return {
-    pos: { x: -side * Math.min(9.2, Math.max(6.5, 4 / aspect)), y: 8.5, z: 0 },
-    look: { x: benchPos.x * .5, y: 1.2, z: Math.max(3, Math.min(3.5, benchPos.z)) },
+    pos: { x: -side * Math.min(9.2, Math.max(6.5, 4 / aspect)), y: 8.5, z: -1 },
+    // Auch das hintere Tragenende am Tunnel braucht im Hochformat Platz.
+    look: { x: benchPos.x * .5, y: 1.2, z: 3.5 },
   };
 }
 

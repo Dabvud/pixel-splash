@@ -26,7 +26,7 @@ describe('Figuren-Baukasten: bisherige Pixel', () => {
     const original = reference.look as Look;
     const hash = createHash('sha256');
     let frames = 0;
-    for (const move of (Object.keys(MOVES) as MoveId[]).filter(id => !['mop_sweep', 'sit', 'bench_cheer'].includes(id))) for (const pose of moveFrames(move)) for (const dir of dirs) {
+    for (const move of (Object.keys(MOVES) as MoveId[]).filter(id => !['mop_sweep', 'sit', 'bench_cheer', 'carry'].includes(id))) for (const pose of moveFrames(move)) for (const dir of dirs) {
       hash.update(rasterPose(project(pose, dir), original, dir));
       frames++;
     }
@@ -43,7 +43,8 @@ describe('Bank und Arzt: Pixel und Posen', () => {
   it.each(dirs)('behält alle bisherigen Pixel bei deaktiviertem towel/cross: %s', dir => {
     for (const move of Object.keys(MOVES) as MoveId[]) for (const pose of moveFrames(move)) {
       const p = project(pose, dir);
-      expect(rasterPose(p, { ...look, towel: false, cross: false }, dir)).toEqual(rasterPose(p, look, dir));
+      // Buffer-Vergleich statt toEqual: tausende Bilder, sonst Timeout unter Last
+      expect(Buffer.from(rasterPose(p, { ...look, towel: false, cross: false }, dir)).equals(Buffer.from(rasterPose(p, look, dir)))).toBe(true);
     }
   });
   it.each(dirs)('zeichnet genau ein weißes 3×4-Handtuch an der oberen Hand: %s', dir => {

@@ -35,3 +35,4 @@ export const BENCH_BLUE: BenchLook[] = [
 ];
 export const DOC: BenchLook = { id: 'doc', num: -1, heightM: 1.8, build: 'normal', skin: '#d5a078', hair: 'bald',
   jersey: '#ffffff', shorts: '#ffffff', cross: true };
+export const MEDIC2: BenchLook = { ...DOC, id: 'medic2', heightM: 1.92, skin: '#70452f', hair: 'short' };

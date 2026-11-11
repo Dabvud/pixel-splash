@@ -6,13 +6,13 @@ import { createScene } from "../render/scene";
 import { createGrave } from "../render/grave";
 import { createGlassShards } from "../render/glass";
 import { BENCH_MOVES, DOC_MOVES, benchHighlightTeam, createBenchState } from "../render/bench";
-import { createBenchSeats } from "../render/bench-view";
+import { createBenchSeats, createBenchStretcher } from "../render/bench-view";
 import { createPixelRenderer } from "../render/pixel";
 import { benchCameraPose, finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, spriteJointWorld, type ActorView } from "../render/actors";
 import { createRecorder, replayAt, REPLAY_SECONDS, type Snap } from "../render/replay";
 import { buildAtlas } from "../figure/atlas";
-import { ACTORS, BENCH_RED, BENCH_BLUE, DOC } from "../play/teams";
+import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
 import { command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
@@ -57,7 +57,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const shards = createGlassShards(scene);
   const bench = createBenchState(() => Math.random());
   const benchSeats = createBenchSeats(scene);
-  const benchViews = [...bench.figures, bench.doctor];
+  const benchStretcher = createBenchStretcher(scene);
+  const benchViews = [...bench.figures, ...bench.medics];
   let benchPoints = 0;
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
@@ -373,7 +374,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         step(s, dt, c, rng);
       } else handle(step(s, dt, c, rng));
       bench.update(s.realTime);
-      // Die Arzt-Szene muss vor dem Zurücksetzen der Bank zu Ende laufen.
+      // Der Abtransport muss vor dem Zurücksetzen der Bank zu Ende laufen.
       if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !bench.faint) newPlay();
       camHold = Math.max(0, camHold - dt);
       if (s.handler !== lastHandler) {
@@ -416,6 +417,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     camera.updateMatrixWorld(true);
     const yaw = Math.atan2(-camera.position.x, camera.position.z);
     benchActors.sync(benchViews, yaw);
+    benchStretcher.sync(bench.stretcher);
     actors.sync(snap.actors, yaw);
     ball.position.set(snap.ball.x, snap.ball.y, snap.ball.z);
     // Auch im Replay beginnen die Sterne erst nach dem Aufprall.
@@ -496,6 +498,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       v.move = a.move; v.moveT = a.moveT; v.moveSide = a.moveSide;
     }
     benchActors.sync(benchViews, yaw);
+    benchStretcher.sync(bench.stretcher);
     actors.sync(views, yaw);
     grave.sync(s.grave, s.realTime);
     hoop.setGlassBroken(s.glass !== null);
@@ -579,9 +582,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   document.addEventListener("visibilitychange", visibility);
   addEventListener("resize", resize);
   newPlay();
-  const benchLooks = [...BENCH_RED, ...BENCH_BLUE, DOC];
+  const benchLooks = [...BENCH_RED, ...BENCH_BLUE, DOC, MEDIC2];
   const benchAtlas = buildAtlas(Object.fromEntries(benchLooks.map(a => [a.id, a])), {
-    lazy: true, moves: Object.fromEntries(benchLooks.map(a => [a.id, a === DOC ? DOC_MOVES : BENCH_MOVES])),
+    lazy: true, moves: Object.fromEntries(benchLooks.map(a => [a.id, a.cross ? DOC_MOVES : BENCH_MOVES])),
   });
   const benchActors = createActors(scene, benchAtlas, benchLooks.map(a => a.id));
   resize();
@@ -618,7 +621,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       document.removeEventListener("visibilitychange", visibility);
       detach();
       actors.dispose();
-      benchActors.dispose(); benchSeats.dispose();
+      benchActors.dispose(); benchSeats.dispose(); benchStretcher.dispose();
       (benchAtlas.textures ?? [benchAtlas.texture]).forEach(texture => texture.dispose());
       grave.dispose();
       (atlas.textures ?? [atlas.texture]).forEach(texture => texture.dispose());
