@@ -123,6 +123,12 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let detach = () => {};
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
+  // Replay-Schwenk bei Publikum/Anzeigetafel: geglätteter Blickpunkt + Bildzeit
+  const replayLook = new THREE.Vector3(0, 2.4, 0);
+  let replayLast = 0;
+  let livePan: THREE.Vector3 | null = null;
+  const liveLook = new THREE.Vector3();
+  const dtReplay = (now: number) => { const d = replayLast ? Math.min(.1, (now - replayLast) / 1000) : 0; replayLast = now; return d; };
   let camInit = false;
   const projection = new THREE.Vector3();
   const views: ActorView[] = [];
@@ -391,6 +397,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   function startReplay(andOne: boolean): void {
     replay = { clip: recorder.clip(s.poster && ["crowd", "net", "ghost", "stuck", "jumbotron"].includes(s.poster.variant) ? 5 : REPLAY_SECONDS), start: performance.now(), andOne };
     replayPending = null;
+    replayLook.set(0, 2.4, 0); replayLast = 0;
     replayBadge.hidden = false;
     endTouch();
     stage.addEventListener("pointerdown", skipReplay);
@@ -416,12 +423,18 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     if (!replay || !snap) { skipReplay(); return; }
     // Kamera kreist langsam um den Korb
     const variant = replay.clip.find(snap => snap.poster)?.poster?.variant;
-    const pose = replayCameraPose(variant, (now - replay.start) / 1000, camera.aspect);
+    const pan = variant === 'crowd' || variant === 'jumbotron';
+    const flyer = pan ? snap.actors.find((a) => a.id === snap.poster?.victim && a.visible) : undefined;
+    if (pan && flyer) {
+      // Schwenk statt Totale: Blick folgt dem Fliegenden weich (Korb → Flugbahn → Landeplatz)
+      replayLook.lerp(new THREE.Vector3(flyer.x, flyer.y + .9, flyer.z), 1 - Math.exp(-dtReplay(now) * 6));
+    } else if (pan) replayLook.set(0, 2.4, 0);
+    const pose = replayCameraPose(variant, (now - replay.start) / 1000, camera.aspect, pan ? replayLook : undefined);
     camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
     camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
-    if (variant === 'crowd' || variant === 'jumbotron') {
+    if (pan) {
       camera.fov = 60;
-      camera.far = Math.max(100, camera.position.length() + 40);
+      camera.far = 100;
       camera.updateProjectionMatrix();
     }
     camera.updateMatrixWorld(true);
@@ -492,6 +505,15 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       camPos.set(ux * radius, THREE.MathUtils.lerp(camPos.y, pose.pos.y, k), uz * radius);
       camLook.set(ux * lookRadius, THREE.MathUtils.lerp(camLook.y, pose.look.y, k), uz * lookRadius);
     }
+    // Publikum/Anzeigetafel live: Kamera bleibt stehen und schwenkt dem Fliegenden hinterher bis kurz nach der Landung
+    const flight = s.poster && (s.poster.variant === "crowd" || s.poster.variant === "jumbotron")
+      && (s.poster.startedAt === Infinity || s.realTime - s.poster.startedAt < 1) ? s.actors[s.poster.victim] : undefined;
+    if (flight) {
+      if (!livePan) { livePan = camPos.clone(); liveLook.copy(camLook); }
+      camPos.copy(livePan);
+      liveLook.lerp(new THREE.Vector3(flight.pos.x, flight.y + .9, flight.pos.z), 1 - Math.exp(-(menuOpen ? 0 : dt) * 6));
+      camLook.copy(liveLook);
+    } else livePan = null;
     camera.position.copy(camPos);
     camera.lookAt(camLook);
     if (overview || bankPose || Math.abs(camera.fov - pose.fov) > 0.01) {
