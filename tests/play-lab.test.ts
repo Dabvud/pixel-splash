@@ -126,6 +126,11 @@ describe('Spielzug-Labor Integration', () => {
   it.each([['TREFFER', .6], ['DUNK!', .9], ['POSTER!', .9]] as const)('jubelt bei %s mit Stärke %s und bei GAMEWINNER mit 1', (banner, strength) => {
     vi.mocked(step).mockReturnValueOnce([{ type: 'result', banner, made: true }]);
     advance(1 / 60); expect(sceneSpies.cheer).toHaveBeenLastCalledWith(strength);
+    // POSTER startet ein Instant Replay; Tippen überspringt es
+    const badge = document.querySelector<HTMLElement>('.replay-badge')!;
+    expect(badge.hidden).toBe(banner !== 'POSTER!');
+    document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+    expect(badge.hidden).toBe(true);
     vi.mocked(step).mockReturnValueOnce([{ type: 'end', verdict: 'GAMEWINNER' }]);
     advance(1 / 60); expect(sceneSpies.cheer).toHaveBeenLastCalledWith(1);
   });

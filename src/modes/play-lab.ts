@@ -6,6 +6,7 @@ import { createScene } from "../render/scene";
 import { createPixelRenderer } from "../render/pixel";
 import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, type ActorView } from "../render/actors";
+import { createRecorder, replayAt, REPLAY_SECONDS, type Snap } from "../render/replay";
 import { buildAtlas } from "../figure/atlas";
 import { ACTORS } from "../play/teams";
 import { PLAYS } from "../play/plays";
@@ -40,6 +41,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const stage = document.createElement("div");
   stage.id = "stage";
   root.append(stage);
+  const replayBadge = document.createElement("div");
+  replayBadge.className = "replay-badge";
+  replayBadge.hidden = true;
+  replayBadge.innerHTML = "<b>● REPLAY</b><span>Tippen zum Überspringen</span>";
+  root.append(replayBadge);
 
   let settings = initial;
   const { scene, ball, updateNet, crowd } = createScene();
@@ -84,6 +90,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let camHold = 0; // Sekunden, in denen nach einem Ballwechsel keine Kombi startet
   let lastHandler = "";
   let finishCam: ReturnType<typeof finishCameraPose> | null = null;
+  // Instant Replay nach Poster-Dunk bzw. And-one: Aufzeichnung der letzten Sekunden, Wiedergabe in Zeitlupe
+  const recorder = createRecorder(REPLAY_SECONDS + 1);
+  let replay: { clip: Snap[]; start: number; andOne: boolean } | null = null;
+  let replayPending: { andOne: boolean } | null = null;
   let raf = 0;
   let last = performance.now();
   let lastFrame = 0; // aktive Millisekunden des letzten gerenderten Bildes
@@ -177,14 +187,16 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         if (e.fouled) phud.flash("KONTAKT!");
       } else if (e.type === "result") {
         if (e.made) crowd?.cheer(/DUNK|POSTER/.test(e.banner) ? .9 : .6);
+        if (e.made && e.banner.includes("POSTER")) replayPending ??= { andOne: false };
         hud.showResult({ banner: e.banner, hint: e.made ? "" : lastHint(s), made: e.made } as ShotResult);
         comboT0 = null;
       } else if (e.type === "freethrow") {
         phud.flash(e.left === 1 ? "LETZTER FREIWURF" : `${e.left} FREIWÜRFE`);
         releasedFill = null;
       } else if (e.type === "foul") {
-        phud.foulCall(e.andOne);
-        crowd?.cheer(e.andOne ? 0.9 : 0.3);
+        // Beim And-one zuerst das Replay, die Einblendung folgt danach
+        if (e.andOne) replayPending = { andOne: true };
+        else { phud.foulCall(false); crowd?.cheer(0.3); }
       } else if (e.type === "end") {
         addPlay(game, s.box);
         if (e.verdict === "GAMEWINNER") crowd?.cheer(1);
@@ -219,7 +231,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function onGesture(e: GestureEvent): void {
-    if (menuOpen) return;
+    if (menuOpen || replay) return;
     const now = performance.now();
     const inputAt = e.type === "hold" ? Math.min(now, e.startedAt ?? now) : now;
     advanceTo(inputAt);
@@ -319,7 +331,50 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     }
   }
 
+  function startReplay(andOne: boolean): void {
+    replay = { clip: recorder.clip(REPLAY_SECONDS), start: performance.now(), andOne };
+    replayPending = null;
+    replayBadge.hidden = false;
+    endTouch();
+    stage.addEventListener("pointerdown", skipReplay);
+  }
+
+  function skipReplay(): void {
+    if (!replay) return;
+    const andOne = replay.andOne;
+    replay = null;
+    replayBadge.hidden = true;
+    stage.removeEventListener("pointerdown", skipReplay);
+    recorder.reset();
+    // Die Spielzeit stand während des Replays still
+    last = performance.now();
+    lastFrame = activeNow;
+    camInit = false;
+    if (andOne) { phud.foulCall(true); crowd?.cheer(0.9); }
+  }
+
+  function renderReplay(now: number): void {
+    const snap = replay && replayAt(replay.clip, now - replay.start);
+    if (!replay || !snap) { skipReplay(); return; }
+    // Kamera kreist langsam um den Korb
+    const angle = 0.9 + (now - replay.start) / 1000 * 0.22;
+    camera.position.set(Math.sin(angle) * 6.5, 3.6, Math.cos(angle) * 6.5);
+    camera.lookAt(0, 2.4, 0);
+    camera.updateMatrixWorld(true);
+    const yaw = Math.atan2(-camera.position.x, camera.position.z);
+    actors.sync(snap.actors, yaw);
+    ball.position.set(snap.ball.x, snap.ball.y, snap.ball.z);
+    updateNet(snap.t);
+    crowd?.update(now);
+    px.renderer.render(scene, camera);
+  }
+
   function frame(now: number): void {
+    if (replay) {
+      raf = requestAnimationFrame(frame);
+      renderReplay(now);
+      return;
+    }
     advanceTo(now);
     // Kamera und Engine verwenden dieselbe aktive Zeit, auch wenn ein Release
     // zwischen zwei Bildern bereits advanceTo() aufgerufen hat. Pausen und
@@ -418,6 +473,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
     if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); }
     px.renderer.render(scene, camera);
+    if (!menuOpen) recorder.push(activeNow, views, s.ball);
+    if (replayPending && !menuOpen) startReplay(replayPending.andOne);
   }
 
   function syncPause(): void {

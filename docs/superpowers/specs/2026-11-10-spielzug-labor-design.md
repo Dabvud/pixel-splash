@@ -322,3 +322,9 @@ Atlas-Grenze: Die Atlas-Textur darf 4096 px Kantenlänge nicht überschreiten; w
 ## Erweiterung: Abschluss-Meter mit Spitze (2026-11-11, Nutzerwunsch)
 
 Bei Korbleger, Dunk, Kontakt-Dunk und Alley-oop liegt die grüne Zone ganz oben am Balken: Der Pfeil steigt bis zur Spitze (Füllstand 1 = Ideal) und läuft danach um 35 % wieder herunter (bis Füllstand 1,35, angezeigt als Höhe 0,65); dann endet das Meter als Fehlversuch („ZU LANGSAM“). Die Auswertung bleibt zeitbasiert (Fehler nach der Spitze = zu spät). Das Catch-and-Shoot-Meter bleibt unverändert (bis 1,6). Zu späte Fehlversuche treffen hinten (Ring/Brett) und springen sichtbar nach vorn heraus.
+
+## Erweiterung: Schiri, And-one-Feier und Instant Replay (2026-11-11, Nutzerwunsch)
+
+- **Foul:** Ein Schiri (graues Trikot, schwarze Hose, ohne Nummer) sprintet von der Seitenlinie zum Korb und pfeift (`ref_whistle`: Arm hoch, Pfeife am Mund). „FOUL!“ springt auf und fliegt aus dem Bild. Die Freiwurf-Aufstellung wartet 1,1 s.
+- **And-one:** „FOUL!“ wird durchgestrichen und von „AND-ONE!“ abgelöst; der Schütze feiert sich selbst (`flex`), der nächste Mitspieler läuft hin und klatscht ab (`high_five`); Freiwürfe erst nach 1,8 s.
+- **Instant Replay** nach Poster-Dunk oder And-one: die letzten 2,6 s in Zeitlupe (×0,4) mit langsam kreisender Kamera um den Korb, Hinweis „REPLAY – Tippen zum Überspringen“; die Spielzeit steht währenddessen. Beim And-one folgt die Einblendung nach dem Replay.
