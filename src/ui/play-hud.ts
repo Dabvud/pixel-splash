@@ -26,7 +26,8 @@ export function createPlayHud(root: HTMLElement): {
   setSituation(top: string | null, name?: string): void;
   setScoreboard(clock: number, deficit: number, points: number, overtime?: boolean): void;
   /** Karriere: Teamkürzel (eigenes Team links) und festes Viertel der Szene */
-  setLabels(own: string, opp: string, period?: string): void;
+  /** base: echter Spielstand zu Szenenbeginn (eigenes Team, Gegner) statt 100 − Rückstand */
+  setLabels(own: string, opp: string, period?: string, base?: [number, number]): void;
   setMarkers(markers: Marker[]): void;
   setRing(x: number, y: number, P: number | null, visible: boolean): void;
   setHandler(x: number, y: number, visible: boolean): void;
@@ -65,6 +66,7 @@ export function createPlayHud(root: HTMLElement): {
   const stars = [...poster.querySelectorAll<HTMLElement>('span')];
   const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue'), period = q('.phud-game span');
   let periodLabel: string | undefined;
+  let scoreBase: [number, number] | undefined;
   const markerNodes: { el: HTMLDivElement; icon: HTMLElement; label: HTMLElement }[] = [];
   let flashTimer: number | null = null;
   let flashRemaining: number | null = null;
@@ -96,13 +98,14 @@ export function createPlayHud(root: HTMLElement): {
       setText(sitName, name);
     },
     setScoreboard(seconds, deficit, points, overtime = false) {
-      const score = playScore(deficit, points);
+      const score = scoreBase ? { red: scoreBase[0] + points, blue: scoreBase[1] } : playScore(deficit, points);
       setText(clock, formatPlayClock(seconds));
       setText(red, String(score.red));
       setText(blue, String(score.blue));
       setText(period, periodLabel ?? (overtime ? 'OVERTIME' : '4. VIERTEL'));
     },
-    setLabels(own, opp, label) {
+    setLabels(own, opp, label, base) {
+      scoreBase = base;
       const [a, b] = el.querySelectorAll<HTMLElement>('.phud-team span');
       setText(a, own); setText(b, opp);
       periodLabel = label;

@@ -196,7 +196,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
     phud.setSituation(`${period} · ${formatPlayClock(s.clock, !Number.isInteger(s.clock))} · −${s.deficit}`, name);
     if (career) {
       phud.setSituation(career.spec.title, career.spec.subtitle);
-      if (career.spec.teams) phud.setLabels(career.spec.teams[0], career.spec.teams[1], career.spec.period);
+      if (career.spec.teams) phud.setLabels(career.spec.teams[0], career.spec.teams[1], career.spec.period, career.spec.score);
     }
     phud.setScoreboard(s.clock, s.deficit, s.points, s.overtime);
     showStats();
@@ -409,7 +409,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else if (!sceneDone) {
           sceneDone = true;
           const line = s.box[career.spec.controlled];
-          const result = { won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0, heroShots, heroMakes };
+          const result = { won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0, heroShots, heroMakes, teamPts: s.points };
           // erst nach diesem Bild melden: die Karriere stoppt die Szene und räumt den eigenen Spieler weg
           setTimeout(() => career.onEnd(result), 0);
         }

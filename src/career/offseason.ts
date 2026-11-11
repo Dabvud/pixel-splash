@@ -7,7 +7,11 @@ import type { CareerState } from './state';
 import { awardPoints } from './legacy';
 
 export interface Contract { team: string; years: number; salary: number; spPerYear: number }
-export interface Offseason { step: 'offers' | 'trade' | 'skills'; offers?: Contract[]; tradedTo?: string; points: number }
+export interface Offseason {
+  step: 'offers' | 'trade' | 'skills'; offers?: Contract[]; tradedTo?: string; points: number;
+  /** in dieser Off-Season verteilte Punkte (für „−“): Wert + tatsächliche Änderung bzw. Stufe + Kosten */
+  spent?: { k: RatingKey | 'stage'; v: number }[];
+}
 
 export const rookieContract = (team: string): Contract => ({ team, years: 4, salary: 1.5, spPerYear: 3 });
 const PLAYOFF_BONUS: Record<string, number> = { r2: .05, cf: .1, finals: .15, champion: .2 };
@@ -76,8 +80,25 @@ export function ackTrade(state: CareerState): CareerState {
 export function spend(state: CareerState, key: RatingKey): CareerState {
   const o = state.offseason;
   if (!o || o.points <= 0 || state.player.ratings[key] >= 1) return state;
-  return { ...state, player: { ...state.player, ratings: { ...state.player.ratings, [key]: Math.min(1, state.player.ratings[key] + .02) } },
-    offseason: { ...o, points: o.points - 1 } };
+  const value = Math.min(1, state.player.ratings[key] + .02), delta = value - state.player.ratings[key];
+  return { ...state, player: { ...state.player, ratings: { ...state.player.ratings, [key]: value } },
+    offseason: { ...o, points: o.points - 1, spent: [...(o.spent ?? []), { k: key, v: delta }] } };
+}
+
+/** Letzten in dieser Off-Season auf `key` gesetzten Punkt zurücknehmen */
+export function refund(state: CareerState, key: RatingKey): CareerState {
+  const o = state.offseason, spent = o?.spent ?? [], i = spent.map(e => e.k).lastIndexOf(key);
+  if (!o || i < 0) return state;
+  return { ...state, player: { ...state.player, ratings: { ...state.player.ratings, [key]: state.player.ratings[key] - spent[i].v } },
+    offseason: { ...o, points: o.points + 1, spent: spent.filter((_, j) => j !== i) } };
+}
+
+/** Zuletzt gekaufte Spezialisierungs-Stufe dieser Off-Season zurücknehmen */
+export function refundStage(state: CareerState): CareerState {
+  const o = state.offseason, spent = o?.spent ?? [], i = spent.map(e => e.k).lastIndexOf('stage');
+  if (!o || i < 0) return state;
+  return { ...state, player: { ...state.player, specLevel: (state.player.specLevel ?? 1) - 1 },
+    offseason: { ...o, points: o.points + spent[i].v, spent: spent.filter((_, j) => j !== i) } };
 }
 
 export function endOffseason(state: CareerState): CareerState {

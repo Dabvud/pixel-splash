@@ -8,9 +8,11 @@ export interface SceneSpec {
   play: Play; deficit: number; clockS: number; title: string; subtitle: string; controlled: string;
   /** Anzeigetafel: Kürzel eigenes Team / Gegner und Viertel der Szene */
   teams?: [string, string]; period?: string;
+  /** echter Spielstand zu Szenenbeginn (eigenes Team, Gegner) */
+  score?: [number, number];
   /** Spezialisierung des eigenen Spielers; onFire = Green Light brennt */
   perks?: Perks & { onFire?: boolean };
 }
 /** won = GAMEWINNER; verdict OVERTIME/DOPPEL-OVERTIME (Gleichstand) entscheidet die Karriere-Logik */
-export interface SceneResult { won: boolean; verdict: string; pts: number; ast: number; heroShots?: number; heroMakes?: number }
+export interface SceneResult { won: boolean; verdict: string; pts: number; ast: number; heroShots?: number; heroMakes?: number; teamPts?: number }
 export type PlayScene = (app: HTMLElement, s: Settings, spec: SceneSpec, onEnd: (r: SceneResult) => void) => Mode;

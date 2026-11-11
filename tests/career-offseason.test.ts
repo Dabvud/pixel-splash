@@ -104,3 +104,36 @@ describe('Off-Season', () => {
     expect(beginOffseason(retired, seededRng(1))).toBe(retired);
   });
 });
+
+describe('Skillpunkte zurücknehmen (nur die gerade verteilten)', () => {
+  it('„−“ nimmt nur eigene Punkte dieser Off-Season zurück, exakt auf den alten Wert', async () => {
+    const { refund } = await import('../src/career/offseason');
+    let s: CareerState = { ...base(), offseason: { step: 'skills', points: 3 } };
+    const before = s.player.ratings.three, dunk = s.player.ratings.dunk;
+    expect(refund(s, 'three')).toBe(s); // nichts verteilt → nichts zurück
+    s = spend(spend(s, 'three'), 'three');
+    s = refund(s, 'three');
+    expect(s.player.ratings.three).toBeCloseTo(before + .02, 9);
+    expect(s.offseason!.points).toBe(2);
+    s = refund(s, 'three');
+    expect(s.player.ratings.three).toBe(before);
+    expect(s.offseason!.points).toBe(3);
+    expect(refund(s, 'dunk').player.ratings.dunk).toBe(dunk);
+    // Deckel bei 1: Rücknahme stellt den echten alten Wert her
+    let c: CareerState = { ...base(), offseason: { step: 'skills', points: 2 } };
+    c = { ...c, player: { ...c.player, ratings: { ...c.player.ratings, dunk: .995 } } };
+    c = refund(spend(c, 'dunk'), 'dunk');
+    expect(c.player.ratings.dunk).toBe(.995);
+  });
+  it('Spezialisierungs-Stufe zurücknehmen gibt die Kosten zurück', async () => {
+    const { refundStage } = await import('../src/career/offseason');
+    const { buyStage } = await import('../src/career/spec');
+    let s: CareerState = { ...base(), player: { ...base().player, spec: 'shooting', specLevel: 0 }, offseason: { step: 'skills', points: 10 } };
+    s = buyStage(buyStage(s));
+    expect(s.player.specLevel).toBe(2); expect(s.offseason!.points).toBe(0);
+    s = refundStage(s);
+    expect(s.player.specLevel).toBe(1); expect(s.offseason!.points).toBe(6);
+    s = refundStage(refundStage(s));
+    expect(s.player.specLevel).toBe(0); expect(s.offseason!.points).toBe(10);
+  });
+});

@@ -56,7 +56,13 @@ describe('Key Games', () => {
       expect(early.clockS).toBeGreaterThanOrEqual(8); expect(early.clockS).toBeLessThanOrEqual(24);
       const last = sceneSpec(state(), game, 2, 3, 5, seededRng(seed));
       expect(last.title).toMatch(/^4\. VIERTEL/);
-      expect(last.clockS).toBeGreaterThanOrEqual(3); expect(last.clockS).toBeLessThanOrEqual(12);
+      // Uhr reicht immer bis zur ersten Entscheidung (+3 s); nur „Lob in 0,8 s“ hat seine feste Uhr
+      if (last.play.id === 'lob08') expect(last.clockS).toBe(.8);
+      else {
+        expect(last.clockS).toBeGreaterThanOrEqual((last.play.segments[last.play.start].decisionAt ?? 0) + 3);
+        expect(last.clockS).toBeLessThanOrEqual(12);
+      }
+      expect(early.play.id).not.toBe('lob08');
       expect(last.deficit).toBe(5);
       expect(last.subtitle).toContain('Christmas Game');
       expect(last.subtitle).toContain('Boston Leprechauns');

@@ -24,7 +24,8 @@ export function perksOf(p: CareerPlayer): Perks {
 export function buyStage(state: CareerState): CareerState {
   const p = state.player, lv = p.specLevel ?? 0, o = state.offseason;
   if (!p.spec || lv >= 3 || !o || o.points < STAGE_COST[lv]) return state;
-  return { ...state, player: { ...p, specLevel: lv + 1 }, offseason: { ...o, points: o.points - STAGE_COST[lv] } };
+  return { ...state, player: { ...p, specLevel: lv + 1 },
+    offseason: { ...o, points: o.points - STAGE_COST[lv], spent: [...(o.spent ?? []), { k: 'stage', v: STAGE_COST[lv] }] } };
 }
 
 /** Für alte Stände ohne Spezialisierung: einmalig wählen */

@@ -5,6 +5,7 @@ import { HERO_ID, castWithHero, playsForHero } from './hero';
 import { TEAMS, teamById, teamName } from './league';
 import type { SceneResult, SceneSpec } from './scene-types';
 import type { CareerState, KeyGame } from './state';
+import { scenePeriods, type GameScore } from './momentum';
 
 export const LABELS = ['Rivalen-Duell', 'Spitzenspiel', 'Christmas Game', 'Auswärts in feindlicher Halle', 'Nationales TV-Spiel', 'Rückkehr zum Ex-Team'];
 const pick = <T>(list: T[], rng: () => number): T => list[Math.min(list.length - 1, Math.floor(rng() * list.length))];
@@ -46,16 +47,22 @@ export function gameResult(scenes: SceneResult[], rng: () => number): boolean {
   return /OVERTIME/.test(last.verdict) ? rng() < .5 : false;
 }
 
-export function sceneSpec(state: CareerState, game: KeyGame, index: number, total: number, deficit: number, rng: () => number): SceneSpec {
+/** score: echter Spielstand (sonst nur Rückstand im Titel) */
+export function sceneSpec(state: CareerState, game: KeyGame, index: number, total: number, deficit: number, rng: () => number,
+  score?: GameScore): SceneSpec {
   const last = index === total - 1;
-  const clockS = last ? 3 + Math.floor(rng() * 10) : 8 + Math.floor(rng() * 17);
-  const period = last ? '4. VIERTEL' : `${1 + Math.min(2, Math.floor(index * 3 / Math.max(1, total - 1)))}. VIERTEL`;
-  const id = pick(playsForHero(state.player.position), rng);
+  const period = scenePeriods(total)[index] ?? '4. VIERTEL';
+  // Lob in 0,8 s ist nur eine Crunchtime-Situation
+  const id = pick(playsForHero(state.player.position).filter(p => last || p !== 'lob08'), rng);
+  const play = castWithHero(PLAYS[id], state.player.position, rng);
+  // Uhr nie kürzer als der Weg bis zur ersten Entscheidung + 3 s, sonst ist die Zeit um, bevor man dran ist
+  const minClock = Math.ceil((play.segments[play.start].decisionAt ?? 0) + 3);
+  const clockS = id === 'lob08' ? play.clockS : Math.max(minClock, last ? 3 + Math.floor(rng() * 10) : 14 + Math.floor(rng() * 11));
   const opp = teamName(teamById(game.opponent));
   return {
-    play: castWithHero(PLAYS[id], state.player.position, rng), deficit, clockS, controlled: HERO_ID,
-    teams: [state.team.toUpperCase(), game.opponent.toUpperCase()], period,
-    title: `${period} · ${formatPlayClock(clockS, false)} · −${deficit}`,
+    play, deficit, clockS, controlled: HERO_ID,
+    teams: [state.team.toUpperCase(), game.opponent.toUpperCase()], period, ...(score ? { score: [score.own, score.opp] as [number, number] } : {}),
+    title: `${period} · ${formatPlayClock(clockS, false)} · ${score ? `${score.own}:${score.opp}` : `−${deficit}`}`,
     subtitle: `${game.label} · ${game.home ? 'gegen die' : 'bei den'} ${opp}`,
   };
 }

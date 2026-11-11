@@ -53,7 +53,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   document.body.innerHTML = '<div id="app"></div>';
   specs = [];
-  outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 3, ast: 1 });
+  outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 3, ast: 1, teamPts: 3 });
 });
 afterEach(() => vi.useRealTimers());
 
@@ -66,7 +66,8 @@ describe('Karriere-Ablauf', () => {
     for (let g = 0; g < 5; g++) {
       expect(text()).toContain(`Key Game ${g + 1} / 5`);
       playGame();
-      expect(text()).toMatch(/Sieg/);
+      // Momentum: ein Spiel kann auch vor der Crunchtime schon entschieden sein
+      expect(text()).toMatch(/Sieg|Niederlage/);
       expect(text()).toMatch(/PTS \d+ · AST \d+ · REB \d+/);
       expect(loadCareer(st)!.season).toHaveLength(g + 1);
       press('Weiter');
@@ -98,9 +99,11 @@ describe('Karriere-Ablauf', () => {
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
     playGame();
-    expect(specs.length).toBeGreaterThanOrEqual(2);
+    // Momentum: ist das Spiel vor der Crunchtime entschieden, entfällt die letzte Szene
+    expect(specs.length).toBeGreaterThanOrEqual(1);
     for (const s of specs) expect(s.controlled).toBe(HERO_ID);
-    expect(specs.at(-1)!.title).toMatch(/^4\. VIERTEL/);
+    expect(specs[0].title).toMatch(/^[12]\. VIERTEL · \d+:\d{2} · \d+:\d+$/);
+    for (const s of specs.slice(1)) expect(s.title).toMatch(/^[34]\. VIERTEL/);
   });
   it('Niederlage in der Crunchtime → Spiel verloren', () => {
     const st = memory();
@@ -276,9 +279,9 @@ describe('Karriere – Spezialisierung in den Szenen', () => {
     expect(specs[0].perks).toMatchObject({ threeGreen: 1.3, deepRange: true, greenLight: true, onFire: false });
     press('Spielen');
     expect(text()).toContain('Green Light');
+    outcome = () => ({ won: false, verdict: 'VERLOREN', pts: 0, ast: 0, heroShots: 1, heroMakes: 0 });
     vi.advanceTimersByTime(3000);
     expect(specs.at(-1)!.perks!.onFire).toBe(true);
-    outcome = () => ({ won: false, verdict: 'VERLOREN', pts: 0, ast: 0, heroShots: 1, heroMakes: 0 });
     vi.advanceTimersByTime(20);
     for (let k = 0; k < 3 && !/Sieg|Niederlage/.test(text()); k++) { vi.advanceTimersByTime(3000); vi.advanceTimersByTime(20); }
     expect(loadCareer(st)!.hot).toBe(0);
@@ -335,5 +338,22 @@ describe('Karriere – Auszeichnungen, Hall of Fame, Rangliste', () => {
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Rangliste');
     expect(text()).toContain('Noch keine abgeschlossene Karriere');
+  });
+});
+
+describe('Karriere – Skillpunkte zurücknehmen im Bildschirm', () => {
+  it('„−“ ist nur für gerade verteilte Punkte aktiv und stellt den Wert wieder her', () => {
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, offseason: { step: 'skills', points: 2 } }, st);
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    const minus = () => document.querySelector<HTMLButtonElement>('.skill-minus[data-key="pass"]')!;
+    expect(minus().disabled).toBe(true);
+    const before = loadCareer(st)!.player.ratings.pass;
+    document.querySelector<HTMLButtonElement>('.skill-plus[data-key="pass"]')!.click();
+    expect(minus().disabled).toBe(false);
+    minus().click();
+    expect(loadCareer(st)!.player.ratings.pass).toBe(before);
+    expect(loadCareer(st)!.offseason!.points).toBe(2);
   });
 });
