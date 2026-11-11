@@ -13,6 +13,7 @@ import { PLAYS } from '../src/play/plays';
 import { finishCameraPose, playCameraPose } from '../src/render/camera-pose';
 import { MOVES, moveFrames } from '../src/figure/moves';
 import { frameAt } from '../src/render/actors';
+import { buildAtlas } from '../src/figure/atlas';
 
 vi.mock('../src/render/scene', async () => {
   const THREE = await import('three');
@@ -21,7 +22,7 @@ vi.mock('../src/render/scene', async () => {
 vi.mock('../src/render/pixel', () => ({ createPixelRenderer: () => ({ renderer: { render: vi.fn(), dispose: vi.fn() }, resize: vi.fn() }) }));
 vi.mock('../src/figure/atlas', async () => {
   const THREE = await import('three');
-  return { buildAtlas: () => ({ texture: new THREE.Texture(), uv: () => [0, 0, 1, 1] }) };
+  return { buildAtlas: vi.fn(() => ({ texture: new THREE.Texture(), uv: () => [0, 0, 1, 1] })) };
 });
 vi.mock('../src/render/actors', async importOriginal => ({
   ...await importOriginal<typeof import('../src/render/actors')>(),
@@ -54,6 +55,16 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('übergibt alle Baukasten-Merkmale der zehn Teamspieler an den Atlas', () => {
+    const looks = vi.mocked(buildAtlas).mock.calls[0][0];
+    expect(Object.keys(looks)).toHaveLength(10);
+    for (const a of Object.values(ACTORS)) {
+      expect(looks[a.id]).toMatchObject({
+        hair: a.hair, beard: a.beard, headband: a.headband,
+        armSleeve: a.armSleeve, shoes: a.shoes, socks: a.socks,
+      });
+    }
+  });
   it('projiziert Poster-Sterne über den liegenden Kopf, pausiert ihre Frist und entfernt sie nach 1,5 s auch in ended', () => {
     const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
     const stage = document.querySelector<HTMLElement>('#stage')!;

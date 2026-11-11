@@ -1,0 +1,132 @@
+[
+  {
+    "look": {
+      "heightM": 1.88,
+      "build": "slim",
+      "skin": "#8d5a3b",
+      "hair": "short",
+      "jersey": "#c8322b",
+      "shorts": "#9e241f",
+      "num": 3
+    },
+    "frames": 848,
+    "sha256": "03d7d84844d87a3d1890d60e7e1c3e2b4a6226deb4b0149baf0e9a69a7cbd703"
+  },
+  {
+    "look": {
+      "heightM": 1.96,
+      "build": "slim",
+      "skin": "#d5a078",
+      "hair": "short",
+      "jersey": "#c8322b",
+      "shorts": "#9e241f",
+      "num": 11
+    },
+    "frames": 848,
+    "sha256": "373414c85a49c9b7b947a097c9f82cc731486e345c362d1fb718720eb677cfe5"
+  },
+  {
+    "look": {
+      "heightM": 2.03,
+      "build": "normal",
+      "skin": "#70452f",
+      "hair": "bald",
+      "jersey": "#c8322b",
+      "shorts": "#9e241f",
+      "num": 23
+    },
+    "frames": 848,
+    "sha256": "e5aa7bbfc52a2a5abc257a87fbd9b4c163dd441961f5ac88eb481b48950c1fda"
+  },
+  {
+    "look": {
+      "heightM": 2.06,
+      "build": "normal",
+      "skin": "#b77b53",
+      "hair": "afro",
+      "jersey": "#c8322b",
+      "shorts": "#9e241f",
+      "num": 32
+    },
+    "frames": 848,
+    "sha256": "c3cc6168120c0a220f2dc89729ef5650c0a0c1228adc9f090566601a34ed8a61"
+  },
+  {
+    "look": {
+      "heightM": 2.13,
+      "build": "broad",
+      "skin": "#513427",
+      "hair": "short",
+      "jersey": "#c8322b",
+      "shorts": "#9e241f",
+      "num": 50
+    },
+    "frames": 848,
+    "sha256": "6230eb6d05077c4838b5ea04a916e88fa5cc0bd2d26fc61464a3285835b8aed1"
+  },
+  {
+    "look": {
+      "heightM": 1.85,
+      "build": "slim",
+      "skin": "#b77b53",
+      "hair": "short",
+      "jersey": "#3263b9",
+      "shorts": "#244787",
+      "num": 1
+    },
+    "frames": 848,
+    "sha256": "f4e4cd52d268a3558048b4c178c7e21b4c5865adbe7215a3dda95b3531a7c31c"
+  },
+  {
+    "look": {
+      "heightM": 1.98,
+      "build": "normal",
+      "skin": "#513427",
+      "hair": "afro",
+      "jersey": "#3263b9",
+      "shorts": "#244787",
+      "num": 7
+    },
+    "frames": 848,
+    "sha256": "c103e0100e3518428828361ce1e91673bcc6bac4dc7c95f63adb420ac767596f"
+  },
+  {
+    "look": {
+      "heightM": 2.01,
+      "build": "normal",
+      "skin": "#d5a078",
+      "hair": "bald",
+      "jersey": "#3263b9",
+      "shorts": "#244787",
+      "num": 15
+    },
+    "frames": 848,
+    "sha256": "2cee0c870ac874d2f66db9cacbfeab023ab8d30e5ee9708c3031c589f07efce8"
+  },
+  {
+    "look": {
+      "heightM": 2.06,
+      "build": "broad",
+      "skin": "#8d5a3b",
+      "hair": "short",
+      "jersey": "#3263b9",
+      "shorts": "#244787",
+      "num": 21
+    },
+    "frames": 848,
+    "sha256": "c83122c0e5b700d55f61bf7ffd83bd241de816da085464e7a40f41e7fd852d7e"
+  },
+  {
+    "look": {
+      "heightM": 2.11,
+      "build": "broad",
+      "skin": "#70452f",
+      "hair": "bald",
+      "jersey": "#3263b9",
+      "shorts": "#244787",
+      "num": 44
+    },
+    "frames": 848,
+    "sha256": "774d02c29dcc620ee4800e085fd98e1fb20874d02b60447f035fb54c714174f7"
+  }
+]

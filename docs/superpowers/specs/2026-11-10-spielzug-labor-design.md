@@ -88,6 +88,7 @@ Kamera tief hinter der Freiwurflinie, Wurf-Kombi mit den Werten des Wurf-Labors 
 3 Punkte, wenn der Wurf außerhalb der Dreierlinie startet (Abstand > 6,75 m, in den Ecken |x| > 6,6 m bei z < 1,415), sonst 2; Freiwurf 1.
 
 ## Pass
+- Steals nur bei abgefangenen Pässen.
 - Ziel per kurzem Wisch (siehe Gesten), nur Mitspieler im Feld.
 - Passweg: kleinster waagerechter Abstand eines Verteidigers zur Strecke Passgeber→Empfänger. < 0,5 m → 60 % Steal, < 1,0 m → 20 % Steal, sonst sicher.
 - Flugzeit `0,25 s + 0,06 s · Distanz (m)`, leichter Bogen; Empfänger spielt „Fangen“, danach geht die Kontrolle auf ihn über.

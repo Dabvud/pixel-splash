@@ -19,6 +19,22 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Canvas-Texturfarben', () => {
+  it('hält alle zehn Baukasten-Spieler auf Atlas-Seiten bis 4096 × 4096 mit gültigen idle-Ausschnitten', () => {
+    const atlas = buildAtlas(ACTORS);
+    for (const texture of atlas.textures!) {
+      expect(texture.image.width).toBeLessThanOrEqual(4096);
+      expect(texture.image.height).toBeLessThanOrEqual(4096);
+    }
+    for (const id of Object.keys(ACTORS)) for (const dir of ['front', 'back', 'left', 'right'] as const) {
+      const [u, v, w, h] = atlas.uv(id, 'idle', dir, 0);
+      expect(u).toBeGreaterThanOrEqual(0); expect(v).toBeGreaterThanOrEqual(0);
+      expect(u + w).toBeLessThanOrEqual(1); expect(v + h).toBeLessThanOrEqual(1);
+      const texture = atlas.textureFor!(id);
+      expect(w * texture.image.width).toBe(32);
+      expect(h * texture.image.height).toBe(64);
+    }
+    atlas.textures!.forEach(t => t.dispose());
+  });
   it.each(Object.values(PLAYS))('$id hält alle Atlas-Seiten für seine Akteure innerhalb 4096 × 4096', play => {
     const atlas = buildAtlas(Object.fromEntries(play.actors.map(id => [id, ACTORS[id]])));
     for (const texture of atlas.textures!) {

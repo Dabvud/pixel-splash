@@ -4,7 +4,12 @@ export interface Look {
   heightM: number;
   build: "slim" | "normal" | "broad";
   skin: string;
-  hair: "short" | "bald" | "afro";
+  hair: "short" | "bald" | "afro" | "cornrows" | "dreads" | "flattop" | "buzz";
+  beard?: "none" | "stubble" | "full" | "goatee";
+  headband?: string | null;
+  armSleeve?: "none" | "left" | "right";
+  shoes?: string;
+  socks?: "low" | "high";
   jersey: string;
   shorts: string;
   num: number;
@@ -65,6 +70,7 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
   const mid = (a: { u: number; v: number }, b: { u: number; v: number }, f = 0.5) => ({ u: a.u + (b.u - a.u) * f, v: a.v + (b.v - a.v) * f });
 
   const skin = rgb(look.skin), jersey = rgb(look.jersey), shorts = rgb(look.shorts);
+  const shoes = rgb(look.shoes ?? "#222226");
   const side = dir === "left" || dir === "right";
   const bw = BUILD[look.build];
   const limb = look.heightM * bw > 2.2 ? 3 : 2;
@@ -75,15 +81,20 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
     line(hip, kn, limb + 1, shade(skin, f));
     line(kn, ft, limb, shade(skin, f));
     line(hip, mid(hip, kn, 0.55), limb + 2, shade(shorts, f)); // Hosenbein
-    line(mid(kn, ft, 0.75), ft, limb, shade([238, 238, 238], f)); // Socke
+    line(mid(kn, ft, look.socks === "high" ? 0.25 : 0.75), ft, limb, shade([238, 238, 238], f)); // Socke
     const fx = X(ft.u), fy = Y(ft.v);
     const toe = side ? (dir === "right" ? 1 : -1) : 0;
-    for (let dx = -1; dx <= 1; dx++) for (let dy = 0; dy < 2; dy++) set(fx + dx + toe, fy + dy, shade([34, 34, 38], f));
+    for (let dx = -1; dx <= 1; dx++) for (let dy = 0; dy < 2; dy++) set(fx + dx + toe, fy + dy, shade(shoes, f));
   };
   const arm = (L: "L" | "R", far: boolean) => {
     const f = far ? 0.8 : 1;
     line(p[`sh${L}`], p[`el${L}`], limb, shade(skin, f));
     line(p[`el${L}`], p[`ha${L}`], limb, shade(skin, f));
+    if (look.armSleeve === (L === "L" ? "left" : "right")) {
+      line(p[`sh${L}`], p[`el${L}`], limb, shade(jersey, f));
+      line(p[`el${L}`], mid(p[`el${L}`], p[`ha${L}`], 0.8), limb, shade(jersey, f));
+      stamp(X(p[`ha${L}`].u), Y(p[`ha${L}`].v), limb, shade(skin, f));
+    }
   };
 
   // project liefert größere Tiefe zur Kamera hin; entfernte Gliedmaßen zuerst.
@@ -113,6 +124,18 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
   const hx = X(p.head.u), hy = Y(p.head.v);
   const hair = [27, 20, 16];
   const R = look.hair === "afro" ? hr + 1.2 : hr;
+  const facing = dir === "right" ? 1 : dir === "left" ? -1 : 0;
+  if (look.hair === "dreads") {
+    // Einzelne Strähnen hinter dem Gesicht, bis neben den Hals.
+    for (const sign of [-1, 1]) {
+      if (side && sign === facing) continue;
+      for (let dy = -1; dy <= Math.ceil(hr) + 1; dy++) set(hx + sign * Math.round(hr), hy + dy, hair);
+      for (let dy = -Math.ceil(hr); dy <= -1; dy++) set(hx + sign * 2, hy + dy, hair);
+    }
+  } else if (look.hair === "flattop") {
+    for (let dy = -Math.ceil(hr) - 1; dy < -hr * 0.35; dy++)
+      for (let dx = -Math.floor(hr * 0.8); dx <= Math.floor(hr * 0.8); dx++) set(hx + dx, hy + dy, hair);
+  }
   for (let dy = -Math.ceil(R); dy <= Math.ceil(R); dy++)
     for (let dx = -Math.ceil(R); dx <= Math.ceil(R); dx++) {
       const d = Math.hypot(dx, dy);
@@ -124,8 +147,28 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
         else if (dir === "front") isHair = dy < -hr * 0.35;
         else isHair = dy < -hr * 0.35 || (dir === "right" ? dx < -hr * 0.3 : dx > hr * 0.3) && dy < hr * 0.4;
       }
-      set(hx + dx, hy + dy, isHair ? hair : skin);
+      if (look.hair === "buzz") {
+        isHair = dir === "back" ? dy < hr * 0.3
+          : dy < -hr * 0.65 || side && dx * facing < -hr * 0.5 && dy < hr * 0.15;
+      }
+      const hairShade = look.hair === "buzz" ? [63, 49, 40]
+        : look.hair === "cornrows" && Math.abs(dx) % 2 === 1 ? [86, 59, 43] : hair;
+      let color = isHair ? hairShade : skin;
+      if (dir !== "back" && dy >= hr * 0.35 && (!side || dx * facing >= 0)) {
+        if (look.beard === "full" || look.beard === "goatee" && Math.abs(dx - facing) < 0.75) color = hair;
+        else if (look.beard === "stubble" && (dx + dy) % 2 === 0) color = [67, 47, 36];
+      }
+      set(hx + dx, hy + dy, color);
     }
+  if (dir !== "back" && (look.beard === "full" || look.beard === "goatee")) {
+    const halfWidth = look.beard === "full" ? 1 : 0;
+    for (let dx = -halfWidth; dx <= halfWidth; dx++) set(hx + facing + dx, hy + Math.ceil(hr) + 1, hair);
+  }
+  if (look.headband) {
+    const color = rgb(look.headband);
+    for (let dx = -Math.floor(R); dx <= Math.floor(R); dx++)
+      if (Math.hypot(dx, -1) <= R) set(hx + dx, hy - 1, color);
+  }
   if (dir === "front") {
     set(hx - 1, hy, [17, 17, 17]);
     set(hx + 1, hy, [17, 17, 17]);

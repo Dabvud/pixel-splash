@@ -7,7 +7,6 @@ import { createPixelRenderer } from "../render/pixel";
 import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, type ActorView } from "../render/actors";
 import { buildAtlas } from "../figure/atlas";
-import type { Look } from "../figure/raster";
 import { ACTORS } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
@@ -45,9 +44,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const { scene, ball, updateNet } = createScene();
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
-  const looks: Record<string, Look> = {};
-  for (const a of Object.values(ACTORS)) looks[a.id] = { heightM: a.heightM, build: a.build, skin: a.skin, hair: a.hair, jersey: a.jersey, shorts: a.shorts, num: a.num };
-  const atlas = buildAtlas(looks);
+  const atlas = buildAtlas(ACTORS);
   const actors = createActors(scene, atlas, Object.keys(ACTORS));
   const hud = createHud(root);
   const phud = createPlayHud(root);

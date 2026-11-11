@@ -1,9 +1,9 @@
 import type { Vec2 } from './position';
+import type { Look } from '../figure/raster';
 
 export type PlayId = 'pnr' | 'fastbreak' | 'kickout' | 'inbound';
-export interface ActorDef {
-  id: string; team: 'off' | 'def'; num: number; heightM: number; build: 'slim' | 'normal' | 'broad';
-  skin: string; hair: 'short' | 'bald' | 'afro'; jersey: string; shorts: string; shot: number; athleticism: number;
+export interface ActorDef extends Look {
+  id: string; team: 'off' | 'def'; shot: number; athleticism: number;
 }
 export type Activity = 'stand' | 'run' | 'dribble' | 'screen' | 'defend' | 'inbound';
 export interface Waypoint extends Vec2 { t: number; act: Activity }
