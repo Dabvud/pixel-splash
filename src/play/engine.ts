@@ -22,7 +22,7 @@ export interface EngineConfig {
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
   finish: { meterMs: number; greenZone: number; aimDeg: number };
 }
-export interface ActorState { id: string; pos: Vec2; y: number; facing: number; move: MoveId; moveT: number }
+export interface ActorState { id: string; pos: Vec2; y: number; facing: number; move: MoveId; moveT: number; moveSide?: number }
 export interface ArrowMeter {
   kind: 'alleyoop' | 'catchshoot' | 'finish'; startTime: number; meterMs: number; zones: Zones;
   bankWindow: BankWindow | null;
@@ -50,12 +50,13 @@ export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pas
 interface Pass {
   option: Option; from: Vec3; to: Vec3; catchPos: Vec2; duration: number; elapsed: number; stolenBy?: string;
   quality: number; startOffset: number; endOffset: number;
+  style: 'normal' | 'bounce' | 'overhead';
 }
 interface Reception {
   quality: number; delay: number; elapsed: number; offset: Vec3;
   closeout?: { id: string; from: Vec2; distance: number; start: number; end: number };
 }
-interface Drive { from: Vec2; to: Vec2; duration: number; elapsed: number }
+interface Drive { from: Vec2; to: Vec2; duration: number; elapsed: number; lane: -1 | 0 | 1 }
 interface Shot {
   result: ShotResult; kind: ShotKind; fouled: boolean; ft: boolean; elapsed: number; delay: number;
   flight?: Flight; from: Vec2; defender?: string; defenderFrom?: Vec2;
@@ -71,6 +72,8 @@ interface Runtime {
   reception?: Reception;
   comboWait?: { phase: 'decision' | 'takeoff' | 'freethrows'; elapsed: number };
   arrow?: ComboData & { tapped?: ArrowInput; timedOut?: boolean };
+  comboMove?: MoveId;
+  celebration?: { from: Record<string, Vec2>; elapsed: number };
 }
 // Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
 const runtimes = new WeakMap<PlayState, Runtime>();
@@ -102,8 +105,9 @@ function hand(a: ActorState): Vec3 {
 function jointPosition(a: ActorState, joint: 'head' | 'haL' | 'haR'): Vec3 {
   const h = poses[a.move][frame(a)][joint];
   const size = ACTORS[a.id].heightM, co = Math.cos(a.facing), si = Math.sin(a.facing);
-  return { x: a.pos.x + size * (h.x * co + h.z * si), y: a.y + size * h.y,
-    z: a.pos.z + size * (h.x * si - h.z * co) };
+  const x = h.x * (a.moveSide ?? 1);
+  return { x: a.pos.x + size * (x * co + h.z * si), y: a.y + size * h.y,
+    z: a.pos.z + size * (x * si - h.z * co) };
 }
 
 /** Tatsächlicher Kopf der aktuellen Pose, auch beim liegenden Verteidiger. */
@@ -123,10 +127,15 @@ function heldBall(s: PlayState): void {
     const beat = Math.abs(Math.cos(a.moveT * MOVES[a.move].fps / MOVES[a.move].frames * Math.PI * 2));
     s.ball.y = .12 + (s.ball.y - .12) * beat;
   }
+  if (['crossover', 'behind_back', 'spin_move', 'hesitation'].includes(a.move)) {
+    const beat = Math.abs(Math.cos(Math.min(1, a.moveT / .4) * Math.PI));
+    s.ball.y = .12 + (s.ball.y - .12) * beat;
+  }
 }
 
 function move(a: ActorState, id: MoveId, reset = false): void {
   if (a.move !== id || reset) a.moveT = 0;
+  if (a.move !== id) a.moveSide = undefined;
   a.move = id;
 }
 
@@ -173,6 +182,17 @@ function end(s: PlayState, events: EngineEvent[], banner?: string): void {
   s.freeThrows = null;
   s.fingerDown = false;
   s.verdict = verdict(s.points, s.deficit);
+  const h = s.actors[s.handler];
+  if (s.verdict === 'GAMEWINNER' || s.verdict === 'OVERTIME') {
+    move(h, 'celebrate', true);
+    rt(s).celebration = { elapsed: 0, from: {} };
+    for (const a of Object.values(s.actors)) if (a.id !== h.id && ACTORS[a.id].team === 'off') {
+      rt(s).celebration!.from[a.id] = { ...a.pos };
+      move(a, 'run', true); a.facing = facingTo(a.pos, h.pos);
+    }
+  } else if (banner === 'STEAL' || banner === 'ZEIT ABGELAUFEN' || rt(s).shot?.result.made !== true) {
+    h.y = 0; move(h, 'dejected', true);
+  }
   events.push({ type: 'end', verdict: s.verdict });
 }
 
@@ -277,11 +297,27 @@ function prepareCombo(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig
   const data = comboData(s, kind, P, cfg, rng);
   rt(s).params = data.params;
   s.combo = data.combo;
-  const finishing = kind !== 'jump2' && kind !== 'three';
-  move(s.actors[s.handler], finishing ? kind as MoveId : 'jumpshot', true);
+  rt(s).comboMove = shotMove(s, kind, P, rng);
+  move(s.actors[s.handler], rt(s).comboMove!, true);
   s.actors[s.handler].facing = facingTo(s.actors[s.handler].pos, { x: 0, z: 0 });
   events.push({ type: 'combo', fouled: data.combo.fouled, contact: kind === 'contact_dunk' });
   heldBall(s);
+}
+
+/** Nur die Darstellung wählen; Ergebnis, Fouls und Zonen nutzen weiterhin ShotKind. */
+function shotMove(s: PlayState, kind: ShotKind, P: number, rng: () => number): MoveId {
+  const r = rt(s), h = s.actors[s.handler];
+  if (kind === 'contact_dunk') return 'contact_dunk';
+  if (kind === 'dunk') return (['dunk', 'tomahawk_dunk', 'two_hand_dunk'] as const)[Math.min(2, Math.floor(rng() * 3))];
+  if (kind === 'layup') {
+    const d = r.lob ? undefined : r.drive;
+    if (d && (Math.abs(d.from.x) > 5 || (Math.abs(d.to.x) < .6 && d.from.x * d.to.x < 0))) return 'reverse_layup';
+    return P >= .7 ? 'finger_roll' : P >= .35 ? 'euro_step' : 'layup';
+  }
+  if (!s.freeThrows && defenders(s).some(a => distance(a.pos, h.pos) < 1.5)) {
+    return Math.hypot(h.pos.x, h.pos.z) >= 4 ? 'step_back' : 'fadeaway';
+  }
+  return 'jumpshot';
 }
 
 function clearArrow(s: PlayState, events: EngineEvent[]): void {
@@ -356,7 +392,8 @@ function catchLob(s: PlayState, rng: () => number, events: EngineEvent[]): void 
   r.lob = true;
   r.params = data.params; s.combo = data.combo;
   const kind = data.combo.kind as 'layup' | 'dunk' | 'contact_dunk';
-  move(a, kind, true);
+  r.comboMove = shotMove(s, kind, data.combo.P, rng);
+  move(a, r.comboMove, true);
   a.facing = facingTo(a.pos, { x: 0, z: 0 });
   a.y = Math.max(.35, 3.05 - (hand(a).y - a.y));
   events.push({ type: 'takeoff', kind });
@@ -404,17 +441,20 @@ function catchOffset(a: ActorState, quality: number): Vec3 {
 function startPass(s: PlayState, option: Option, quality: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const r = rt(s), catcher = s.actors[option.to!], target = catchPoint(s, catcher.id), h = s.actors[s.handler];
   const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos), quality);
+  r.comboMove = undefined; r.drive = undefined;
+  const dx = target.pos.x - h.pos.x, dz = target.pos.z - h.pos.z, len2 = dx * dx + dz * dz;
+  const laneDistance = (a: ActorState) => {
+    const f = Math.max(0, Math.min(1, ((a.pos.x - h.pos.x) * dx + (a.pos.z - h.pos.z) * dz) / (len2 || 1)));
+    return distance(a.pos, { x: h.pos.x + f * dx, z: h.pos.z + f * dz });
+  };
+  const style: Pass['style'] = option.lob || Math.sqrt(len2) > 9 ? 'overhead'
+    : Math.sqrt(len2) < 6 && defenders(s).some(a => laneDistance(a) < 1.5) ? 'bounce' : 'normal';
   let stolenBy: string | undefined;
   if (steal) {
-    const dx = target.pos.x - h.pos.x, dz = target.pos.z - h.pos.z, len2 = dx * dx + dz * dz;
-    const laneDistance = (a: ActorState) => {
-      const f = Math.max(0, Math.min(1, ((a.pos.x - h.pos.x) * dx + (a.pos.z - h.pos.z) * dz) / (len2 || 1)));
-      return distance(a.pos, { x: h.pos.x + f * dx, z: h.pos.z + f * dz });
-    };
     stolenBy = defenders(s).sort((a, b) => laneDistance(a) - laneDistance(b))[0]?.id;
   }
   h.facing = facingTo(h.pos, target.pos);
-  move(h, 'pass', true);
+  move(h, style === 'bounce' ? 'pass_bounce' : style === 'overhead' ? 'pass_overhead' : 'pass', true);
   move(catcher, 'catch', true);
   catcher.facing = facingTo(target.pos, h.pos);
   const receiving = stolenBy ? s.actors[stolenBy] : catcher;
@@ -423,7 +463,7 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
   if (option.lob && !stolenBy) catchPose.y = Math.max(.35, 3.05 - (hand(catchPose).y - catchPose.y));
   const to = hand(catchPose), offset = catchOffset(catchPose, stolenBy ? 1 : quality);
   const random = cfg.closeoutRandom ?? 0;
-  r.pass = { option, quality, from: hand(h), to: { x: to.x + offset.x, y: to.y + offset.y, z: to.z + offset.z }, catchPos: target.pos,
+  r.pass = { option, quality, style, from: hand(h), to: { x: to.x + offset.x, y: to.y + offset.y, z: to.z + offset.z }, catchPos: target.pos,
     duration: target.duration, elapsed: 0, stolenBy,
     startOffset: !steal && random > 0 ? (rng() * 2 - 1) * .3 * random : 0,
     endOffset: !steal && random > 0 ? (rng() * 2 - 1) * .6 * random : 0 };
@@ -474,17 +514,18 @@ function receptionReady(s: PlayState, cfg: EngineConfig, rng: () => number, even
 function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rng: () => number): void {
   const r = rt(s), combo = s.combo!, result = resolveShot(input, r.params!, rng), h = s.actors[s.handler];
   const finishing = combo.kind !== 'jump2' && combo.kind !== 'three';
-  const id: MoveId = finishing ? combo.kind as MoveId : 'jumpshot';
+  const id: MoveId = finishing && r.comboMove ? r.comboMove : shotMove(s, combo.kind, combo.P, rng);
   move(h, id, true);
   const nearest = !s.freeThrows && defenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
   const defender = nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
   if (defender) {
-    move(defender, combo.kind === 'contact_dunk' && !result.made ? 'block_jump' : combo.fouled ? 'contact' : 'block_jump', true);
+    move(defender, combo.kind === 'contact_dunk' ? result.made ? 'block_jump_hit' : 'block_jump'
+      : combo.fouled ? 'contact' : 'block_jump', true);
     defender.facing = facingTo(defender.pos, h.pos);
   }
   r.shot = { result, kind: combo.kind, fouled: combo.fouled, ft: s.freeThrows !== null,
     elapsed: 0, delay: combo.kind === 'contact_dunk' && !result.made ? .3
-      : finishing ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
+      : finishing || id === 'step_back' || id === 'fadeaway' ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
     from: { ...h.pos }, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false,
     timedOut: r.arrow?.timedOut ?? false };
   phase(s, 'ballflight');
@@ -549,9 +590,13 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
   } else if (cmd.kind === 'drive' && (r.segment.options ?? [{ kind: 'drive' }]).some(o => o.kind === 'drive')) {
     clearArrow(s, events);
     const h = s.actors[s.handler], to = takeoffPoint(h.pos, cmd.lane);
-    r.drive = { from: { ...h.pos }, to, duration: Math.max(1, distance(h.pos, to) / 8), elapsed: 0 };
+    r.drive = { from: { ...h.pos }, to, duration: Math.max(1, distance(h.pos, to) / 8), elapsed: 0, lane: cmd.lane };
+    r.comboMove = undefined;
     phase(s, 'driving');
-    move(h, 'dribble_run', true);
+    const driveMove = cmd.lane === 0 ? rng() < .5 ? 'hesitation' : 'spin_move'
+      : rng() < .5 ? 'crossover' : 'behind_back';
+    move(h, driveMove, true);
+    if (cmd.lane) h.moveSide = cmd.lane === -1 ? 1 : -1;
     h.facing = facingTo(h.pos, to);
     heldBall(s);
   }
@@ -623,7 +668,7 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
   const t = shot.elapsed;
   const blocked = shot.kind === 'contact_dunk' && !shot.result.made && shot.defender !== undefined;
   if (shot.kind === 'contact_dunk' && shot.result.made && shot.defender && !s.poster
-    && t + 1e-9 >= MOVES.contact_dunk.rimFrame! / MOVES.contact_dunk.fps) {
+    && t + 1e-9 >= (MOVES.contact_dunk.rimFrame! + 2) / MOVES.contact_dunk.fps) {
     const d = s.actors[shot.defender];
     d.y = 0;
     move(d, 'knocked_down', true);
@@ -649,21 +694,38 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
     // Bis zum Ringkontakt steigen, anschließend landen; wechselnde Handposen
     // dürfen den Fußversatz nicht schon während des Absprungs absenken.
     const jump = Math.max(0, target.y - targetHand.y * size);
-    a.y = jump * (t <= contactT ? t / contactT : Math.max(0, (1.1 - t) / (1.1 - contactT)));
+    const hangUntil = m.frames / m.fps;
+    a.y = jump * (t <= contactT ? t / contactT : t <= hangUntil ? 1 : Math.max(0, (1.1 - t) / (1.1 - hangUntil)));
     const co = Math.cos(a.facing), si = Math.sin(a.facing), progress = Math.min(1, t / contactT);
     a.pos = { x: mix(shot.from.x, target.x - size * (targetHand.x * co + targetHand.z * si), progress),
       z: mix(shot.from.z, target.z - size * (targetHand.x * si - targetHand.z * co), progress) };
   } else {
     a.pos = { ...shot.from };
+    if (a.move === 'reverse_layup') {
+      const len = Math.hypot(shot.from.x, shot.from.z) || 1;
+      const f = Math.min(1, t / (m.rimFrame! / m.fps));
+      a.pos = { x: mix(shot.from.x, -.55 * shot.from.x / len, f),
+        z: mix(shot.from.z, -.55 * shot.from.z / len, f) };
+    }
     a.y = Math.max(0, Math.sin(Math.PI * Math.min(1, t / 1.1))) * (shot.kind === 'layup' ? .35 : .25);
   }
   if (shot.fouled) a.pos.x += .12 * Math.sin(Math.PI * Math.min(1, t / 1.1));
   if (shot.defender) {
     const d = s.actors[shot.defender];
     if (blocked) d.moveT = Math.min(t, shot.delay);
-    if (d.move !== 'knocked_down') d.y = shot.fouled && !blocked ? 0
+    const posterContact = shot.kind === 'contact_dunk' && shot.result.made;
+    if (d.move !== 'knocked_down') d.y = shot.fouled && !blocked && !posterContact ? 0
       : .3 * Math.max(0, Math.sin(Math.PI * Math.min(1, (blocked ? Math.min(t, shot.delay) : t) / .8)));
-    if (shot.fouled && !blocked && d.move !== 'knocked_down' && shot.defenderFrom) {
+    if (posterContact && shot.defenderFrom) {
+      const from = shot.defenderFrom, contactT = MOVES.contact_dunk.rimFrame! / MOVES.contact_dunk.fps;
+      const push = Math.max(0, Math.min(1, (t - contactT) / .3));
+      const co = Math.cos(a.facing), si = Math.sin(a.facing);
+      // Vor dem Ringbild Körperkontakt, danach in Angriffsrichtung nach hinten räumen.
+      const meet = Math.min(1, t / contactT);
+      const contact = { x: a.pos.x + .35 * si, z: a.pos.z - .35 * co };
+      d.pos = { x: mix(from.x, contact.x, meet) + .9 * si * push,
+        z: mix(from.z, contact.z, meet) - .9 * co * push };
+    } else if (shot.fouled && !blocked && d.move !== 'knocked_down' && shot.defenderFrom) {
       const from = shot.defenderFrom, len = distance(from, shot.from) || 1, p = Math.min(1, t / .4) * .15;
       d.pos = { x: from.x + (shot.from.x - from.x) / len * p, z: from.z + (shot.from.z - from.z) / len * p };
     }
@@ -681,7 +743,23 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
 
 function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const r = rt(s), oldPhase = s.phase;
-  if (oldPhase === 'ended') return;
+  if (oldPhase === 'ended') {
+    // Nur die Ergebnis-Animation läuft weiter; Spieluhr und Regeln sind abgeschlossen.
+    s.realTime += dtReal;
+    for (const a of Object.values(s.actors)) a.moveT += dtReal * cfg.animSpeed;
+    const c = r.celebration;
+    if (c) {
+      c.elapsed = Math.min(1, c.elapsed + dtReal);
+      const h = s.actors[s.handler], ids = Object.keys(c.from);
+      ids.forEach((id, i) => {
+        const a = s.actors[id], angle = 2 * Math.PI * i / ids.length;
+        const target = { x: h.pos.x + Math.cos(angle), z: h.pos.z + Math.sin(angle) };
+        a.pos = { x: mix(c.from[id].x, target.x, c.elapsed), z: mix(c.from[id].z, target.z, c.elapsed) };
+        if (c.elapsed === 1) move(a, 'celebrate');
+      });
+    }
+    return;
+  }
   s.realTime += dtReal;
   const slow = oldPhase === 'decision' || oldPhase === 'combo' || oldPhase === 'takeoff';
   const dt = dtReal * cfg.animSpeed * (slow ? cfg.slowmo : 1);
@@ -722,7 +800,11 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     const p = r.pass!;
     p.elapsed += dt;
     const f = p.elapsed + 1e-9 >= p.duration ? 1 : p.elapsed / p.duration;
-    s.ball = { x: mix(p.from.x, p.to.x, f), y: mix(p.from.y, p.to.y, f) + .35 * 4 * f * (1 - f), z: mix(p.from.z, p.to.z, f) };
+    const half = f <= .5 ? f * 2 : (f - .5) * 2;
+    const y = p.style === 'bounce'
+      ? (f <= .5 ? mix(p.from.y, .12, half) : mix(.12, p.to.y, half)) + .12 * 4 * half * (1 - half)
+      : mix(p.from.y, p.to.y, f) + (p.style === 'overhead' ? 1.5 : .35) * 4 * f * (1 - f);
+    s.ball = { x: mix(p.from.x, p.to.x, f), y, z: mix(p.from.z, p.to.z, f) };
     if (f >= 1) {
       if (p.stolenBy) {
         s.ball = hand(s.actors[p.stolenBy]); s.turnovers++;
@@ -762,6 +844,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     d.elapsed += dt;
     const f = Math.min(1, d.elapsed / d.duration);
     a.pos = { x: mix(d.from.x, d.to.x, f), z: mix(d.from.z, d.to.z, f) };
+    if (d.elapsed + 1e-9 >= .4) move(a, 'dribble_run');
     if (f >= 1) takeoff(s, cfg, rng, events);
   } else if (oldPhase === 'takeoff') {
     // Nur die Wartepose einfrieren. startShot setzt Bild 0 und ballflight
@@ -793,7 +876,7 @@ export function step(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () =>
   if (!Number.isFinite(dtReal) || dtReal <= 0) return events;
   // Kleine Teilintervalle bewahren Ereignisreihenfolge auch nach einem langsamen Render-Frame.
   let left = dtReal;
-  while (left > 1e-10 && s.phase !== 'ended') {
+  while (left > 1e-10) {
     const r = rt(s);
     // Jeden Pass exakt beim Fangen teilen: Fangpunkt und weiterlaufende Wege
     // müssen denselben Zeitstand haben. Die Pass-Verzögerung endet in Spielzeit.

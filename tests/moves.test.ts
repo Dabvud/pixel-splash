@@ -8,7 +8,11 @@ const counts: Record<MoveId, number> = {
   idle: 2, run: 8, dribble: 6, dribble_run: 8, pass: 6, catch: 4,
   jumpshot: 6, layup: 8, dunk: 8, contact_dunk: 8, defend: 6,
   block_jump: 6, contact: 4, knocked_down: 4,
+  reverse_layup: 8, block_jump_hit: 8, crossover: 8, behind_back: 8, spin_move: 8,
+  hesitation: 8, euro_step: 8, finger_roll: 8, tomahawk_dunk: 8, two_hand_dunk: 8,
+  step_back: 8, fadeaway: 8, celebrate: 8, dejected: 8, pass_bounce: 8, pass_overhead: 8,
 };
+const additions = Object.keys(counts).slice(14);
 const ids = Object.keys(counts) as MoveId[];
 const bones: [Joint, Joint][] = [
   ['shL', 'elL'], ['shR', 'elR'], ['elL', 'haL'], ['elR', 'haR'],
@@ -23,12 +27,12 @@ describe('Bewegungen', () => {
     expect(Object.keys(MOVES).sort()).toEqual([...ids].sort());
   });
 
-  it.each(ids)('%s hat die vorgegebene Bildzahl, Bildrate und 2–4 Schlüsselposen', (id) => {
+  it.each(ids)('%s hat die vorgegebene Bildzahl, Bildrate und anatomische Schlüsselposen', (id) => {
     const move = MOVES[id];
     expect(move.frames).toBe(counts[id]);
-    expect(move.fps).toBe(id === 'run' || id === 'dribble_run' ? 12 : 10);
+    expect(move.fps).toBe(['crossover', 'behind_back', 'spin_move', 'hesitation'].includes(id) ? 20 : id === 'run' || id === 'dribble_run' ? 12 : 10);
     expect(move.keys.length).toBeGreaterThanOrEqual(2);
-    expect(move.keys.length).toBeLessThanOrEqual(4);
+    expect(move.keys.length).toBeLessThanOrEqual(additions.includes(id) ? 8 : 4);
     expect(move.loop).toBe(['idle', 'run', 'dribble', 'dribble_run', 'defend'].includes(id));
     expect(moveFrames(id)).toEqual(framesFromKeys(move.keys, move.frames, move.loop));
     expect(moveFrames(id)).toHaveLength(counts[id]);
@@ -48,7 +52,7 @@ describe('Bewegungen', () => {
 
   it.each(ids.filter(id => id !== 'knocked_down'))('%s hat den Kopf oben, mit Ausnahme der angehobenen Hände beim Abschluss oder Block', (id) => {
     // Korbleger und Kontakt-Dunk verlangen laut Spec ebenfalls Arme über dem Kopf.
-    const overhead = ['jumpshot', 'layup', 'dunk', 'contact_dunk', 'block_jump'].includes(id);
+    const overhead = ['jumpshot', 'layup', 'dunk', 'contact_dunk', 'block_jump', 'reverse_layup', 'block_jump_hit', 'euro_step', 'finger_roll', 'tomahawk_dunk', 'two_hand_dunk', 'step_back', 'fadeaway', 'celebrate', 'pass_overhead'].includes(id);
     const hands: Joint[] = ['haL', 'haR'];
     for (const p of moveFrames(id)) {
       for (const joint of JOINTS) {
@@ -60,7 +64,9 @@ describe('Bewegungen', () => {
 
   it.each(ids)('%s beugt Ellbogen nach vorne und Knie nach hinten und hält die Füße über dem Boden', (id) => {
     const bend = (p: Pose, a: Joint, b: Joint, c: Joint) =>
-      (p[b].z - p[a].z) * (p[c].y - p[b].y) - (p[b].y - p[a].y) * (p[c].z - p[b].z);
+      // Beim Spin dreht die anatomische Vorwärtsachse mit den Schultern.
+      ((p[b].z - p[a].z) * (p.shR.x - p.shL.x) - (p[b].x - p[a].x) * (p.shR.z - p.shL.z)) * (p[c].y - p[b].y)
+      - (p[b].y - p[a].y) * ((p[c].z - p[b].z) * (p.shR.x - p.shL.x) - (p[c].x - p[b].x) * (p.shR.z - p.shL.z));
     for (const p of moveFrames(id)) {
       expect(bend(p, 'shL', 'elL', 'haL')).toBeGreaterThanOrEqual(-1e-10);
       expect(bend(p, 'shR', 'elR', 'haR')).toBeGreaterThanOrEqual(-1e-10);
@@ -145,5 +151,29 @@ describe('Bewegungen', () => {
     }
     expect(Math.max(...frames.map(p => p.pelvis.x)) - Math.min(...frames.map(p => p.pelvis.x)))
       .toBeGreaterThan(0.05);
+  });
+  it('zeigt bei den neuen Ballhandling-Moves Handwechsel, Schutz hinter dem Rücken, Drehung und Verzögerung', () => {
+    const cross = moveFrames('crossover'), behind = moveFrames('behind_back'), spin = moveFrames('spin_move'), hesitate = moveFrames('hesitation');
+    expect(cross[0].haR.x - cross[0].pelvis.x).toBeGreaterThan(0);
+    expect(cross[7].haR.x - cross[7].pelvis.x).toBeLessThan(0);
+    expect(Math.min(...behind.map(p => p.haR.z - p.pelvis.z))).toBeLessThan(-.08);
+    expect(Math.min(...spin.map(p => p.shR.x - p.shL.x))).toBeLessThan(-.2);
+    expect(hesitate[3].pelvis.y).toBeGreaterThan(hesitate[0].pelvis.y + .03);
+    expect(hesitate[7].head.z - hesitate[7].pelvis.z).toBeGreaterThan(hesitate[3].head.z - hesitate[3].pelvis.z);
+  });
+  it('unterscheidet Euro-Doppelschritt, Reverse, Tomahawk, Rückwärtssprung und Endreaktionen', () => {
+    const euro = moveFrames('euro_step');
+    expect(Math.max(...euro.map(p => p.pelvis.x)) - Math.min(...euro.map(p => p.pelvis.x))).toBeGreaterThan(.18);
+    const reverse = moveFrames('reverse_layup')[7];
+    expect(reverse.haR.z).toBeLessThan(reverse.neck.z);
+    const roll = moveFrames('finger_roll')[7];
+    expect(roll.haR.z).toBeGreaterThan(roll.neck.z + .06);
+    expect(Math.min(...moveFrames('tomahawk_dunk').map(p => p.haR.z - p.shR.z))).toBeLessThan(-.05);
+    expect(moveFrames('step_back')[7].pelvis.z).toBeLessThan(-.15);
+    const fade = moveFrames('fadeaway')[7]; expect(fade.head.z).toBeLessThan(fade.pelvis.z - .15);
+    const jubel = moveFrames('celebrate')[4]; expect(jubel.haL.y).toBeGreaterThan(jubel.head.y);
+    const down = moveFrames('dejected')[7];
+    expect(down.head.z - down.pelvis.z).toBeGreaterThan(.35);
+    expect(Math.abs(down.haR.y - down.knR.y)).toBeLessThan(.12);
   });
 });

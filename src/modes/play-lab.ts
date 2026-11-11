@@ -278,6 +278,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       activeNow += ms;
       if (endedAt !== null) {
         if ((activeNow - endedAt) / 1000 >= NEXT_PLAY_S) newPlay();
+        else step(s, dt, c, rng);
       } else handle(step(s, dt, c, rng));
       camHold = Math.max(0, camHold - dt);
       if (s.handler !== lastHandler) {
@@ -323,7 +324,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     camera.updateMatrixWorld(true);
     const yaw = Math.atan2(camLook.x - camPos.x, -(camLook.z - camPos.z));
 
-    const views: ActorView[] = Object.values(s.actors).map((a) => ({ id: a.id, x: a.pos.x, y: a.y, z: a.pos.z, facing: a.facing, move: a.move, moveT: a.moveT, visible: true }));
+    const views: ActorView[] = Object.values(s.actors).map((a) => ({ id: a.id, x: a.pos.x, y: a.y, z: a.pos.z, facing: a.facing, move: a.move, moveT: a.moveT, moveSide: a.moveSide, visible: true }));
     for (const id of Object.keys(ACTORS)) if (!s.actors[id]) views.push({ id, x: 0, y: 0, z: 0, facing: 0, move: "idle", moveT: 0, visible: false });
     actors.sync(views, yaw);
     ball.position.set(s.ball.x, s.ball.y, s.ball.z);
@@ -353,10 +354,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     phud.setHandler(head.x, head.y, showPlayer);
     phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
     const poster = s.poster;
-    // Nach ended steht die Engine-Zeit; die Ergebnisanzeige nutzt weiter aktive
-    // Echtzeit. Dadurch verschwinden die Sterne auch während dieses Banners.
-    const posterElapsed = poster ? s.realTime - poster.startedAt
-      + (endedAt === null ? 0 : (activeNow - endedAt) / 1000) : 0;
+    // Auch die Endreaktionen nutzen die pausierbare Engine-Echtzeit.
+    const posterElapsed = poster ? s.realTime - poster.startedAt : 0;
     if (poster && posterElapsed < 1.5) {
       const p = actorHead(s.actors[poster.defender]), projected = screen(p.x, p.y + .25, p.z);
       phud.setPoster(projected.x, projected.y, true, posterElapsed);
@@ -406,7 +405,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       removeEventListener("resize", resize);
       detach();
       actors.dispose();
-      atlas.texture.dispose();
+      (atlas.textures ?? [atlas.texture]).forEach(texture => texture.dispose());
       phud.dispose();
       px.renderer.dispose();
       root.remove();

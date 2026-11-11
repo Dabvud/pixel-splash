@@ -490,10 +490,11 @@ describe('Figuren und Weltball', () => {
     const rng = kind === 'contact_dunk' ? () => .4 : safe;
     until(s, () => s.phase === 'takeoff', cfg, rng);
     release(s, true, cfg, rng);
-    until(s, () => Math.floor(s.actors.r23.moveT * 10 + 1e-8) >= MOVES[kind].rimFrame!, cfg, rng);
+    const animation = kind === 'dunk' ? 'two_hand_dunk' : kind;
+    until(s, () => Math.floor(s.actors.r23.moveT * 10 + 1e-8) >= MOVES[animation].rimFrame!, cfg, rng);
     const a = s.actors.r23;
-    expect(a.move).toBe(kind);
-    expect(a.y).toBeCloseTo(Math.max(0, 3.05 - ballHandAt(kind, MOVES[kind].rimFrame!)!.y * 2.03));
+    expect(a.move).toBe(animation);
+    expect(a.y).toBeCloseTo(Math.max(0, 3.05 - ballHandAt(animation, MOVES[animation].rimFrame!)!.y * 2.03));
     expect(s.ball).toEqual(hand(s));
     expect(s.ball.y).toBeCloseTo(3.05);
   });
@@ -502,7 +503,7 @@ describe('Figuren und Weltball', () => {
     s.actors.b1.pos = { x: 0, z: 5 };
     release(s, true);
     step(s, .2, cfg, safe);
-    expect(s.actors.r3.move).toBe('jumpshot');
+    expect(s.actors.r3.move).toBe('step_back');
     expect(s.actors.r3.y).toBeGreaterThan(0);
     expect(s.actors.b1.move).toBe('block_jump');
     expect(s.actors.b1.y).toBeGreaterThan(0);

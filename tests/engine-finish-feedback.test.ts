@@ -104,13 +104,14 @@ describe('Abschluss-Feedback und Poster', () => {
         command(s, { kind: 'tap' }, c, rng);
         command(s, { kind: 'finger', down: false }, c, rng);
         const a = s.actors[s.handler], started = s.gameT, indices = [frameAt(a.move, a.moveT)];
-        expect(a.move).toBe(kind);
+        const animation = kind === 'layup' ? 'finger_roll' : kind;
+        expect(a.move).toBe(animation);
         expect(a.moveT).toBe(0);
         let result = false, contactY = 0, previousY = 0, fell = false;
         for (let i = 0; i < 2000 && !result; i++) {
           const events = step(s, 1 / 240, c, rng);
           result = events.some(e => e.type === 'result');
-          if (a.move === kind) {
+          if (a.move === animation) {
             expect(a.moveT).toBeCloseTo(s.gameT - started, 8);
             const index = frameAt(a.move, a.moveT);
             if (index !== indices.at(-1)) indices.push(index);

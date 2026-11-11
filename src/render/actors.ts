@@ -4,7 +4,7 @@ import { MOVES, type MoveId } from "../figure/moves";
 import { CELL_H, CELL_W, FEET_ROW, PX_PER_M } from "../figure/raster";
 import type { Atlas } from "../figure/atlas";
 
-export interface ActorView { id: string; x: number; y: number; z: number; facing: number; move: MoveId; moveT: number; visible: boolean }
+export interface ActorView { id: string; x: number; y: number; z: number; facing: number; move: MoveId; moveT: number; visible: boolean; moveSide?: number }
 
 /** Blickrichtung der Figur relativ zur Kamera → eines der 4 Sprite-Bilder. facing/cameraYaw in rad, 0 = Richtung −z. */
 export function spriteDir(facing: number, cameraYaw: number): Dir {
@@ -22,7 +22,7 @@ export function frameAt(move: MoveId, moveT: number): number {
 export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): { sync(views: ActorView[], cameraYaw: number): void; dispose(): void } {
   const sprites = new Map<string, { sprite: THREE.Sprite; shadow: THREE.Mesh; tex: THREE.Texture }>();
   for (const id of ids) {
-    const tex = atlas.texture.clone();
+    const tex = (atlas.textureFor?.(id) ?? atlas.texture).clone();
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.needsUpdate = true;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5 }));
@@ -43,10 +43,15 @@ export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): {
         if (!s) continue;
         s.sprite.visible = s.shadow.visible = v.visible;
         s.sprite.position.set(v.x, v.y, v.z);
+        let dir = spriteDir(v.facing, cameraYaw);
+        const mirrored = v.moveSide === -1;
+        const sideView = dir === 'left' || dir === 'right';
+        if (mirrored && sideView) dir = dir === 'left' ? 'right' : 'left';
         s.shadow.position.set(v.x, 0.01, v.z);
-        const [ox, oy, rx, ry] = atlas.uv(v.id, v.move, spriteDir(v.facing, cameraYaw), frameAt(v.move, v.moveT));
-        s.tex.offset.set(ox, oy);
-        s.tex.repeat.set(rx, ry);
+        const [ox, oy, rx, ry] = atlas.uv(v.id, v.move, dir, frameAt(v.move, v.moveT));
+        // Sprite-Shader verwenden den Betrag der Objekt-Skalierung: über UVs spiegeln.
+        s.tex.offset.set(mirrored ? ox + rx : ox, oy);
+        s.tex.repeat.set(mirrored ? -rx : rx, ry);
       }
     },
     dispose() {

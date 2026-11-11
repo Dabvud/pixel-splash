@@ -30,5 +30,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     include: ["tests/**/*.test.ts"],
+    // Atlas- und Arena-Tests brauchen unter Last (parallele Codex-Läufe, Handy-Emulation) mehr als 5 s
+    testTimeout: 30000,
   },
 });
