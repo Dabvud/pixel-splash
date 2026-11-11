@@ -14,6 +14,8 @@ export interface CareerState {
   /** bereits gespielte Key Games der laufenden Saison */
   season: GameRecord[];
   history: SeasonRecord[]; injured: boolean; retired: boolean;
+  /** Teamstärken, die sich jede Saison entwickeln (fehlt: Startwerte der Liga) */
+  strengths?: Record<string, number>;
 }
 
 export const CAREER_KEY = 'pixel-splash.career.v1';
