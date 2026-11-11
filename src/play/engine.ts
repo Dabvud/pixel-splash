@@ -12,11 +12,13 @@ import { passTime, stealChance } from './pass';
 import { positionValue } from './position';
 import type { Vec2 } from './position';
 import { ACTORS } from './teams';
+import { castPlay, varyHelpTiming } from './situations';
 import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types';
 
 export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'receiving' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
 export type PosterVariant = 'classic' | 'flyout' | 'grave' | 'crowd' | 'net' | 'ghost' | 'stuck' | 'jumbotron';
 export interface EngineConfig {
+  situationRandom?: boolean; // Ohne Opt-in bleibt auch die bisherige RNG-Folge erhalten.
   /** Bei Fouls: Schiri läuft ein und pfeift, beim And-one Feier + Abklatschen vor den Freiwürfen */ foulScene?: boolean;
   /** Korbleger/Dunk nach dem Ziehen per Pfeil-Meter (ein Tipp) statt Halten + Wischen */ finishArrow?: boolean;
   /** Spielsekunden vor Wegende, ab denen schon entschieden werden darf (Entscheiden im Laufen) */ decisionLead?: number;
@@ -43,6 +45,7 @@ export interface ArrowMeter {
 export type FinishFeedback = 'PERFEKT' | 'ZU FRÜH' | 'ZU SPÄT' | 'ZU LANGSAM';
 export interface PlayState {
   play: Play; variant: string; deficit: number; phase: Phase; gameT: number; clock: number; handler: string;
+  overtime: boolean; foulTrouble: string | null;
   actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number; foulScene: boolean;
   /** Statline dieses Spielzugs (Punkte, Assists) je Spieler-ID */ box: Record<string, StatLine>; lastPasser: string | null;
   combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
@@ -114,7 +117,16 @@ const mix = (a: number, b: number, f: number) => a + (b - a) * f;
 const rt = (s: PlayState) => runtimes.get(s)!;
 const defenders = (s: PlayState) => Object.values(s.actors).filter(a => ACTORS[a.id].team === 'def');
 const impacted = (a: ActorState) => a.move === 'knocked_down' || a.move === 'hang_upside' || a.move === 'legs_up';
-const currentP = (s: PlayState) => positionValue(s.actors[s.handler].pos, defenders(s).map(a => a.pos));
+const contactDefenders = (s: PlayState) => defenders(s).filter(a => a.id !== s.foulTrouble);
+export function playPositionValue(s: PlayState, pos: Vec2, ahead = 0): number {
+  return positionValue(pos, defenders(s).map(a => ({ ...(ahead ? predicted(s, a.id, ahead) : a.pos),
+    weight: a.id === s.foulTrouble ? .5 : 1 })));
+}
+const currentP = (s: PlayState) => playPositionValue(s, s.actors[s.handler].pos);
+function contactKind(s: PlayState, kind: 'layup' | 'dunk' | 'contact_dunk', pos: Vec2, ahead = 0): typeof kind {
+  return s.foulTrouble && kind === 'contact_dunk'
+    && !contactDefenders(s).some(a => distance(ahead ? predicted(s, a.id, ahead) : a.pos, pos) <= 2.5) ? 'dunk' : kind;
+}
 
 function point(path: Waypoint[], time: number): Waypoint {
   const index = path.findIndex(p => p.t > time);
@@ -213,11 +225,11 @@ function end(s: PlayState, events: EngineEvent[], banner?: string): void {
   clearArrow(s, events);
   s.freeThrows = null;
   s.fingerDown = false;
-  s.verdict = verdict(s.points, s.deficit);
+  s.verdict = verdict(s.points, s.deficit, s.overtime);
   const h = s.actors[s.handler];
   if (impacted(h)) {
     // Der Block bleibt auch im Ergebnisbild sichtbar.
-  } else if (s.verdict === 'GAMEWINNER' || s.verdict === 'OVERTIME') {
+  } else if (s.verdict === 'GAMEWINNER' || s.verdict === 'OVERTIME' || s.verdict === 'DOPPEL-OVERTIME') {
     move(h, 'celebrate', true);
     rt(s).celebration = { elapsed: 0, from: {} };
     for (const a of Object.values(s.actors)) if (a.id !== h.id && ACTORS[a.id].team === 'off' && !impacted(a)) {
@@ -261,6 +273,22 @@ function decision(s: PlayState, events: EngineEvent[], cfg: EngineConfig): void 
 }
 
 export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number): PlayState {
+  let overtime = false, clock = play.clockS, situationDeficit: number | undefined;
+  let foulTrouble: string | null = null;
+  if (cfg.situationRandom ?? false) {
+    overtime = rng() < .15;
+    const min = overtime ? (play.id === 'fastbreak' ? 4 : 3)
+      : Math.max(play.id === 'inbound' ? 1.5 : play.id === 'fastbreak' ? 4 : 3, play.clockS * .5);
+    const max = overtime ? 12 : Math.min(24, play.clockS * 2.5);
+    clock = mix(min, max, rng());
+    const maxDeficit = overtime || clock < 5 ? 3 : 6;
+    situationDeficit = 1 + Math.min(maxDeficit - 1, Math.floor(rng() * maxDeficit));
+    play = castPlay(play, rng);
+    if (rng() < .15) {
+      const defense = play.actors.filter(id => ACTORS[id].team === 'def');
+      foulTrouble = defense[Math.min(defense.length - 1, Math.floor(rng() * defense.length))] ?? null;
+    }
+  }
   // Kurze Folgesegmente bieten auch beim maximalen Reglerwert ein volles Fenster.
   // Alle Angreifer- und Verteidigerwege teilen dieselbe gestreckte Zeitachse.
   if (cfg.decisionLead !== undefined) {
@@ -273,14 +301,15 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
       variants: play.variants.map(v => ({ ...v, defPaths: Object.fromEntries(Object.entries(v.defPaths)
         .map(([id, paths]) => [id, scaled(paths, factors[id] ?? 1)])) })) };
   }
+  if (cfg.situationRandom) play = varyHelpTiming(play, rng);
   const total = play.variants.reduce((sum, v) => sum + v.weight, 0);
   let pick = rng() * total;
   const variant = play.variants.find(v => (pick -= v.weight) < 0) ?? play.variants[play.variants.length - 1];
   const segment = play.segments[play.start];
-  const deficit = typeof play.deficit === 'number' ? play.deficit
-    : play.deficit[0] + Math.min(play.deficit[1] - play.deficit[0], Math.floor(rng() * (play.deficit[1] - play.deficit[0] + 1)));
+  const deficit = situationDeficit ?? (typeof play.deficit === 'number' ? play.deficit
+    : play.deficit[0] + Math.min(play.deficit[1] - play.deficit[0], Math.floor(rng() * (play.deficit[1] - play.deficit[0] + 1))));
   const s: PlayState = {
-    play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
+    play, variant: variant.id, deficit, overtime, foulTrouble, phase: 'intro', gameT: 0, clock, handler: segment.handler,
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, foulScene: cfg.foulScene ?? false, box: {}, lastPasser: null,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null, grave: null,
     ghost: null, splinters: null, ouch: null, glass: null, glassSweep: 0,
@@ -328,16 +357,19 @@ export function aiChoice(s: PlayState): Option {
     const from = s.actors[s.handler].pos;
     const target = o.kind === 'drive' ? { pos: takeoffPoint(from), duration: Math.max(1, distance(from, takeoffPoint(from)) / 8) }
       : catchPoint(s, o.to!);
-    return positionValue(target.pos, defenders(s).map(a => predicted(s, a.id, target.duration)));
+    return playPositionValue(s, target.pos, target.duration);
   };
   return [...options].sort((a, b) => value(a) - value(b) || rank[a.kind] - rank[b.kind])[0];
 }
 
 function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number,
-  actor = s.handler, pos = s.actors[actor].pos, lobQuality?: number): ComboData {
+  actor = s.handler, pos = s.actors[actor].pos, lobQuality?: number, ahead = 0): ComboData {
   const ft = s.freeThrows !== null, finishing = kind !== 'jump2' && kind !== 'three';
-  const chance = finishing && cfg.finishFoulOverride !== undefined && cfg.finishFoulOverride >= 0
-    ? cfg.finishFoulOverride : foulChance(kind, P, cfg.foulMult);
+  const at = (a: ActorState) => ahead ? predicted(s, a.id, ahead) : a.pos;
+  const nearest = s.foulTrouble && defenders(s).sort((a, b) => distance(at(a), pos) - distance(at(b), pos))[0];
+  const chance = nearest && nearest.id === s.foulTrouble ? 0
+    : finishing && cfg.finishFoulOverride !== undefined && cfg.finishFoulOverride >= 0
+      ? cfg.finishFoulOverride : foulChance(kind, P, cfg.foulMult);
   const foulRoll = ft ? 1 : rng(), fouled = !ft && foulRoll < chance;
   const base = finishing ? cfg.finish : cfg.shot;
   const meterMs = ft ? base.meterMs : meterDuration(base.meterMs, P, cfg.tempoSpread, rng);
@@ -477,9 +509,10 @@ function catchLob(s: PlayState, rng: () => number, events: EngineEvent[]): void 
 }
 
 function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
-  const P = currentP(s), kind = cfg.forcePoster
-    ? defenders(s).some(a => distance(a.pos, s.actors[s.handler].pos) <= 2.5) ? 'contact_dunk' : 'dunk'
-    : finishKind(ACTORS[s.handler].athleticism, P, rng);
+  const P = currentP(s), pos = s.actors[s.handler].pos;
+  const kind = contactKind(s, cfg.forcePoster
+    ? contactDefenders(s).some(a => distance(a.pos, pos) <= 2.5) ? 'contact_dunk' : 'dunk'
+    : finishKind(ACTORS[s.handler].athleticism, P, rng), pos);
   phase(s, 'takeoff');
   rt(s).lob = false;
   events.push({ type: 'takeoff', kind });
@@ -550,18 +583,18 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
   s.ball = { ...r.pass.from };
   events.push({ type: 'pass', from: s.handler, to: catcher.id, steal });
   if (option.lob && !steal) {
-    const defense = defenders(s).map(a => predicted(s, a.id, target.duration));
-    const P = positionValue(target.pos, defense);
-    const kind = cfg.forcePoster
+    const defense = contactDefenders(s).map(a => predicted(s, a.id, target.duration));
+    const P = playPositionValue(s, target.pos, target.duration);
+    const kind = contactKind(s, cfg.forcePoster
       ? defense.some(pos => distance(pos, target.pos) <= 2.5) ? 'contact_dunk' : 'dunk'
-      : finishKind(ACTORS[catcher.id].athleticism, P, rng);
+      : finishKind(ACTORS[catcher.id].athleticism, P, rng), target.pos, target.duration);
     // Nur bei freier Bahn (Dunk ohne Kontakt) und hohem Dunk-Wert; gewürfelt nur dann
     if (kind === 'dunk' && ACTORS[catcher.id].athleticism >= .8
       && (cfg.forceBoardOop || rng() < (cfg.boardOopChance ?? .1))) {
       r.pass.board = { x: target.pos.x * .3, y: 3.6, z: -.36 };
       events.push({ type: 'boardOop' });
     }
-    const data = comboData(s, kind, P, cfg, rng, catcher.id, target.pos, quality);
+    const data = comboData(s, kind, P, cfg, rng, catcher.id, target.pos, quality, target.duration);
     const catchTime = s.realTime + target.duration / cfg.animSpeed;
     startArrow(s, 'alleyoop', Math.max(s.realTime, catchTime - data.combo.meterMs / 1000), data, events);
   }
@@ -607,7 +640,7 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
   const windup = finishing && h.move === id ? h.moveT : 0;
   move(h, id, true);
   h.moveT = windup;
-  const nearest = !s.freeThrows && defenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
+  const nearest = !s.freeThrows && contactDefenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
   const defender = nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
   if (defender) {
     move(defender, combo.kind === 'contact_dunk' ? 'block_jump_hit'

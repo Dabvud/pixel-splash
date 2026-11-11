@@ -16,8 +16,7 @@ import { buildAtlas } from "../figure/atlas";
 import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
-import { command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
-import { positionValue } from "../play/position";
+import { command, createPlayState, lastHint, playPositionValue, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
 import { addPlay, boxRows, emptyGame } from "../stats/statline";
@@ -75,6 +74,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let game = emptyGame(); // Statline des laufenden Spiels (über alle Spielzüge, bis „Neues Spiel“)
 
   const cfg = (): EngineConfig => ({
+    situationRandom: settings.defenseRandom,
     decisionLead: settings.decisionS,
     finishArrow: true,
     foulScene: true,
@@ -133,7 +133,6 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const projection = new THREE.Vector3();
   const views: ActorView[] = [];
   const targets: { x: number; z: number }[] = [];
-  const defenderPositions: { x: number; z: number }[] = [];
   const markerPool: Marker[] = [], markers: Marker[] = [];
   const head = { x: 0, y: 0 }, feet = { x: 0, y: 0 }, posterPoint = { x: 0, y: 0 };
   const noZones = { g: 0, a: 0 };
@@ -181,8 +180,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     phud.setPoster(0, 0, false);
     grave.sync(null);
     posterEffects.sync(null, 0);
-    phud.setSituation(`4. VIERTEL · ${formatPlayClock(s.clock, false)} · −${s.deficit}`, s.play.name);
-    phud.setScoreboard(s.clock, s.deficit, s.points);
+    const period = s.overtime ? 'OVERTIME' : '4. VIERTEL';
+    const name = s.play.name + (s.foulTrouble ? ` · #${ACTORS[s.foulTrouble].num} HAT 5 FOULS` : '');
+    phud.setSituation(`${period} · ${formatPlayClock(s.clock, !Number.isInteger(s.clock))} · −${s.deficit}`, name);
+    phud.setScoreboard(s.clock, s.deficit, s.points, s.overtime);
     showStats();
   }
 
@@ -541,7 +542,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     ball.position.set(s.ball.x, s.ball.y, s.ball.z);
 
     // HUD
-    phud.setScoreboard(s.clock, s.deficit, s.points);
+    phud.setScoreboard(s.clock, s.deficit, s.points, s.overtime);
     if (s.phase !== "intro") phud.setSituation(null);
     screen(h.pos.x, h.y + ACTORS[h.id].heightM + 0.35, h.pos.z, head);
     markers.length = 0;
@@ -560,10 +561,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     phud.setMarkers(markers);
     const colorRing = s.phase === "decision" || s.phase === "driving" || s.phase === "takeoff";
     const showPlayer = s.phase !== "ended";
-    defenderPositions.length = 0;
-    for (const v of views) if (ACTORS[v.id].team === "def") defenderPositions.push(s.actors[v.id].pos);
     screen(h.pos.x, 0, h.pos.z, feet);
-    phud.setRing(feet.x, feet.y, colorRing ? (s.combo ? s.combo.P : positionValue(h.pos, defenderPositions)) : null, showPlayer);
+    phud.setRing(feet.x, feet.y, colorRing ? (s.combo ? s.combo.P : playPositionValue(s, h.pos)) : null, showPlayer);
     phud.setHandler(head.x, head.y, showPlayer);
     phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
     const poster = s.poster;

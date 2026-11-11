@@ -1,6 +1,7 @@
 export interface Vec2 { x: number; z: number }
+export interface DefenderPosition extends Vec2 { weight?: number }
 
-export function positionValue(att: Vec2, defenders: Vec2[], rim: Vec2 = { x: 0, z: 0 }): number {
+export function positionValue(att: Vec2, defenders: DefenderPosition[], rim: Vec2 = { x: 0, z: 0 }): number {
   const rx = rim.x - att.x;
   const rz = rim.z - att.z;
   const rimDistance = Math.hypot(rx, rz);
@@ -12,7 +13,7 @@ export function positionValue(att: Vec2, defenders: Vec2[], rim: Vec2 = { x: 0, 
     const c = Math.max(0, Math.min(1, (2 - d) / 1.5));
     const cos = d === 0 ? 1 : (rx * dx + rz * dz) / (rimDistance * d || 1);
     const w = Math.max(0, Math.min(1, 0.2 + 0.8 * cos));
-    P = Math.min(P, 1 - c * w);
+    P = Math.min(P, 1 - c * w * (defender.weight ?? 1));
   }
   return P;
 }

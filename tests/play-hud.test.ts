@@ -4,6 +4,18 @@ import { createPlayHud, formatPlayClock, playScore } from '../src/ui/play-hud';
 afterEach(() => document.body.replaceChildren());
 
 describe('Digitale Anzeigetafel', () => {
+  it('zeigt Overtime, zufällige Werte und die Foul-Probleme im Intro', () => {
+    const hud = createPlayHud(document.body);
+    hud.setScoreboard(4.2, 3, 0, true);
+    hud.setSituation('OVERTIME · 4.2 · −3', 'Pick & Roll · #44 HAT 5 FOULS');
+    expect(document.querySelector('.phud-game')!.textContent).toContain('OVERTIME');
+    expect(document.querySelector('.phud-game-clock')!.textContent).toBe('4.2');
+    expect(document.querySelector('.phud-score-red')!.textContent).toBe('97');
+    expect(document.querySelector('.phud-sit')!.textContent).toContain('#44 HAT 5 FOULS');
+    hud.setScoreboard(8, 2, 0);
+    expect(document.querySelector('.phud-game')!.textContent).toContain('4. VIERTEL');
+    hud.dispose();
+  });
   it.each([[75, '1:15'], [60, '1:00'], [10.01, '0:11'], [10, '0:10'], [9.94, '9.9'], [8, '8.0'], [.01, '0.0'], [0, '0.0']])(
     'formatiert die laufende Uhr bei %s s als %s', (seconds, text) => {
       expect(formatPlayClock(seconds)).toBe(text);

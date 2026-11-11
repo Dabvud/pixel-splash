@@ -64,6 +64,20 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('koppelt Situationszufall an Verteidigungs-Zufall und zeigt die Engine-Lage', () => {
+    expect(vi.mocked(createPlayState).mock.calls.at(-1)![1].situationRandom).toBe(false);
+    vi.spyOn(Math, 'random').mockReturnValue(.1);
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: true });
+    const s = state();
+    expect(vi.mocked(createPlayState).mock.calls.at(-1)![1].situationRandom).toBe(true);
+    expect(s.overtime).toBe(true);
+    expect(s.foulTrouble).not.toBeNull();
+    expect(document.querySelector('.phud-sit-top')!.textContent).toContain(`OVERTIME ·`);
+    expect(document.querySelector('.phud-sit-top')!.textContent).toContain(`−${s.deficit}`);
+    expect(document.querySelector('.phud-sit-name')!.textContent).toContain(`#${ACTORS[s.foulTrouble!].num} HAT 5 FOULS`);
+    expect(document.querySelector('.phud-game')!.textContent).toContain('OVERTIME');
+    expect(document.querySelector('.phud-score-red')!.textContent).toBe(String(100 - s.deficit));
+  });
   it.each(['classic', 'flyout', 'crowd', 'jumbotron', 'net', 'grave', 'ghost', 'stuck'] as const)('zeigt Sterne passend zur Variante %s', variant => {
     vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
     const s = state(), d = s.actors.b1;

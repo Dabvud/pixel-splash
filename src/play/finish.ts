@@ -48,6 +48,6 @@ export function finishBanner(kind: ShotKind, made: boolean, fouled: boolean, ass
   return `${assisted ? 'ASSIST + ' : ''}${MADE[kind]}${fouled ? ' + AND-ONE' : ''}`;
 }
 
-export function verdict(points: number, deficit: number): 'GAMEWINNER' | 'OVERTIME' | 'VERLOREN' {
-  return points > deficit ? 'GAMEWINNER' : points === deficit ? 'OVERTIME' : 'VERLOREN';
+export function verdict(points: number, deficit: number, overtime = false): 'GAMEWINNER' | 'OVERTIME' | 'DOPPEL-OVERTIME' | 'VERLOREN' {
+  return points > deficit ? 'GAMEWINNER' : points === deficit ? overtime ? 'DOPPEL-OVERTIME' : 'OVERTIME' : 'VERLOREN';
 }

@@ -24,7 +24,7 @@ export function playScore(deficit: number, points: number): { red: number; blue:
 // HUD des Spielzug-Labors: Lage, Entscheidungsmarker, Positionsring, Kurzmeldungen
 export function createPlayHud(root: HTMLElement): {
   setSituation(top: string | null, name?: string): void;
-  setScoreboard(clock: number, deficit: number, points: number): void;
+  setScoreboard(clock: number, deficit: number, points: number, overtime?: boolean): void;
   setMarkers(markers: Marker[]): void;
   setRing(x: number, y: number, P: number | null, visible: boolean): void;
   setHandler(x: number, y: number, visible: boolean): void;
@@ -61,7 +61,7 @@ export function createPlayHud(root: HTMLElement): {
   const sitTop = q('.phud-sit-top'), sitName = q('.phud-sit-name');
   const feedback = q('.phud-finish-feedback'), poster = q('.phud-poster');
   const stars = [...poster.querySelectorAll<HTMLElement>('span')];
-  const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue');
+  const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue'), period = q('.phud-game span');
   const markerNodes: { el: HTMLDivElement; icon: HTMLElement; label: HTMLElement }[] = [];
   let flashTimer: number | null = null;
   let flashRemaining: number | null = null;
@@ -92,11 +92,12 @@ export function createPlayHud(root: HTMLElement): {
       setText(sitTop, top ?? "");
       setText(sitName, name);
     },
-    setScoreboard(seconds, deficit, points) {
+    setScoreboard(seconds, deficit, points, overtime = false) {
       const score = playScore(deficit, points);
       setText(clock, formatPlayClock(seconds));
       setText(red, String(score.red));
       setText(blue, String(score.blue));
+      setText(period, overtime ? 'OVERTIME' : '4. VIERTEL');
     },
     setMarkers(markers) {
       // display:grid der Marker übersteuert das native hidden; unbenutzte Knoten entfernen.
