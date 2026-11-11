@@ -129,3 +129,18 @@ describe('Karriere-Schwierigkeit in der Szene', () => {
     expect(cfg.aiDifficulty).toBe(.85);
   });
 });
+
+describe('Frühe Karriere-Szenen zeigen keinen Spielausgang', () => {
+  it.each([false, true])('final=%s: Ende zeigt %s', final => {
+    registerHero({ ...SAMPLE.player, position: 'guard' }, TEAMS[0]);
+    vi.spyOn(Math, 'random').mockImplementation(seededRng(4));
+    const spec: SceneSpec = { play: castWithHero(PLAYS.pnr, 'guard', seededRng(2)), deficit: 2, clockS: 12, title: 't', subtitle: 's',
+      controlled: HERO_ID, final };
+    mode = startPlayLab(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { spec, onEnd: vi.fn() });
+    advance(40);
+    expect(state().phase).toBe('ended');
+    const banner = document.querySelector('.hud-title')!.textContent!;
+    if (final) expect(['GAMEWINNER', 'OVERTIME', 'VERLOREN', 'DOPPEL-OVERTIME']).toContain(banner);
+    else expect(banner).toMatch(/^(\+\d+ PUNKTE?|KEIN TREFFER)$/);
+  });
+});

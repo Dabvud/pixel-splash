@@ -284,14 +284,17 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else { phud.foulCall(e.andOne); crowd?.cheer(e.andOne ? .9 : .3); }
       } else if (e.type === "end") {
         addPlay(game, s.box);
-        if (e.verdict === "GAMEWINNER") crowd?.cheer(1);
+        if (e.verdict === "GAMEWINNER" && career?.spec.final !== false) crowd?.cheer(1);
         options = [];
         const st = (stats[s.play.id] ??= { tries: 0, points: 0, turnovers: 0 });
         st.tries++;
         st.points += s.points;
         st.turnovers += s.turnovers;
         showStats();
-        hud.showResult({ banner: e.verdict, hint: [s.banner, lastHint(s)].filter(Boolean).join(" · "), made: e.verdict !== "VERLOREN" } as ShotResult);
+        // Karriere vor der Crunchtime: kein Spielausgang, sondern was die Szene gebracht hat
+        const early = career && career.spec.final === false;
+        const banner = early ? s.points > 0 ? `+${s.points} ${s.points === 1 ? "PUNKT" : "PUNKTE"}` : "KEIN TREFFER" : e.verdict;
+        hud.showResult({ banner, hint: [s.banner, lastHint(s)].filter(Boolean).join(" · "), made: early ? s.points > 0 : e.verdict !== "VERLOREN" } as ShotResult);
         endedAt = activeNow;
       }
     }

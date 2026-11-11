@@ -60,7 +60,7 @@ export function sceneSpec(state: CareerState, game: KeyGame, index: number, tota
   const clockS = id === 'lob08' ? play.clockS : Math.max(minClock, last ? 3 + Math.floor(rng() * 10) : 14 + Math.floor(rng() * 11));
   const opp = teamName(teamById(game.opponent));
   return {
-    play, deficit, clockS, controlled: HERO_ID,
+    play, deficit, clockS, controlled: HERO_ID, final: last,
     teams: [state.team.toUpperCase(), game.opponent.toUpperCase()], period, ...(score ? { score: [score.own, score.opp] as [number, number] } : {}),
     title: `${period} · ${formatPlayClock(clockS, false)} · ${score ? `${score.own}:${score.opp}` : `−${deficit}`}`,
     subtitle: `${game.label} · ${game.home ? 'gegen die' : 'bei den'} ${opp}`,

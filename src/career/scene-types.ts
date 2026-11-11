@@ -12,6 +12,8 @@ export interface SceneSpec {
   score?: [number, number];
   /** Schwierigkeit in der Szene: grüne Zone, Meter-Dauer, Trefferquote der KI-Mitspieler (Faktoren) */
   tuning?: { zone: number; meter: number; ai: number };
+  /** letzte Szene (Crunchtime)? Davor zeigt das Ende „+X PUNKTE“ statt GAMEWINNER/VERLOREN/OVERTIME */
+  final?: boolean;
   /** Spezialisierung des eigenen Spielers; onFire = Green Light brennt */
   perks?: Perks & { onFire?: boolean };
 }
