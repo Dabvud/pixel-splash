@@ -131,3 +131,64 @@ describe('Karriere-Ablauf', () => {
     expect(document.querySelectorAll('.career-table tbody tr')).toHaveLength(1);
   });
 });
+
+describe('Karriere – Play-In und Playoffs', () => {
+  function season(st: Storage): void {
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    for (let g = 0; g < 5; g++) { playGame(); press('Weiter'); }
+  }
+  it('Platz 1 → vier Serien gewonnen → MEISTER, Ring in der Statistik', async () => {
+    const { TEAMS } = await import('../src/career/league');
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, strengths: Object.fromEntries(TEAMS.map(t => [t.id, t.id === c.team ? 95 : 30])) }, st);
+    season(st);
+    expect(text()).toContain('Platz 1');
+    press('Playoffs');
+    const rounds: string[] = [];
+    for (let r = 0; r < 4; r++) {
+      rounds.push(document.querySelector('.career-screen h2')!.textContent!);
+      playGame();
+      press('Weiter');
+    }
+    expect(rounds).toEqual(['1. Runde', 'Conference-Halbfinale', 'Conference-Finale', 'NBA Finals']);
+    expect(text()).toContain('MEISTER!');
+    press('Nächste Saison');
+    const next = loadCareer(st)!;
+    expect(next.history[0].playoff).toBe('champion');
+    expect(next.postseason).toBeUndefined();
+    press('Karriere-Statistik');
+    expect(text()).toContain('Ringe: 1');
+  });
+  it('Play-In verloren → Saison vorbei, keine Playoff-Runde', async () => {
+    const { TEAMS } = await import('../src/career/league');
+    const st = memory(); const c = fresh(st);
+    // 7 übermächtige Teams der eigenen Conference, Rest schwach → eigenes Team landet auf Platz 8
+    const conf = TEAMS.find(t => t.id === c.team)!.conference;
+    const strongIds = TEAMS.filter(t => t.conference === conf && t.id !== c.team).slice(0, 7).map(t => t.id);
+    saveCareer({ ...c, strengths: Object.fromEntries(TEAMS.map(t => [t.id, t.id === c.team ? 60 : strongIds.includes(t.id) ? 92 : 30])) }, st);
+    outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 3, ast: 1 });
+    season(st);
+    expect(text()).toContain('Platz 8');
+    press('Play-In');
+    outcome = () => ({ won: false, verdict: 'VERLOREN', pts: 0, ast: 0 });
+    playGame();
+    expect(text()).toContain('Play-In verloren');
+    press('Weiter');
+    expect(text()).toContain('Im Play-In ausgeschieden');
+  });
+  it('Abbruch in Runde 3 → Fortsetzen startet Runde 3 erneut', async () => {
+    const { TEAMS } = await import('../src/career/league');
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, strengths: Object.fromEntries(TEAMS.map(t => [t.id, t.id === c.team ? 95 : 30])) }, st);
+    season(st);
+    press('Playoffs');
+    playGame(); press('Weiter');
+    playGame(); press('Weiter');
+    expect(document.querySelector('.career-screen h2')!.textContent).toBe('Conference-Finale');
+    document.body.innerHTML = '<div id="app"></div>';
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    expect(document.querySelector('.career-screen h2')!.textContent).toBe('Conference-Finale');
+  });
+});

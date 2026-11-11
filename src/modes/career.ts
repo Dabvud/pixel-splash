@@ -5,6 +5,7 @@ import { teamById, teamName } from '../career/league';
 import { dressTeams, registerHero, unregisterHero } from '../career/hero';
 import { finalDeficit, gameResult, projectLine, scenePlan, sceneSpec, scheduleSeason } from '../career/keygame';
 import { finishSeason, playoffStatus, projectWins, standings, strengthOf } from '../career/season';
+import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResult } from '../career/playoffs';
 import type { PlayScene, SceneResult } from '../career/scene-types';
 import { createCareerScreen } from '../ui/career-create';
 import { startPlayLab } from './play-lab';
@@ -13,7 +14,10 @@ import type { Mode } from './mode';
 export interface CareerDeps { storage?: Storage; seed?: number; playScene?: PlayScene }
 
 const TICKER_MS = 2500;
-const STATUS = { playoffs: 'Playoffs erreicht – die Playoffs kommen in einem späteren Update.', playin: 'Play-In erreicht – kommt in einem späteren Update.', out: 'Keine Playoffs in dieser Saison.' };
+const STATUS = { playoffs: 'Playoffs erreicht!', playin: 'Play-In erreicht – ein Spiel um die Playoffs.', out: 'Keine Playoffs in dieser Saison.' };
+const RESULT_TEXT: Record<PlayoffResult, string> = { none: 'Keine Playoffs', playin: 'Im Play-In ausgeschieden', r1: 'In der 1. Runde ausgeschieden',
+  r2: 'Im Conference-Halbfinale ausgeschieden', cf: 'Im Conference-Finale ausgeschieden', finals: 'In den NBA Finals verloren', champion: 'MEISTER!' };
+const RESULT_SHORT: Record<PlayoffResult, string> = { none: '–', playin: 'Play-In', r1: '1. Runde', r2: 'Halbfinale', cf: 'Conf.-Finale', finals: 'Finals', champion: 'Meister' };
 
 /** Karriere-Modus: Bildschirme rund um die Szenen; gespeichert wird nach jedem Key Game und Saisonwechsel */
 export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDeps = {}): Mode {
@@ -64,7 +68,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   function hub(c: CareerState): void {
     if (c.retired) return careerEnd(c);
     if (!c.keyGames.length) { c = { ...c, keyGames: scheduleSeason(c, gameRng(c)) }; save(c); }
-    if (c.gameIndex >= c.keyGames.length) return seasonEnd(c);
+    if (c.gameIndex >= c.keyGames.length) return c.postseason ? c.postseason.done ? postseasonEnd(c) : playoffHub(c) : seasonEnd(c);
     const game = c.keyGames[c.gameIndex], wins = c.season.filter(g => g.won).length;
     screen(`<h2>Saison ${c.year}</h2>
       <p>${esc(c.player.name)} · #${c.player.num} · ${c.player.age} Jahre · ${esc(teamName(teamById(c.team)))}</p>
@@ -74,12 +78,13 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       [['Spielen', () => playGame(c, game)], ['Karriere-Statistik', () => stats(c, () => hub(c))]]);
   }
 
-  function playGame(c: CareerState, game: KeyGame): void {
-    const rng = gameRng(c), total = scenePlan(game), results: SceneResult[] = [];
+  function playGame(c: CareerState, game: KeyGame, finish = (results: SceneResult[], rng: () => number) => finishGame(c, game, results, rng),
+    rng = gameRng(c)): void {
+    const total = scenePlan(game), results: SceneResult[] = [];
     const own = teamById(c.team), opp = teamById(game.opponent);
     const next = (): void => {
       const i = results.length;
-      if (i >= total) return finishGame(c, game, results, rng);
+      if (i >= total) return finish(results, rng);
       const deficit = i === total - 1 ? finalDeficit(results.map(r => r.won)) : 1 + Math.floor(rng() * 4);
       const spec = sceneSpec(c, game, i, total, deficit, rng);
       const go = (): void => {
@@ -130,7 +135,40 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       <p>${STATUS[playoffStatus(rank)]}</p>
       <table class="career-table"><thead><tr><th>#</th><th>Team</th><th>S</th><th>N</th></tr></thead><tbody>${table.map((r, i) =>
         `<tr${r.team === c.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${esc(teamName(teamById(r.team)))}</td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</tbody></table>`,
-      [['Nächste Saison', () => { const n = finishSeason(c, ownWins, seededRng(seed + 1)); save(n); hub(n); }]], 'career-long');
+      rank <= 10
+        ? [[rank <= 6 ? 'Playoffs' : 'Play-In', () => {
+          const n = { ...c, postseason: startPostseason(c, ownWins, table, seededRng(seed + 2))! };
+          save(n); playoffHub(n);
+        }]]
+        : [['Nächste Saison', () => nextSeason(c, ownWins)]], 'career-long');
+  }
+  function nextSeason(c: CareerState, ownWins: number): void {
+    // gleicher Seed wie die Tabelle am Saisonende → gespeicherter Platz = angezeigter Platz
+    const n = finishSeason(c, ownWins, seededRng(((c.seed ^ (c.year * 31337)) >>> 0) + 1));
+    save(n); hub(n);
+  }
+
+  const postRng = (c: CareerState) => seededRng((c.seed ^ (c.year * 7919 + 5000 + (c.postseason?.faced.length ?? 0) * 104729)) >>> 0);
+  function playoffHub(c: CareerState): void {
+    const p = c.postseason!, game = postseasonGame(p);
+    screen(`<h2>${ROUND_NAME[p.round]}</h2><p>Saison ${c.year} · ${esc(teamName(teamById(c.team)))}</p>
+      <div class="career-next"><b>${esc(p.situation)}</b><br>${opponentLine(game)}</div>`,
+      [['Spielen', () => playGame(c, game, (results, rng) => finishPlayoff(c, game, results, rng), postRng(c))]]);
+  }
+  function finishPlayoff(c: CareerState, game: KeyGame, results: SceneResult[], rng: () => number): void {
+    const p = c.postseason!, won = gameResult(results, rng), line = projectLine(c.player.ratings, results, rng);
+    const next = advance(p, won, c, rng), after: CareerState = { ...c, postseason: next };
+    save(after);
+    const title = !won ? p.round === 'playin' ? 'Play-In verloren' : 'Ausgeschieden'
+      : next.done ? 'MEISTER!' : p.round === 'playin' ? 'Play-In gewonnen' : 'Serie gewonnen';
+    const ownPts = 96 + Math.floor(rng() * 22), margin = 1 + Math.floor(rng() * 12);
+    screen(`<h2 class="${next.result === 'champion' ? 'champion' : ''}">${title}</h2><p>${ownPts} : ${won ? ownPts - margin : ownPts + margin} ${opponentLine(game)}</p>
+      <p class="career-line">PTS ${line.pts} · AST ${line.ast} · REB ${line.reb}</p>`, [['Weiter', () => hub(after)]]);
+  }
+  function postseasonEnd(c: CareerState): void {
+    const p = c.postseason!;
+    screen(`<h2>Saison ${c.year} beendet</h2><p>${p.ownWins} – ${82 - p.ownWins} · Platz ${p.rank}</p><p>${RESULT_TEXT[p.result]}</p>`,
+      [['Nächste Saison', () => nextSeason(c, p.ownWins)]]);
   }
 
   function stats(c: CareerState, back: () => void): void {
@@ -142,8 +180,9 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   }
   function historyTable(c: CareerState): string {
     const avg = (g: { pts: number }[]) => g.length ? (g.reduce((s, x) => s + x.pts, 0) / g.length).toFixed(1) : '–';
-    return `<table class="career-table"><thead><tr><th>Saison</th><th>Team</th><th>Alter</th><th>Bilanz</th><th>Platz</th><th>PTS</th></tr></thead><tbody>${
-      c.history.map(h => `<tr><td>${h.year}</td><td>${esc(teamById(h.team).name)}</td><td>${h.age}</td><td>${h.wins}–${h.losses}</td><td>${h.rank}</td><td>${avg(h.games)}</td></tr>`).join('')}</tbody></table>`;
+    const rings = c.history.filter(h => h.playoff === 'champion').length;
+    return `<p class="career-rings">Ringe: ${rings}</p><table class="career-table"><thead><tr><th>Saison</th><th>Team</th><th>Alter</th><th>Bilanz</th><th>Platz</th><th>Playoffs</th><th>PTS</th></tr></thead><tbody>${
+      c.history.map(h => `<tr${h.playoff === 'champion' ? ' class="own"' : ''}><td>${h.year}</td><td>${esc(teamById(h.team).name)}</td><td>${h.age}</td><td>${h.wins}–${h.losses}</td><td>${h.rank}</td><td>${RESULT_SHORT[h.playoff ?? 'none']}</td><td>${avg(h.games)}</td></tr>`).join('')}</tbody></table>`;
   }
   const opponentLine = (g: KeyGame) => `${g.home ? 'gegen die' : 'bei den'} ${esc(teamName(teamById(g.opponent)))}`;
 

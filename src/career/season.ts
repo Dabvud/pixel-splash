@@ -34,13 +34,14 @@ const RETIRE: Record<number, number> = { 36: .2, 37: .35, 38: .55, 39: .75 };
 /** Saison abschließen: archivieren, altern, Liga entwickeln, neue Key Games, Verletzung/Karriereende würfeln */
 export function finishSeason(state: CareerState, ownWins: number, rng: () => number): CareerState {
   const rank = standings(state, ownWins, rng).findIndex(r => r.team === state.team) + 1;
-  const record = { year: state.year, team: state.team, age: state.player.age, wins: ownWins, losses: 82 - ownWins, rank, games: state.season };
+  const record = { year: state.year, team: state.team, age: state.player.age, wins: ownWins, losses: 82 - ownWins, rank, games: state.season,
+    playoff: state.postseason?.result ?? 'none' as const };
   const strengths = Object.fromEntries(TEAMS.map(t => [t.id, evolveStrength({ ...t, strength: strengthOf(state, t.id) }, rng)]));
   const age = state.player.age + 1;
   const retired = age >= 40 || rng() < (RETIRE[age] ?? 0);
   const next: CareerState = {
     ...state, player: { ...state.player, age }, year: state.year + 1, history: [...state.history, record],
-    season: [], gameIndex: 0, strengths, injured: rng() < .05, retired, keyGames: [],
+    season: [], gameIndex: 0, strengths, injured: rng() < .05, retired, keyGames: [], postseason: undefined,
   };
   next.keyGames = retired ? [] : scheduleSeason(next, rng);
   return next;

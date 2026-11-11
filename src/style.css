@@ -659,3 +659,7 @@ body {
 .career-table th { color: var(--muted); font-weight: 600; text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .career-table td { padding: 5px 6px; border-bottom: 1px solid rgb(255 255 255 / 0.05); text-align: left; }
 .career-table tr.own td { color: var(--accent); font-weight: 700; }
+.career-screen h2.champion { font-size: 24px; color: #f2c42b; text-shadow: 3px 3px 0 #000; animation: champion-pulse 1s steps(2, end) infinite; }
+@keyframes champion-pulse { 50% { color: var(--accent); } }
+@media (prefers-reduced-motion: reduce) { .career-screen h2.champion { animation: none; } }
+.career-rings { font: 12px/1.6 var(--pixel) !important; color: #f2c42b !important; }

@@ -29,7 +29,8 @@ export function scheduleSeason(state: CareerState, rng: () => number): KeyGame[]
 }
 
 export function scenePlan(game: KeyGame): 2 | 3 {
-  return game.label === 'Spitzenspiel' || game.label === 'Christmas Game' ? 3 : 2;
+  // Spitzenspiele und alle Nachsaison-Spiele (Play-In/Playoffs) haben drei Szenen
+  return game.label === 'Spitzenspiel' || game.label === 'Christmas Game' || / · /.test(game.label) ? 3 : 2;
 }
 
 /** Frühere Szenen verschieben den Rückstand der Crunchtime: Start 3, je Sieg −1, je Niederlage +1 */

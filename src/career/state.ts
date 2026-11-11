@@ -1,13 +1,14 @@
 import type { Look } from '../figure/raster';
 import { RATING_KEYS, clamp01, type Ratings } from '../play/ratings';
 import { TEAMS } from './league';
+import type { PlayoffResult, Postseason } from './playoffs';
 
 export type Position = 'guard' | 'wing' | 'big';
 export type Difficulty = 'rookie' | 'pro' | 'hof';
 export interface CareerPlayer { name: string; num: number; look: Look; position: Position; ratings: Ratings; age: number }
 export interface KeyGame { opponent: string; label: string; home: boolean }
 export interface GameRecord { opponent: string; label: string; home: boolean; won: boolean; pts: number; ast: number; reb: number }
-export interface SeasonRecord { year: number; team: string; age: number; wins: number; losses: number; rank: number; games: GameRecord[] }
+export interface SeasonRecord { year: number; team: string; age: number; wins: number; losses: number; rank: number; games: GameRecord[]; playoff?: PlayoffResult }
 export interface CareerState {
   version: 1; seed: number; difficulty: Difficulty; player: CareerPlayer; team: string; year: number;
   keyGames: KeyGame[]; gameIndex: number;
@@ -16,6 +17,8 @@ export interface CareerState {
   history: SeasonRecord[]; injured: boolean; retired: boolean;
   /** Teamstärken, die sich jede Saison entwickeln (fehlt: Startwerte der Liga) */
   strengths?: Record<string, number>;
+  /** laufende Nachsaison (Play-In/Playoffs) nach den Key Games */
+  postseason?: Postseason;
 }
 
 export const CAREER_KEY = 'pixel-splash.career.v1';
