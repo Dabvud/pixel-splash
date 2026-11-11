@@ -432,33 +432,55 @@ describe('Spielzug-Labor Integration', () => {
     expect(s.fingerDown).toBe(true);
     expect(s.arrowMeter).toBeNull();
   });
-  it.each([false, true])('zeigt nach tap alle Abschlussbilder und hält finishCameraPose bis result (halten=%s)', hold => {
+  it.each([false, true])('zeigt über takeoff und ballflight alle Abschlussbilder und hält finishCameraPose bis result (halten=%s)', hold => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, fouls: 'off', finishMeterMs: 450 });
-    // Kamera-Test: kurzes Meter, damit der Zeitsprung bis zur Spitze unter der 1-s-Hintergrundgrenze bleibt
     const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
     advance(2.3);
     const s = state(), c = vi.mocked(step).mock.calls.at(-1)![2];
     command(s, { kind: 'drive', lane: 0 }, c, () => 1);
     for (let i = 0; i < 300 && s.phase !== 'takeoff'; i++) advance(1 / 60);
-    const a = s.actors[s.handler], expected = finishCameraPose(a.pos);
+    expect(s.phase).toBe('takeoff');
+    const a = s.actors[s.handler], expected = finishCameraPose(a.pos), move = a.move;
+    const indices = [frameAt(move, a.moveT)];
+    const recordFrame = () => {
+      const index = frameAt(move, a.moveT);
+      if (index !== indices.at(-1)) indices.push(index);
+    };
+    expect(indices).toEqual([0]);
     if (hold) gesture({ type: 'start' });
-    now += (s.arrowMeter!.startTime + s.arrowMeter!.meterMs / 1000 - s.realTime) * 1000;
+    const peakAt = now + (s.arrowMeter!.startTime + s.arrowMeter!.meterMs / 1000 - s.realTime) * 1000;
+    while (peakAt - now > 1e-7) {
+      now += Math.min(1000 / 60, peakAt - now);
+      frame(now);
+      expect(s.phase).toBe('takeoff');
+      expect(a.move).toBe(move);
+      recordFrame();
+    }
+    const windup = a.moveT, started = s.gameT, startedReal = s.realTime;
+    expect(windup).toBeCloseTo(.75 * MOVES[move].rimFrame! / MOVES[move].fps, 8);
     if (!hold) gesture({ type: 'start' });
     gesture({ type: 'tap' });
-    const move = a.move, started = s.gameT, indices = [frameAt(move, a.moveT)];
-    expect(indices).toEqual([0]);
-    for (let i = 0; i < 300 && s.phase === 'ballflight'; i++) {
+    expect(s.phase).toBe('ballflight');
+    expect(a.move).toBe(move);
+    expect(a.moveT).toBe(windup);
+    recordFrame();
+    let result = false;
+    for (let i = 0; i < 300 && !result; i++) {
       advance(1 / 60);
-      if (s.phase !== 'ballflight') break;
+      result = (vi.mocked(step).mock.results.at(-1)!.value as ReturnType<typeof step>).some(e => e.type === 'result');
+      if (result) break;
+      expect(s.phase).toBe('ballflight');
+      expect(s.gameT - started).toBeCloseTo((s.realTime - startedReal) * c.animSpeed, 8);
       const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
       expect(camera.fov).toBeCloseTo(expected.fov, 0);
       expect(Math.atan2(camera.position.x, camera.position.z)).toBeCloseTo(Math.atan2(expected.pos.x, expected.pos.z), 8);
       expect(camera.position.y).toBeCloseTo(expected.pos.y, 0);
       if (a.move === move) {
-        const index = frameAt(move, a.moveT);
-        if (index !== indices.at(-1)) indices.push(index);
+        expect(a.moveT).toBeCloseTo(windup + s.gameT - started, 8);
+        recordFrame();
       }
     }
+    expect(result).toBe(true);
     expect(s.gameT - started).toBeGreaterThanOrEqual(.6);
     expect(indices).toEqual(Array.from({ length: MOVES[move].frames }, (_, i) => i));
     expect(s.points).toBe(2);

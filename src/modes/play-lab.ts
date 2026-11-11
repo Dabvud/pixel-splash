@@ -118,6 +118,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function newPlay(): void {
+    recorder.reset();
     rng = settings.defenseRandom ? Math.random : seeded(7);
     const id = settings.play === "random" ? PLAY_IDS[Math.min(PLAY_IDS.length - 1, Math.floor(rng() * PLAY_IDS.length))] : settings.play;
     s = createPlayState(PLAYS[id], cfg(), rng);
@@ -486,7 +487,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
     if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); }
     px.renderer.render(scene, camera);
-    if (!menuOpen) recorder.push(activeNow, views, s.ball);
+    // Spielzeit statt Echtzeit: Zeitlupen im Spiel werden im Replay zu gleichmäßiger Zeitlupe
+    if (!menuOpen) recorder.push(s.gameT * 1000, views, s.ball);
     if (replayPending && !menuOpen) startReplay(replayPending.andOne);
   }
 

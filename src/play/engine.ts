@@ -63,7 +63,7 @@ interface Reception {
 interface Drive { from: Vec2; to: Vec2; duration: number; elapsed: number; lane: -1 | 0 | 1 }
 interface Shot {
   result: ShotResult; kind: ShotKind; fouled: boolean; ft: boolean; elapsed: number; delay: number;
-  flight?: Flight; from: Vec2; defender?: string; defenderFrom?: Vec2;
+  flight?: Flight; from: Vec2; fromY: number; windup: number; defender?: string; defenderFrom?: Vec2;
   lob: boolean; timedOut: boolean;
 }
 interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams; foulRoll: number }
@@ -382,6 +382,8 @@ function refreshCatchArrow(s: PlayState, P: number, cfg: EngineConfig): void {
 
 /** Abschluss-Meter (Korbleger/Dunk/Alley-oop): Pfeil läuft bis zur Spitze (Füllstand 1) und um diesen Anteil zurück */
 export const FINISH_RETURN = 0.35;
+/** Anteil des Wegs bis zum Ringkontakt, den der Spieler während des Abschluss-Meters schon ausholt */
+const WINDUP_SHARE = 0.75;
 
 /** Füllstand, bei dem ein Pfeil-Meter endet */
 export function arrowEndFill(kind: ArrowMeter['kind']): number {
@@ -562,7 +564,10 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
   const r = rt(s), combo = s.combo!, result = resolveShot(input, r.params!, rng), h = s.actors[s.handler];
   const finishing = combo.kind !== 'jump2' && combo.kind !== 'three';
   const id: MoveId = finishing && r.comboMove ? r.comboMove : shotMove(s, combo.kind, combo.P, rng);
+  // Bereits gezeigtes Ausholen nicht wiederholen: Animation läuft an der aktuellen Stelle weiter
+  const windup = finishing && h.move === id ? h.moveT : 0;
   move(h, id, true);
+  h.moveT = windup;
   const nearest = !s.freeThrows && defenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
   const defender = nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
   if (defender) {
@@ -571,9 +576,9 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
     defender.facing = facingTo(defender.pos, h.pos);
   }
   r.shot = { result, kind: combo.kind, fouled: combo.fouled, ft: s.freeThrows !== null,
-    elapsed: 0, delay: combo.kind === 'contact_dunk' && !result.made ? .3
+    elapsed: windup, delay: combo.kind === 'contact_dunk' && !result.made ? .3
       : finishing || id === 'step_back' || id === 'fadeaway' ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
-    from: { ...h.pos }, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false,
+    from: { ...h.pos }, fromY: h.y, windup, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false,
     timedOut: r.arrow?.timedOut ?? false };
   phase(s, 'ballflight');
   heldBall(s);
@@ -819,15 +824,18 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
     // dürfen den Fußversatz nicht schon während des Absprungs absenken.
     const jump = Math.max(0, target.y - targetHand.y * size);
     const hangUntil = m.frames / m.fps;
-    a.y = jump * (t <= contactT ? t / contactT : t <= hangUntil ? 1 : Math.max(0, (1.1 - t) / (1.1 - hangUntil)));
-    const co = Math.cos(a.facing), si = Math.sin(a.facing), progress = Math.min(1, t / contactT);
+    // Position und Höhe stammen vom Tipp; nur die verbleibende Animationszeit führt zum Ring.
+    const progress = Math.min(1, (t - shot.windup) / (contactT - shot.windup));
+    a.y = t <= contactT ? mix(shot.fromY, jump, progress)
+      : jump * (t <= hangUntil ? 1 : Math.max(0, (1.1 - t) / (1.1 - hangUntil)));
+    const co = Math.cos(a.facing), si = Math.sin(a.facing);
     a.pos = { x: mix(shot.from.x, target.x - size * (targetHand.x * co + targetHand.z * si), progress),
       z: mix(shot.from.z, target.z - size * (targetHand.x * si - targetHand.z * co), progress) };
   } else {
     a.pos = { ...shot.from };
     if (a.move === 'reverse_layup') {
       const len = Math.hypot(shot.from.x, shot.from.z) || 1;
-      const f = Math.min(1, t / (m.rimFrame! / m.fps));
+      const f = Math.min(1, (t - shot.windup) / (m.rimFrame! / m.fps - shot.windup));
       a.pos = { x: mix(shot.from.x, -.55 * shot.from.x / len, f),
         z: mix(shot.from.z, -.55 * shot.from.z / len, f) };
     }
@@ -845,7 +853,7 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
       const push = Math.max(0, Math.min(1, (t - contactT) / .3));
       const co = Math.cos(a.facing), si = Math.sin(a.facing);
       // Vor dem Ringbild Körperkontakt, danach in Angriffsrichtung nach hinten räumen.
-      const meet = Math.min(1, t / contactT);
+      const meet = Math.min(1, (t - shot.windup) / (contactT - shot.windup));
       const contact = { x: a.pos.x + .35 * si, z: a.pos.z - .35 * co };
       d.pos = { x: mix(from.x, contact.x, meet) + .9 * si * push,
         z: mix(from.z, contact.z, meet) - .9 * co * push };
@@ -976,9 +984,13 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     if (d.elapsed + 1e-9 >= .4) move(a, 'dribble_run');
     if (f >= 1) takeoff(s, cfg, rng, events);
   } else if (oldPhase === 'takeoff') {
-    // Nur die Wartepose einfrieren. startShot setzt Bild 0 und ballflight
-    // spielt danach mit normalem Spieltempo (ohne Entscheidungs-Zeitlupe).
-    s.actors[s.handler].moveT = 0;
+    // Ausholen synchron zum Abschluss-Pfeil: bis zur Spitze 75 % des Weges bis zum Ringkontakt,
+    // danach wartet die Pose; startShot spielt von hier aus im normalen Tempo weiter.
+    const a = s.actors[s.handler], m = s.arrowMeter, rim = MOVES[a.move].rimFrame;
+    if (m && m.fill === null && rim !== undefined) {
+      const p = Math.max(0, Math.min(1, (s.realTime - m.startTime) / (m.meterMs / 1000)));
+      a.moveT = WINDUP_SHARE * p * rim / MOVES[a.move].fps;
+    } else a.moveT = 0;
     if (!s.arrowMeter && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) miss(s, events, r.aiSelected ? 'ZU LANGE GEZÖGERT' : 'VERLEGT');
   } else if (oldPhase === 'combo') {
     s.actors[s.handler].moveT = 0;

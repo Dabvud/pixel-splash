@@ -97,27 +97,41 @@ describe('Abschluss-Feedback und Poster', () => {
       expect(s.phase).toBe('ended');
     });
   it.each(['layup', 'dunk', 'contact_dunk'] as const)(
-    '%s zeigt nach kurzem tap alle Bilder 0…rimFrame in normaler Spielzeit vor result', kind => {
+    '%s zeigt über takeoff und ballflight alle Bilder 0…rimFrame und läuft nach tap in normaler Spielzeit bis result', kind => {
       for (const [animSpeed, fill] of [[.5, 0], [.5, 1], [1.5, 1], [1.5, 1.3]]) {
         const c = { ...cfg, animSpeed, slowmo: .1 }, s = takeoff(kind, false, c), m = s.arrowMeter!;
-        step(s, m.startTime + m.meterMs * fill / 1000 - s.realTime, c, rng);
+        const a = s.actors[s.handler], animation = kind === 'layup' ? 'finger_roll' : kind;
+        const indices = [frameAt(a.move, a.moveT)], contactT = MOVES[animation].rimFrame! / MOVES[animation].fps;
+        const recordFrame = () => {
+          const index = frameAt(a.move, a.moveT);
+          if (index !== indices.at(-1)) indices.push(index);
+        };
+        expect(a.move).toBe(animation);
+        expect(indices).toEqual([0]);
+        const tapAt = m.startTime + m.meterMs * fill / 1000;
+        while (tapAt - s.realTime > 1e-10) {
+          step(s, Math.min(1 / 240, tapAt - s.realTime), c, rng);
+          expect(s.phase).toBe('takeoff');
+          recordFrame();
+        }
+        const windup = a.moveT, started = s.gameT, startedReal = s.realTime;
+        expect(windup).toBeCloseTo(.75 * Math.min(1, fill) * contactT, 8);
         command(s, { kind: 'finger', down: true }, c, rng);
         command(s, { kind: 'tap' }, c, rng);
         command(s, { kind: 'finger', down: false }, c, rng);
-        const a = s.actors[s.handler], started = s.gameT, indices = [frameAt(a.move, a.moveT)];
-        const animation = kind === 'layup' ? 'finger_roll' : kind;
+        expect(s.phase).toBe('ballflight');
         expect(a.move).toBe(animation);
-        expect(a.moveT).toBe(0);
-        let result = false, contactY = 0, previousY = 0, fell = false;
+        expect(a.moveT).toBe(windup);
+        recordFrame();
+        let result = false, contactY = 0, previousY = a.y, fell = false;
         for (let i = 0; i < 2000 && !result; i++) {
           const events = step(s, 1 / 240, c, rng);
           result = events.some(e => e.type === 'result');
           if (a.move === animation) {
-            expect(a.moveT).toBeCloseTo(s.gameT - started, 8);
-            const index = frameAt(a.move, a.moveT);
-            if (index !== indices.at(-1)) indices.push(index);
+            expect(s.gameT - started).toBeCloseTo((s.realTime - startedReal) * animSpeed, 8);
+            expect(a.moveT).toBeCloseTo(windup + s.gameT - started, 8);
+            recordFrame();
             if (kind !== 'layup' && fill === 1) {
-              const contactT = MOVES[kind].rimFrame! / MOVES[kind].fps;
               if (a.moveT <= contactT + 1e-9) {
                 expect(a.y + 1e-9).toBeGreaterThanOrEqual(previousY);
                 previousY = a.y;
@@ -194,7 +208,22 @@ describe('Abschluss-Feedback und Poster', () => {
     const s = takeoff('dunk'), m = s.arrowMeter!;
     step(s, m.startTime + m.meterMs * (1 + t * m.zones.g) / 1000 - s.realTime, cfg, rng);
     command(s, { kind: 'tap' }, cfg, rng);
-    step(s, MOVES.dunk.rimFrame! / MOVES.dunk.fps, cfg, rng);
+    const a = s.actors[s.handler], animation = a.move, move = MOVES[animation];
+    const contactT = move.rimFrame! / move.fps, remaining = contactT - a.moveT;
+    const from = { ...a.pos }, fromY = a.y;
+    // Schon im ersten Teil der Restzeit stetig losfliegen, statt um den Ausholanteil zu springen.
+    step(s, remaining / 4, cfg, rng);
+    const quarter = { ...a.pos }, quarterY = a.y;
+    step(s, remaining * 3 / 4, cfg, rng);
+    expect(frameAt(animation, a.moveT)).toBe(move.rimFrame);
+    expect(quarter.x).toBeCloseTo(from.x + (a.pos.x - from.x) / 4, 8);
+    expect(quarter.z).toBeCloseTo(from.z + (a.pos.z - from.z) / 4, 8);
+    expect(quarterY).toBeCloseTo(fromY + (a.y - fromY) / 4, 8);
+    const h = moveFrames(animation)[move.rimFrame!][move.ballHand!], size = ACTORS[a.id].heightM;
+    const co = Math.cos(a.facing), si = Math.sin(a.facing);
+    expect(s.ball.x).toBeCloseTo(a.pos.x + size * (h.x * co + h.z * si), 8);
+    expect(s.ball.y).toBeCloseTo(a.y + size * h.y, 8);
+    expect(s.ball.z).toBeCloseTo(a.pos.z + size * (h.x * si - h.z * co), 8);
     expect(s.ball.z * Math.sign(-t)).toBeGreaterThan(.2);
   });
 
