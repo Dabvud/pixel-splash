@@ -8,6 +8,7 @@ import { ballHandAt, MOVES, moveFrames } from '../src/figure/moves';
 import { bankWindow, effectiveZones } from '../src/shot/resolve';
 
 const cfg: EngineConfig = {
+  glassChance: 0, // Brettbruch hat eigene Tests; hier würde rng 0 bei perfektem Dunk sonst immer zerbrechen
   slowmo: .3, decisionS: 2, animSpeed: 1, foulMult: 0, zoneFloor: .7, tempoSpread: .3,
   shot: { meterMs: 700, greenZone: .07, aimDeg: 6, influence: .6 },
   finish: { meterMs: 450, greenZone: .1, aimDeg: 8 },

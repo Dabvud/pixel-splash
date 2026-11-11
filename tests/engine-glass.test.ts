@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { command, createPlayState, step, type EngineConfig, type EngineEvent } from '../src/play/engine';
 import { MOVES } from '../src/figure/moves';
+import { ACTORS, RED, BLUE } from '../src/play/teams';
 import type { Play } from '../src/play/types';
 
 const base: EngineConfig = {
@@ -8,14 +9,19 @@ const base: EngineConfig = {
   shot: { meterMs: 700, greenZone: .07, aimDeg: 6, influence: .6 },
   finish: { meterMs: 900, greenZone: .18, aimDeg: 8 },
 };
-function shot(c: EngineConfig, options: { layup?: boolean; jump?: boolean; lob?: boolean; contact?: boolean; timing?: number; roll?: number } = {}) {
+function shot(c: EngineConfig, options: { layup?: boolean; jump?: boolean; lob?: boolean; contact?: boolean; timing?: number; roll?: number; fullTeam?: boolean } = {}) {
   const rng = vi.fn(() => options.roll ?? .1), id = options.layup ? 'r3' : 'r23';
   const play: Play = {
-    id: 'fastbreak', name: 'Glas-Test', clockS: 30, deficit: 2, start: 'setup', actors: [id, 'r11', 'b1'],
+    id: 'fastbreak', name: 'Glas-Test', clockS: 30, deficit: 2, start: 'setup',
+    actors: options.fullTeam ? [...RED, ...BLUE].map(a => a.id) : [id, 'r11', 'b1'],
     segments: { setup: { id: 'setup', handler: options.lob ? 'r11' : id, decisionAt: 0,
-      paths: { [id]: [{ t: 0, x: 0, z: options.lob ? 1.2 : 3, act: 'dribble' }], r11: [{ t: 0, x: 4, z: 5, act: 'stand' }] },
+      paths: { ...Object.fromEntries(RED.map((a, i) => [a.id, [{ t: 0, x: 4, z: 5 + i, act: 'stand' as const }]])),
+        [id]: [{ t: 0, x: 0, z: options.lob ? 1.2 : 3, act: 'dribble' }], r11: [{ t: 0, x: 4, z: 5, act: 'stand' }] },
       options: options.lob ? [{ kind: 'pass', to: id, lob: true }] : [{ kind: 'drive' }, { kind: 'shoot' }] } },
-    variants: [{ id: 'fixed', weight: 1, defPaths: { setup: { b1: [{ t: 0, x: options.contact ? 0 : 6, z: 1.2, act: 'defend' }] } } }],
+    variants: [{ id: 'fixed', weight: 1, defPaths: { setup: {
+      ...Object.fromEntries(BLUE.map((a, i) => [a.id, [{ t: 0, x: 6, z: 5 + i, act: 'defend' as const }]])),
+      b1: [{ t: 0, x: options.contact ? 0 : 6, z: 1.2, act: 'defend' }],
+    } } }],
   };
   const s = createPlayState(play, c, rng);
   step(s, .8, c, rng);
@@ -39,7 +45,7 @@ function settle(f: ReturnType<typeof shot>) {
 }
 
 describe('Brett zerbrechen und Mop-Boy', () => {
-  it.each([false, true])('erzwingt Glas beim Ringbild, zählt Punkte und räumt in unter sieben Sekunden auf (And-one %s)', andOne => {
+  it.each([false, true])('erzwingt Glas am Ringbild und wischt parallel in unter sieben Sekunden (And-one %s)', andOne => {
     const f = shot({ ...base, forceGlass: true, finishFoulOverride: andOne ? 1 : 0, foulScene: true }, { timing: 1.1 });
     const { s, c, rng } = f, a = s.actors[s.handler], rimT = MOVES[a.move].rimFrame! / MOVES[a.move].fps;
     const events: EngineEvent[] = [];
@@ -54,32 +60,113 @@ describe('Brett zerbrechen und Mop-Boy', () => {
     while (!events.some(e => e.type === 'result')) events.push(...step(s, 1 / 240, c, rng));
     expect(s.points).toBe(2);
     expect(s.box[s.handler].pts).toBe(2);
-    expect(s.freeThrows).toBeNull();
+    expect(s.phase).toBe(andOne ? 'freethrows' : 'ended');
+    expect(events.filter(e => e.type === (andOne ? 'foul' : 'end'))).toHaveLength(1);
+    if (andOne) expect(s.freeThrows!.left).toBe(1);
+    else expect(s.freeThrows).toBeNull();
     const at = s.realTime, clock = s.clock, gameT = s.gameT;
-    let appeared = false, swept = false, previous = 0;
+    let appeared = false, swept = false, previous = 0, fived = false;
     while (s.glass && s.realTime - at < 7) {
       events.push(...step(s, 1 / 240, c, rng));
       const mop = s.actors.mop;
       if (mop && !appeared) { expect(mop.pos).toEqual({ x: 7.2, z: 1 }); appeared = true; }
       if (mop?.move === 'mop_sweep') {
         swept = true;
+        expect(s.phase).toBe(andOne ? 'freethrows' : 'ended');
         expect(Math.abs(mop.pos.x)).toBeLessThanOrEqual(.6);
         expect(mop.pos.z).toBe(.6);
       }
       expect(s.glassSweep).toBeGreaterThanOrEqual(previous);
+      fived ||= Object.values(s.actors).some(a => a.move === 'high_five');
       previous = s.glassSweep;
-      command(s, { kind: 'comboStart' }, c, rng);
+      if (s.glass) expect(command(s, { kind: 'comboStart' }, c, rng)).toEqual([]);
     }
     expect(appeared && swept).toBe(true);
     expect(s.realTime - at).toBeLessThan(7);
-    expect(s.gameT).toBe(gameT);
+    if (andOne) { expect(fived).toBe(true); expect(s.gameT).toBeGreaterThan(gameT); }
+    else {
+      expect(s.gameT).toBe(gameT);
+      expect(s.actors[s.handler].move).toBe('celebrate');
+      expect(s.actors.r11.move).toBe('celebrate');
+    }
     expect(s.clock).toBe(clock);
     expect(s.glassSweep).toBe(1);
     expect(s.glass).toBeNull();
     expect(s.actors.mop).toBeUndefined();
     expect(events.filter(e => e.type === 'glassFixed')).toHaveLength(1);
+    expect(step(s, 2, c, rng).some(e => e.type === 'glassFixed')).toBe(false);
     expect(s.phase).toBe(andOne ? 'freethrows' : 'ended');
     if (andOne) { expect(s.freeThrows!.left).toBe(1); expect(s.actors.ref).toBeDefined(); }
+  });
+
+  it('meldet And-one und Freiwürfe beim Ergebnis genauso früh wie ohne Brettbruch', () => {
+    const runs = [false, true].map(forceGlass => {
+      const f = shot({ ...base, forceGlass, glassChance: 0, finishFoulOverride: 1, foulScene: true });
+      const times: Partial<Record<'result' | 'foul' | 'freethrow', number>> = {};
+      for (let i = 0; i < 2400 && times.foul === undefined; i++) {
+        for (const e of step(f.s, 1 / 240, f.c, f.rng)) {
+          if (e.type === 'result' || e.type === 'foul' || e.type === 'freethrow') times[e.type] = f.s.realTime;
+        }
+      }
+      expect(f.s.phase).toBe('freethrows');
+      expect(f.s.actors[f.s.handler].move).toBe('flex');
+      expect(times.foul).toBe(times.result);
+      expect(times.freethrow).toBe(times.result);
+      return { times, calls: f.rng.mock.calls.length };
+    });
+    for (const type of ['result', 'foul', 'freethrow'] as const) {
+      expect(runs[0].times[type]).toBeDefined();
+      expect(runs[1].times[type]).toBeDefined();
+      expect(Math.abs(runs[1].times[type]! - runs[0].times[type]!)).toBeLessThanOrEqual(.05);
+    }
+    expect(runs[1].calls).toBe(runs[0].calls);
+  });
+
+  it.each([
+    { foulScene: false }, { foulScene: true },
+    { foulScene: true, posterVariant: 'classic' as const },
+    { foulScene: true, posterVariant: 'flyout' as const },
+    { foulScene: true, posterVariant: 'grave' as const },
+  ])('hält alle neun Nicht-Schützen oben frei und sperrt den Freiwurf bis glassFixed: %j', options => {
+    const { foulScene, posterVariant } = options;
+    const f = shot({ ...base, forceGlass: true, finishFoulOverride: 1, foulScene, forcePoster: Boolean(posterVariant), posterVariant },
+      { fullTeam: true, contact: Boolean(posterVariant) });
+    const events = settle(f), { s, c, rng } = f;
+    expect(s.phase).toBe('freethrows');
+    step(s, 3, c, rng);
+    expect(s.glass).not.toBeNull();
+    const players = Object.values(s.actors).filter(a => ['off', 'def'].includes(ACTORS[a.id].team));
+    const others = players.filter(a => a.id !== s.freeThrows!.shooter);
+    expect(others).toHaveLength(9);
+    expect(s.actors[s.handler].pos).toEqual({ x: 0, z: 4.2 });
+    for (const a of others) {
+      expect(a.pos.z).toBeGreaterThanOrEqual(3.9);
+      for (const x of [-.6, 0, .6]) expect(Math.hypot(a.pos.x - x, a.pos.z - .6)).toBeGreaterThanOrEqual(2.5);
+    }
+    for (let i = 0; i < players.length; i++) for (const b of players.slice(i + 1)) {
+      expect(Math.hypot(players[i].pos.x - b.pos.x, players[i].pos.z - b.pos.z)).toBeGreaterThanOrEqual(.8);
+    }
+    if (foulScene) {
+      expect(Math.abs(s.actors.ref.pos.x)).toBe(.9);
+      expect(s.actors.ref.pos.z).toBe(-1.35);
+    }
+    const positions = players.map(a => ({ ...a.pos })), calls = rng.mock.calls.length;
+    const sweep = s.glassSweep;
+    expect(command(s, { kind: 'comboStart' }, c, rng)).toEqual([]);
+    expect(s.phase).toBe('freethrows');
+    expect(s.combo).toBeNull();
+    expect(rng.mock.calls.length).toBe(calls);
+    events.push(...step(s, .5, c, rng));
+    expect(s.phase).toBe('freethrows');
+    expect(s.glassSweep).toBeGreaterThan(sweep);
+    for (let i = 0; i < 1200 && s.glass; i++) events.push(...step(s, 1 / 240, c, rng));
+    expect(s.glass).toBeNull();
+    expect(events.filter(e => e.type === 'glassFixed')).toHaveLength(1);
+    step(s, .5, c, rng);
+    expect(players.map(a => a.pos)).toEqual(positions);
+    expect(rng.mock.calls.length).toBe(calls);
+    expect(command(s, { kind: 'comboStart' }, c, rng).some(e => e.type === 'combo')).toBe(true);
+    expect(s.phase).toBe('combo');
   });
 
   it.each([false, true])('trifft die Glas-Chance bei perfektem Dunk mit/ohne Pfeil (%s)', finishArrow => {

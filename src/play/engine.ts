@@ -95,7 +95,7 @@ interface Runtime {
   comboMove?: MoveId;
   celebration?: { from: Record<string, Vec2>; elapsed: number };
   /** hold: Sekunden Pfiff/Feier vor der Aufstellung; ref: Zielpunkt des Schiris; mate: abklatschender Mitspieler */
-  lineup?: { from: Record<string, Vec2>; elapsed: number; hold?: number; ref?: Vec2; mate?: string; fived?: boolean };
+  lineup?: { from: Record<string, Vec2>; elapsed: number; hold?: number; ref?: Vec2; mate?: string; fived?: boolean; avoidGlass?: boolean };
   glassCleanup?: { stage: 'wait' | 'enter' | 'sweep' | 'leave'; elapsed: number };
 }
 // Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
@@ -612,7 +612,7 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
 
 export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => number): EngineEvent[] {
   const events: EngineEvent[] = [], r = rt(s);
-  if (s.phase === 'ended' || r.glassCleanup) return events;
+  if (s.phase === 'ended') return events;
   if (cmd.kind === 'finger') {
     if (!cmd.down && s.fingerDown && s.phase === 'combo' && r.comboWait) {
       const wait = r.comboWait, elapsed = wait.elapsed + r.realT;
@@ -646,6 +646,7 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
     return events;
   }
   if (cmd.kind === 'comboStart') {
+    if (s.freeThrows && s.glass) return events;
     if (s.freeThrows && distance(s.actors[s.freeThrows.shooter].pos, { x: 0, z: 4.2 }) > 1e-6) return events;
     if (s.phase === 'combo') return events;
     if (s.phase === 'takeoff') {
@@ -687,14 +688,17 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
 function lineUp(s: PlayState, dtReal: number): void {
   const shooter = s.freeThrows!.shooter;
   const r = rt(s);
-  const setup = r.lineup ??= { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0 };
+  const setup = r.lineup ??= { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0,
+    avoidGlass: Boolean(s.glass) };
   if (foulScene(s, dtReal)) return;
   setup.elapsed = Math.min(.8, setup.elapsed + dtReal);
   const f = setup.elapsed / .8;
   let i = 0;
   for (const a of Object.values(s.actors)) {
-    if (a.move === 'knocked_down' || a.id === 'ref' || ACTORS[a.id].team === 'crew') continue;
-    const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75, z: 1.2 + Math.floor(i / 2) * 0.6 };
+    // Auch Poster-Opfer müssen den Wischbereich für die Freiwürfe räumen.
+    if ((a.move === 'knocked_down' && !setup.avoidGlass) || a.id === 'ref' || ACTORS[a.id].team === 'crew') continue;
+    const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75,
+      z: setup.avoidGlass ? 4.2 + Math.floor(i / 2) * .9 : 1.2 + Math.floor(i / 2) * .6 };
     if (a.id !== shooter) i++;
     if (f >= 1 || distance(setup.from[a.id], to) < 1e-6) {
       a.pos = to;
@@ -772,7 +776,9 @@ function freeThrow(s: PlayState, events: EngineEvent[]): void {
   if (rt(s).impact?.victim === h.id) rt(s).impact = undefined;
   s.handler = h.id;
   h.y = 0; h.facing = 0;
-  rt(s).lineup = { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0 };
+  // Nach der Reparatur bleiben die Plätze außerhalb des Wischbereichs bestehen.
+  rt(s).lineup = { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0,
+    avoidGlass: Boolean(s.glass) };
   rt(s).lob = false;
   move(h, 'idle', true);
   heldBall(s);
@@ -805,9 +811,7 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
     a.y = 0; move(a, ACTORS[a.id].team === 'def' ? 'defend' : 'idle');
   }
   if (s.glass) {
-    // Ergebnis einmal zählen; Pfiff, Freiwürfe und Ende warten auf die Reinigung.
     rt(s).glassCleanup = { stage: 'wait', elapsed: 0 };
-    return;
   }
   afterShot(s, events);
 }
@@ -857,7 +861,6 @@ function cleanGlass(s: PlayState, dtReal: number, events: EngineEvent[]): void {
     s.glass = null;
     r.glassCleanup = undefined;
     events.push({ type: 'glassFixed' });
-    afterShot(s, events);
   }
 }
 
@@ -985,11 +988,13 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[], cfg: Eng
 
 function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const r = rt(s), oldPhase = s.phase;
+  s.realTime += dtReal;
+  // Reinigung und Crew-Animation laufen unabhängig von Spielphase und Zeitlupe.
+  if (r.glassCleanup) cleanGlass(s, dtReal, events);
   if (oldPhase === 'ended') {
     // Nur die Ergebnis-Animation läuft weiter; Spieluhr und Regeln sind abgeschlossen.
-    s.realTime += dtReal;
     updateImpact(s, dtReal * cfg.animSpeed);
-    for (const a of Object.values(s.actors)) a.moveT += dtReal * cfg.animSpeed;
+    for (const a of Object.values(s.actors)) if (ACTORS[a.id].team !== 'crew') a.moveT += dtReal * cfg.animSpeed;
     const c = r.celebration;
     if (c) {
       c.elapsed = Math.min(1, c.elapsed + dtReal);
@@ -1001,13 +1006,6 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
         if (c.elapsed === 1) move(a, 'celebrate');
       });
     }
-    return;
-  }
-  s.realTime += dtReal;
-  if (r.glassCleanup) {
-    updateImpact(s, dtReal * cfg.animSpeed);
-    for (const a of Object.values(s.actors)) if (ACTORS[a.id].team !== 'crew') a.moveT += dtReal * cfg.animSpeed;
-    cleanGlass(s, dtReal, events);
     return;
   }
   const slow = oldPhase === 'decision' || oldPhase === 'combo' || oldPhase === 'takeoff';
@@ -1029,7 +1027,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   if (s.clock <= 0 && !s.freeThrows && oldPhase !== 'ballflight' && !(finishing && (oldPhase === 'takeoff' || oldPhase === 'combo'))) {
     end(s, events, 'ZEIT ABGELAUFEN'); return;
   }
-  for (const a of Object.values(s.actors)) a.moveT += dt;
+  for (const a of Object.values(s.actors)) if (ACTORS[a.id].team !== 'crew') a.moveT += dt;
   const previous = r.segT;
   r.segT += dt * ((oldPhase === 'decision' || (oldPhase === 'combo' && r.comboWait?.phase === 'decision'))
     ? r.decisionPathRate ?? 1 : 1);

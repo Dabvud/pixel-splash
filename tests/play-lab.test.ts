@@ -205,19 +205,63 @@ describe('Spielzug-Labor Integration', () => {
     advance(.4);
     const s = state();
     s.glass = { since: s.realTime };
-    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }, { type: 'result', made: true, banner: 'DUNK! + AND-ONE' }]);
+    s.phase = 'freethrows';
+    s.freeThrows = { shooter: s.handler, left: 1 };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }, { type: 'result', made: true, banner: 'DUNK! + AND-ONE' },
+      { type: 'freethrow', left: 1 }, { type: 'foul', andOne: true }]);
     advance(1 / 60);
     const time = s.realTime, calls = vi.mocked(step).mock.calls.length;
     expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.phud-andone')!.hidden).toBe(true);
     advance(.4);
     expect(s.realTime).toBe(time);
     expect(vi.mocked(step).mock.calls.length).toBe(calls);
     document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+    expect(document.querySelector<HTMLElement>('.phud-andone')!.hidden).toBe(false);
     s.glass = null;
-    vi.mocked(step).mockReturnValueOnce([{ type: 'glassFixed' }, { type: 'freethrow', left: 1 }, { type: 'foul', andOne: true }]);
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glassFixed' }]);
     advance(1 / 60);
     expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(true);
     expect(document.querySelector<HTMLElement>('.phud-andone')!.hidden).toBe(false);
+  });
+
+  it.each([1, 3])('verarbeitet glassFixed in ended und startet newPlay erst nach Reparatur und zwei Sekunden (Reparatur nach %s s)', repairAfter => {
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; return []; });
+    const s = state();
+    s.phase = 'ended'; s.glass = { since: s.realTime };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }, { type: 'end', verdict: 'OVERTIME' }]);
+    advance(1 / 60);
+    advance(repairAfter);
+    expect(state()).toBe(s);
+    expect(sceneSpies.glass).toHaveBeenLastCalledWith(true);
+    s.glass = null;
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glassFixed' }]);
+    advance(1 / 60);
+    expect(sceneSpies.glass).toHaveBeenLastCalledWith(false);
+    if (repairAfter < 2) { expect(state()).toBe(s); advance(1.1); }
+    expect(state()).not.toBe(s);
+  });
+
+  it('ignoriert Freiwurf-Eingaben bei Glas ohne zusätzliche Einblendung und erlaubt sie nach glassFixed', () => {
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; return []; });
+    const s = state();
+    s.phase = 'freethrows'; s.freeThrows = { shooter: s.handler, left: 1 };
+    s.actors[s.handler].pos = { x: 0, z: 4.2 };
+    s.glass = { since: s.realTime };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'freethrow', left: 1 }]);
+    advance(1 / 60);
+    const flash = document.querySelector('.phud-flash')!.textContent;
+    expect(flash).toBe('LETZTER FREIWURF');
+    gesture({ type: 'start' }); gesture({ type: 'hold' });
+    expect(s.phase).toBe('freethrows');
+    expect(s.combo).toBeNull();
+    expect(document.querySelector<HTMLElement>('#hud-meter')!.hidden).toBe(true);
+    expect(document.querySelector('.phud-flash')!.textContent).toBe(flash);
+    gesture({ type: 'cancel' });
+    s.glass = null;
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glassFixed' }]); advance(1 / 60);
+    gesture({ type: 'start' }); gesture({ type: 'hold' });
+    expect(s.phase).toBe('combo');
   });
   it('reicht die Poster-Variante weiter und startet beim Block ein Replay mit Opfer-Sternen', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', posterVariant: 'grave' });

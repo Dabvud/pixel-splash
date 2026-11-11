@@ -111,7 +111,6 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let replay: { clip: Snap[]; start: number; andOne: boolean } | null = null;
   let replayPending: { andOne: boolean } | null = null;
   let blockReplayQueued = false;
-  let glassReplayPlayed = false;
   let foulJustCalled = false;
   let raf = 0;
   let last = performance.now();
@@ -139,7 +138,6 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     bench.reset(); bench.forceFaint = settings.forceFaint; benchPoints = 0;
     recorder.reset();
     blockReplayQueued = false;
-    glassReplayPlayed = false;
     hoop.setGlassBroken(false);
     shards.reset();
     rng = settings.defenseRandom ? Math.random : seeded(7);
@@ -230,9 +228,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         if (e.made) crowd?.cheer(/DUNK|POSTER/.test(e.banner) ? .9 : .6);
         if (e.made && e.banner.includes("POSTER")) replayPending ??= { andOne: false };
         if (s.glass && e.made && /POSTER|AND-ONE/.test(e.banner)) {
-          // Der Pfiff folgt erst nach dem Wischen; das Dunk-Replay bleibt davor.
-          glassReplayPlayed = true;
-          replayPending ??= { andOne: false };
+          replayPending ??= { andOne: e.banner.includes("AND-ONE") };
         }
         if (!e.made && s.poster?.kind === 'block' && !blockReplayQueued) {
           blockReplayQueued = true;
@@ -247,7 +243,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         releasedFill = null;
       } else if (e.type === "foul") {
         // Beim And-one zuerst das Replay, die Einblendung folgt danach
-        if (e.andOne && !glassReplayPlayed) replayPending = { andOne: true };
+        if (e.andOne) replayPending = { andOne: true };
         else { phud.foulCall(e.andOne); crowd?.cheer(e.andOne ? .9 : .3); }
       } else if (e.type === "end") {
         addPlay(game, s.box);
@@ -370,12 +366,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     while (left > 1e-8) {
       const ms = Math.min(50, left), dt = ms / 1000;
       activeNow += ms;
-      if (endedAt !== null) {
-        step(s, dt, c, rng);
-      } else handle(step(s, dt, c, rng));
+      handle(step(s, dt, c, rng));
       bench.update(s.realTime);
-      // Der Abtransport muss vor dem Zurücksetzen der Bank zu Ende laufen.
-      if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !bench.faint) newPlay();
+      // Reinigung und Abtransport müssen vor dem Zurücksetzen fertig sein.
+      if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !s.glass && !bench.faint) newPlay();
       camHold = Math.max(0, camHold - dt);
       if (s.handler !== lastHandler) {
         lastHandler = s.handler;
