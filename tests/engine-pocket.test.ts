@@ -4,6 +4,7 @@ import type { EngineConfig, EngineEvent, PlayState } from '../src/play/engine';
 import type { Option, Play } from '../src/play/types';
 import { PLAYS } from '../src/play/plays';
 import { positionValue } from '../src/play/position';
+import { playRoutes } from './play-routes';
 
 const cfg: EngineConfig = {
   slowmo: .3, decisionS: 2, animSpeed: 1, foulMult: 0, zoneFloor: .7, tempoSpread: 0,
@@ -185,13 +186,10 @@ describe('Shooting Pocket und Closeout', () => {
 });
 
 const routes = Object.values(PLAYS).flatMap(play => play.variants.flatMap(variant =>
-  play.segments[play.start].options!.flatMap(first => {
-    const follow = first.kind === 'pass' && !first.lob ? play.segments[first.next!].options! : [undefined];
-    return follow.flatMap(next => [0, .3, 1].map(q => ({
-      title: `${play.id}/${variant.id}/${first.to ?? first.kind}/${next?.kind ?? 'Ende'}/q=${q}`,
-      play: { ...play, variants: [{ ...variant, weight: 1 }] }, route: next ? [first, next] : [first], q,
-    })));
-  })));
+  playRoutes(play).flatMap(route => [0, .3, 1].map(q => ({
+    title: `${play.id}/${variant.id}/${route.map(o => o.to ?? o.kind).join('/')}/q=${q}`,
+    play: { ...play, variants: [{ ...variant, weight: 1 }] }, route, q,
+  })))));
 describe.each(routes)('Pocket-Route $title', ({ play, route, q }) => {
   it('erreicht weiterhin ended', () => {
     const c = { ...cfg, closeoutRandom: 1 }, s = setup(play, c);

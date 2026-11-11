@@ -1,11 +1,13 @@
 import type { PosterVariant } from './play/engine';
+import type { PlayId } from './play/types';
+import { PLAYS } from './play/plays';
 
 export type SpotId = 'corner_l' | 'wing_l' | 'top' | 'wing_r' | 'corner_r' | 'ft' | 'mid';
 export type CameraMode = 'low' | 'high' | 'auto';
 export type ProfileId = 'elite' | 'avg' | 'center';
 export type InfluenceId = 'off' | 'light' | 'fair' | 'strong';
 export type ModeId = 'shot' | 'play';
-export type PlayChoice = 'pnr' | 'fastbreak' | 'kickout' | 'inbound' | 'random';
+export type PlayChoice = PlayId | 'random';
 export type FoulRate = 'off' | 'rare' | 'normal' | 'often';
 export const FOUL_MULT: Record<FoulRate, number> = { off: 0, rare: 0.5, normal: 1, often: 2 };
 
@@ -93,7 +95,7 @@ export function loadSettings(storage?: Storage | null): Settings {
       aimDeg: bounded(fields.aimDeg, 2, 12, DEFAULTS.aimDeg),
       pixelHeight: choice(fields.pixelHeight, [220, 320, 420, 540], DEFAULTS.pixelHeight),
       mode: choice(fields.mode, ['shot', 'play'], DEFAULTS.mode),
-      play: choice(fields.play, ['pnr', 'fastbreak', 'kickout', 'inbound', 'random'], DEFAULTS.play),
+      play: choice(fields.play, [...Object.keys(PLAYS) as PlayId[], 'random'], DEFAULTS.play),
       slowmo: bounded(fields.slowmo, 0.2, 0.5, DEFAULTS.slowmo),
       decisionS: bounded(fields.decisionS, 1.5, 4, DEFAULTS.decisionS),
       animSpeed: bounded(fields.animSpeed, 0.5, 1.5, DEFAULTS.animSpeed),

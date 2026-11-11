@@ -64,6 +64,12 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it.each(Object.values(PLAYS))('Zufall kann $id aus der vollständigen Spielzugliste ziehen', play => {
+    const ids = Object.keys(PLAYS);
+    vi.spyOn(Math, 'random').mockReturnValue((ids.indexOf(play.id) + .5) / ids.length);
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'random', defenseRandom: true });
+    expect(state().play.id).toBe(play.id);
+  });
   it('koppelt Situationszufall an Verteidigungs-Zufall und zeigt die Engine-Lage', () => {
     expect(vi.mocked(createPlayState).mock.calls.at(-1)![1].situationRandom).toBe(false);
     vi.spyOn(Math, 'random').mockReturnValue(.1);

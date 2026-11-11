@@ -37,7 +37,8 @@ describe('Platzhalter-Teams', () => {
   });
 });
 
-describe.each(Object.values(PLAYS))('$name Daten', (play: Play) => {
+// Diese taktischen Sollwerte und Bewegungsregeln gehören zu den vier ursprünglichen Abläufen.
+describe.each([PLAYS.pnr, PLAYS.fastbreak, PLAYS.kickout, PLAYS.inbound])('$name Daten', (play: Play) => {
   it('referenziert gültige Figuren, Segmente und positive Gewichte', () => {
     expect(play.segments[play.start]).toBeDefined();
     expect(play.clockS).toBe(play.id === 'fastbreak' ? 6 : play.id === 'inbound' ? 3 : 8);

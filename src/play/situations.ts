@@ -6,6 +6,14 @@ export const PLAY_ROLES: Record<PlayId, Record<string, PlayerRole>> = {
   fastbreak: { r3: 'guard', r11: 'guard', r23: 'wing' },
   kickout: { r23: 'wing', r11: 'guard', r3: 'guard', r32: 'wing', r50: 'big' },
   inbound: { r3: 'guard', r11: 'guard', r50: 'big', r23: 'wing', r32: 'wing' },
+  iso: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  handoff: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  backdoor: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  giveandgo: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  twoonone: { r3: 'guard', r23: 'wing' },
+  threeontwo: { r3: 'guard', r11: 'guard', r23: 'wing' },
+  pickpop: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  hammer: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
 };
 
 export function castPlay(play: Play, rng: () => number): Play {

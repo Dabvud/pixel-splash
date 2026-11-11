@@ -4,6 +4,7 @@ import type { EngineConfig, EngineEvent, PlayState } from '../src/play/engine';
 import { PLAYS } from '../src/play/plays';
 import { ACTORS } from '../src/play/teams';
 import type { Option, Play } from '../src/play/types';
+import { routeTo } from './play-routes';
 
 const cfg: EngineConfig = {
   slowmo: .3, decisionLead: 4, decisionS: 4, animSpeed: 1, foulMult: 0, zoneFloor: .7, tempoSpread: 0,
@@ -47,15 +48,13 @@ const variants = Object.values(PLAYS).flatMap(play => play.variants.map(variant 
 })));
 // Ein Lob führt direkt zum Abschluss und hat selbst keine Folgeentscheidung.
 const decisions = variants.flatMap(({ title, play }) => Object.values(play.segments)
-  .filter(segment => segment.id === play.start || play.segments[play.start].options!
-    .some(o => o.next === segment.id && !o.lob))
+  .filter(segment => routeTo(play, segment.id)?.every(o => !o.lob))
   .map(segment => ({ title: `${title}/${segment.id}`, play, segment })));
 
 describe('Alle Mitspieler anspielbar', () => {
   it.each(decisions)('$title: bietet an jedem Entscheidungspunkt alle Mitspieler genau einmal an', ({ play, segment }) => {
     const { s, events } = setup(play);
-    if (segment.id !== play.start) {
-      const option = play.segments[play.start].options!.find(o => o.next === segment.id)!;
+    for (const option of routeTo(play, segment.id)!) {
       events.push(...pass(s, option.to!));
     }
     expectOptions(s, events, segment.options!);

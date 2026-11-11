@@ -1,5 +1,6 @@
 import { PROFILES, SPOTS, saveSettings, type Settings } from "../settings";
 import { formatVersion } from "../version";
+import { PLAYS } from "../play/plays";
 
 type Key = keyof Settings;
 type Show = "all" | "shot" | "play";
@@ -9,7 +10,7 @@ interface RangeField { key: Key; label: string; show: Show; min: number; max: nu
 const num = (v: string) => Number(v);
 const SELECTS: SelectField[] = [
   { key: "mode", label: "Modus", show: "all", options: [["shot", "Wurf-Labor"], ["play", "Spielzug-Labor"]] },
-  { key: "play", label: "Spielzug", show: "play", options: [["random", "Zufall"], ["pnr", "Pick & Roll"], ["fastbreak", "Fast Break"], ["kickout", "Kick-out"], ["inbound", "Inbound / Last Shot"]] },
+  { key: "play", label: "Spielzug", show: "play", options: [["random", "Zufall"], ...Object.values(PLAYS).map((p): [string, string] => [p.id, p.name])] },
   { key: "spot", label: "Wurfspot", show: "shot", options: SPOTS.map((p) => [p.id, p.label]) },
   { key: "camera", label: "Kamera", show: "all", options: [["auto", "Automatisch"], ["low", "Tief hinter dem Spieler"], ["high", "Erhöht"]] },
   { key: "profile", label: "Testprofil", show: "shot", options: PROFILES.map((p) => [p.id, p.label]) },

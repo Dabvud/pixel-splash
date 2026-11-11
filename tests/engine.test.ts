@@ -6,6 +6,7 @@ import { ACTORS } from '../src/play/teams';
 import type { Option, Play, Variant } from '../src/play/types';
 import { ballHandAt, MOVES, moveFrames } from '../src/figure/moves';
 import { bankWindow, effectiveZones } from '../src/shot/resolve';
+import { playRoutes } from './play-routes';
 
 const cfg: EngineConfig = {
   glassChance: 0, // Brettbruch hat eigene Tests; hier würde rng 0 bei perfektem Dunk sonst immer zerbrechen
@@ -87,15 +88,10 @@ function release(s: PlayState, perfect: boolean, c = cfg, rng = safe): void {
 
 // Jede vollständige Route enthält auch die Entscheidungen der Passempfänger.
 const routes = Object.values(PLAYS).flatMap(play => play.variants.flatMap(variant => {
-  const first = play.segments[play.start].options!;
-  return first.flatMap(option => {
-    const next = option.kind === 'pass' && !option.lob
-      ? play.segments[option.next!].options!.map(follow => [option, follow]) : [[option]];
-    return next.flatMap(route => [true, false].map(perfect => ({
+  return playRoutes(play).flatMap(route => [true, false].map(perfect => ({
       title: `${play.id}/${variant.id}/${route.map(o => o.to ?? o.kind).join('/')}/${perfect ? 'perfekt' : 'verfehlt'}`,
       play: only(play, variant), route, perfect,
     })));
-  });
 }));
 
 describe.each(routes)('$title', ({ play, route, perfect }) => {

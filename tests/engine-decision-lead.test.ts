@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { command, createPlayState, step, type EngineConfig } from '../src/play/engine';
 import { PLAYS } from '../src/play/plays';
 import type { Option } from '../src/play/types';
+import { playRoutes } from './play-routes';
 
 const base: EngineConfig = {
   slowmo: 0.3, decisionS: 2, animSpeed: 1, foulMult: 0, zoneFloor: 0.7, tempoSpread: 0,
@@ -42,11 +43,8 @@ describe('Entscheiden im Laufen', () => {
 });
 
 const routes = Object.values(PLAYS).flatMap(play => play.variants.flatMap(variant =>
-  play.segments[play.start].options!.flatMap(first => {
-    const follow = first.kind === 'pass' && !first.lob ? play.segments[first.next!].options! : [undefined];
-    return follow.map(next => ({ title: `${play.id}/${variant.id}/${first.to ?? first.kind}/${next?.kind ?? 'Ende'}`,
-      play: { ...play, variants: [{ ...variant, weight: 1 }] }, route: next ? [first, next] : [first] }));
-  })));
+  playRoutes(play).map(route => ({ title: `${play.id}/${variant.id}/${route.map(o => o.to ?? o.kind).join('/')}`,
+    play: { ...play, variants: [{ ...variant, weight: 1 }] }, route }))));
 
 describe.each(routes)('Bewegte Engine-Route $title', ({ play, route }) => {
   it.each([0, 1])('läuft nach dem Catch-and-Shoot-Pfeil bei Passgenauigkeit %s mindestens 1,5 Spielsekunden weiter und erreicht ended', quality => {

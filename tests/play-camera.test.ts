@@ -5,6 +5,7 @@ import { PerspectiveCamera, Vector3 } from 'three';
 import { command, createPlayState, step, type EngineConfig, type EngineEvent } from '../src/play/engine';
 import { PLAYS } from '../src/play/plays';
 import { ACTORS } from '../src/play/teams';
+import { routeTo } from './play-routes';
 
 const aspect = 390 / 844;
 function expectFramed(pose: ReturnType<typeof overviewPose>, handler: { x: number; z: number }, targets: { x: number; z: number }[]): void {
@@ -40,10 +41,9 @@ describe('Übersicht aller Entscheidungspunkte im Hochformat', () => {
       expect(ready()).toBe(true);
     };
     wait(() => s.phase === 'decision');
-    if (segment.id !== play.start) {
-      const pass = play.segments[play.start].options!.find(o => o.next === segment.id)!;
+    for (const pass of routeTo(play, segment.id)!) {
       command(s, { kind: 'pass', to: pass.to!, quality: 1 }, cfg, () => .99);
-      wait(() => s.handler === segment.handler && (s.phase === 'decision' || s.phase === 'takeoff'));
+      wait(() => s.handler === pass.to && (s.phase === 'decision' || s.phase === 'takeoff'));
     }
     const handler = s.actors[s.handler].pos;
     const teammates = Object.values(s.actors).filter(a => ACTORS[a.id].team === 'off' && a.id !== s.handler);
