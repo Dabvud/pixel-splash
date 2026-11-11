@@ -57,6 +57,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const cfg = (): EngineConfig => ({
     decisionLead: settings.decisionS,
     finishArrow: true,
+    foulScene: true,
     slowmo: settings.slowmo,
     decisionS: settings.decisionS,
     animSpeed: settings.animSpeed,
@@ -109,7 +110,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     rng = settings.defenseRandom ? Math.random : seeded(7);
     const id = settings.play === "random" ? PLAY_IDS[Math.min(PLAY_IDS.length - 1, Math.floor(rng() * PLAY_IDS.length))] : settings.play;
     s = createPlayState(PLAYS[id], cfg(), rng);
-    const ids = Object.keys(s.actors);
+    // Der Schiri ist immer im Atlas, erscheint aber nur bei Fouls
+    const ids = [...Object.keys(s.actors), "ref"];
     if (ids.join("|") !== actorIds) {
       actors?.dispose();
       if (atlas) (atlas.textures ?? [atlas.texture]).forEach(t => t.dispose());
@@ -180,6 +182,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       } else if (e.type === "freethrow") {
         phud.flash(e.left === 1 ? "LETZTER FREIWURF" : `${e.left} FREIWÜRFE`);
         releasedFill = null;
+      } else if (e.type === "foul") {
+        phud.foulCall(e.andOne);
+        crowd?.cheer(e.andOne ? 0.9 : 0.3);
       } else if (e.type === "end") {
         addPlay(game, s.box);
         if (e.verdict === "GAMEWINNER") crowd?.cheer(1);
@@ -359,6 +364,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
     for (const v of views) {
       const a = s.actors[v.id];
+      v.visible = Boolean(a);
+      if (!a) continue;
       v.x = a.pos.x; v.y = a.y; v.z = a.pos.z; v.facing = a.facing;
       v.move = a.move; v.moveT = a.moveT; v.moveSide = a.moveSide;
     }

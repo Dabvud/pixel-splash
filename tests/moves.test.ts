@@ -11,6 +11,7 @@ const counts: Record<MoveId, number> = {
   reverse_layup: 8, block_jump_hit: 8, crossover: 8, behind_back: 8, spin_move: 8,
   hesitation: 8, euro_step: 8, finger_roll: 8, tomahawk_dunk: 8, two_hand_dunk: 8,
   step_back: 8, fadeaway: 8, celebrate: 8, dejected: 8, pass_bounce: 8, pass_overhead: 8,
+  ref_whistle: 8, flex: 8, high_five: 8,
 };
 const additions = Object.keys(counts).slice(14);
 const ids = Object.keys(counts) as MoveId[];
@@ -52,7 +53,7 @@ describe('Bewegungen', () => {
 
   it.each(ids.filter(id => id !== 'knocked_down'))('%s hat den Kopf oben, mit Ausnahme der angehobenen Hände beim Abschluss oder Block', (id) => {
     // Korbleger und Kontakt-Dunk verlangen laut Spec ebenfalls Arme über dem Kopf.
-    const overhead = ['jumpshot', 'layup', 'dunk', 'contact_dunk', 'block_jump', 'reverse_layup', 'block_jump_hit', 'euro_step', 'finger_roll', 'tomahawk_dunk', 'two_hand_dunk', 'step_back', 'fadeaway', 'celebrate', 'pass_overhead'].includes(id);
+    const overhead = ['jumpshot', 'layup', 'dunk', 'contact_dunk', 'block_jump', 'reverse_layup', 'block_jump_hit', 'euro_step', 'finger_roll', 'tomahawk_dunk', 'two_hand_dunk', 'step_back', 'fadeaway', 'celebrate', 'pass_overhead', 'ref_whistle', 'flex', 'high_five'].includes(id);
     const hands: Joint[] = ['haL', 'haR'];
     for (const p of moveFrames(id)) {
       for (const joint of JOINTS) {

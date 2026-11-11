@@ -72,9 +72,11 @@ export function buildAtlas(looks: Record<string, Look>, options?: { lazy: boolea
  * tatsächlich benötigtes Bild je Figur gerastert. Alte Bilder werden zyklisch ersetzt.
  */
 function lazyAtlas(looks: Record<string, Look>): Atlas {
-  const cols = 16, rows = 16, capacity = cols * rows;
+  const cols = 16;
   const poses = new Map<MoveId, ReturnType<typeof moveFrames>>();
   const pages = new Map(Object.entries(looks).map(([id, look]) => {
+    // Der Schiri braucht nur wenige Bewegungen (laufen, stehen, pfeifen): halbe Seite spart Speicher am Handy
+    const rows = (look as { team?: string }).team === 'ref' ? 8 : 16, capacity = cols * rows;
     const canvas = document.createElement('canvas');
     canvas.width = cols * CELL_W; canvas.height = rows * CELL_H;
     const context = canvas.getContext('2d')!;
@@ -82,7 +84,7 @@ function lazyAtlas(looks: Record<string, Look>): Atlas {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.magFilter = texture.minFilter = THREE.NearestFilter;
     texture.generateMipmaps = false;
-    const page = { look, context, texture, image: context.createImageData(CELL_W, CELL_H), next: 0,
+    const page = { look, rows, capacity, context, texture, image: context.createImageData(CELL_W, CELL_H), next: 0,
       keys: [] as string[], cells: new Map<string, [number, number, number, number]>() };
     return [id, page] as const;
   }));
@@ -92,7 +94,7 @@ function lazyAtlas(looks: Record<string, Look>): Atlas {
       const page = pages.get(id)!, key = `${move}|${dir}|${frame}`;
       const cached = page.cells.get(key);
       if (cached) return cached;
-      const index = page.next++ % capacity;
+      const { rows, capacity } = page, index = page.next++ % capacity;
       page.cells.delete(page.keys[index]); page.keys[index] = key;
       let frames = poses.get(move);
       if (!frames) { frames = moveFrames(move); poses.set(move, frames); }

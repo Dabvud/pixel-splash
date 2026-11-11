@@ -4,7 +4,9 @@ import { buildAtlas } from '../src/figure/atlas';
 import { createActors } from '../src/render/actors';
 import { createScene } from '../src/render/scene';
 import { createPlayer } from '../src/render/player';
-import { ACTORS } from '../src/play/teams';
+import { ACTORS, RED, BLUE } from '../src/play/teams';
+// Die zehn Teamspieler (ohne Schiri)
+const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
 
 beforeEach(() => {
@@ -20,7 +22,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('Canvas-Texturfarben', () => {
   it('rastert im Lazy-Atlas nur angeforderte Bilder, cached sie und bleibt unter 20 MiB RGBA für zehn Akteure', () => {
-    const atlas = buildAtlas(ACTORS, { lazy: true });
+    const atlas = buildAtlas(Object.fromEntries(PLAYERS.map(a => [a.id, a])), { lazy: true });
     const context = vi.mocked(HTMLCanvasElement.prototype.getContext).mock.results.at(-1)!.value as CanvasRenderingContext2D;
     expect(context.putImageData).not.toHaveBeenCalled();
     const bytes = atlas.textures!.reduce((sum, t) => sum + t.image.width * t.image.height * 4, 0);
@@ -40,7 +42,7 @@ describe('Canvas-Texturfarben', () => {
       expect(texture.image.width).toBeLessThanOrEqual(4096);
       expect(texture.image.height).toBeLessThanOrEqual(4096);
     }
-    for (const id of Object.keys(ACTORS)) for (const dir of ['front', 'back', 'left', 'right'] as const) {
+    for (const id of PLAYERS.map(a => a.id)) for (const dir of ['front', 'back', 'left', 'right'] as const) {
       const [u, v, w, h] = atlas.uv(id, 'idle', dir, 0);
       expect(u).toBeGreaterThanOrEqual(0); expect(v).toBeGreaterThanOrEqual(0);
       expect(u + w).toBeLessThanOrEqual(1); expect(v + h).toBeLessThanOrEqual(1);
@@ -61,9 +63,9 @@ describe('Canvas-Texturfarben', () => {
   it('ordnet jedem Akteur seine Atlas-Seite auch im Sprite-Texturklon zu', () => {
     const atlas = buildAtlas(ACTORS);
     expect(atlas.textures!.length).toBeGreaterThan(1);
-    const scene = new THREE.Scene(), actors = createActors(scene, atlas, Object.keys(ACTORS));
+    const scene = new THREE.Scene(), actors = createActors(scene, atlas, PLAYERS.map(a => a.id));
     const sprites = scene.children.filter((o): o is THREE.Sprite => o instanceof THREE.Sprite);
-    Object.keys(ACTORS).forEach((id, i) => expect(sprites[i].material.map!.image).toBe(atlas.textureFor!(id).image));
+    PLAYERS.map(a => a.id).forEach((id, i) => expect(sprites[i].material.map!.image).toBe(atlas.textureFor!(id).image));
     actors.dispose(); atlas.textures!.forEach(t => t.dispose());
   });
   it('kennzeichnet den Figurenatlas als sRGB', () => {

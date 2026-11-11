@@ -16,6 +16,7 @@ import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types
 
 export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'receiving' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
 export interface EngineConfig {
+  /** Bei Fouls: Schiri läuft ein und pfeift, beim And-one Feier + Abklatschen vor den Freiwürfen */ foulScene?: boolean;
   /** Korbleger/Dunk nach dem Ziehen per Pfeil-Meter (ein Tipp) statt Halten + Wischen */ finishArrow?: boolean;
   /** Spielsekunden vor Wegende, ab denen schon entschieden werden darf (Entscheiden im Laufen) */ decisionLead?: number;
   slowmo: number; decisionS: number; animSpeed: number; foulMult: number; zoneFloor: number; tempoSpread: number;
@@ -33,7 +34,7 @@ export interface ArrowMeter {
 export type FinishFeedback = 'PERFEKT' | 'ZU FRÜH' | 'ZU SPÄT' | 'ZU LANGSAM';
 export interface PlayState {
   play: Play; variant: string; deficit: number; phase: Phase; gameT: number; clock: number; handler: string;
-  actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number;
+  actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number; foulScene: boolean;
   /** Statline dieses Spielzugs (Punkte, Assists) je Spieler-ID */ box: Record<string, StatLine>; lastPasser: string | null;
   combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
@@ -47,6 +48,7 @@ export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pas
   | { type: 'pocket'; quality: number }
   | { type: 'arrowStart'; kind: ArrowMeter['kind'] } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
   | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
+  | { type: 'foul'; andOne: boolean }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
 
 interface Pass {
@@ -79,7 +81,8 @@ interface Runtime {
   arrow?: ComboData & { tapped?: ArrowInput; timedOut?: boolean };
   comboMove?: MoveId;
   celebration?: { from: Record<string, Vec2>; elapsed: number };
-  lineup?: { from: Record<string, Vec2>; elapsed: number };
+  /** hold: Sekunden Pfiff/Feier vor der Aufstellung; ref: Zielpunkt des Schiris; mate: abklatschender Mitspieler */
+  lineup?: { from: Record<string, Vec2>; elapsed: number; hold?: number; ref?: Vec2; mate?: string; fived?: boolean };
 }
 // Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
 const runtimes = new WeakMap<PlayState, Runtime>();
@@ -253,7 +256,7 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
     : play.deficit[0] + Math.min(play.deficit[1] - play.deficit[0], Math.floor(rng() * (play.deficit[1] - play.deficit[0] + 1)));
   const s: PlayState = {
     play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
-    actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, box: {}, lastPasser: null,
+    actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, foulScene: cfg.foulScene ?? false, box: {}, lastPasser: null,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
@@ -618,6 +621,7 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
       r.comboWait = { phase: 'takeoff', elapsed: r.realT };
       phase(s, 'combo'); return events;
     }
+    if (s.phase === 'freethrows' && (r.lineup?.hold ?? 0) > 0) return events; // erst Pfiff und Feier abwarten
     if (s.phase === 'freethrows' || (s.phase === 'decision' && (r.segment.options ?? [{ kind: 'shoot' }]).some(o => o.kind === 'shoot'))) {
       r.comboWait = { phase: s.phase, elapsed: r.realT };
       phase(s, 'combo');
@@ -653,11 +657,12 @@ function lineUp(s: PlayState, dtReal: number): void {
   const shooter = s.freeThrows!.shooter;
   const r = rt(s);
   const setup = r.lineup ??= { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0 };
+  if (foulScene(s, dtReal)) return;
   setup.elapsed = Math.min(.8, setup.elapsed + dtReal);
   const f = setup.elapsed / .8;
   let i = 0;
   for (const a of Object.values(s.actors)) {
-    if (a.move === 'knocked_down') continue;
+    if (a.move === 'knocked_down' || a.id === 'ref') continue;
     const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75, z: 1.2 + Math.floor(i / 2) * 0.6 };
     if (a.id !== shooter) i++;
     if (f >= 1 || distance(setup.from[a.id], to) < 1e-6) {
@@ -671,6 +676,61 @@ function lineUp(s: PlayState, dtReal: number): void {
     }
     if (a.id !== shooter) a.y = 0;
   }
+}
+
+const REF_SPEED = 7; // m/s, Schiri sprintet ins Bild
+const MATE_SPEED = 6;
+
+/** Pfiff: Schiri läuft von der Seitenlinie zum Korb und zeigt das Foul an; beim And-one feiert der Schütze, ein Mitspieler klatscht ab. */
+function callFoul(s: PlayState, andOne: boolean, events: EngineEvent[]): void {
+  const r = rt(s), shooter = s.actors[s.freeThrows!.shooter], setup = r.lineup!;
+  const side = shooter.pos.x >= 0 ? 1 : -1, from = { x: side * 8.2, z: 3 };
+  s.actors.ref = { id: 'ref', pos: from, y: 0, facing: facingTo(from, { x: 0, z: 0 }), move: 'run', moveT: 0 };
+  setup.ref = { x: side * 3.6, z: 1.6 };
+  setup.hold = andOne ? 1.8 : 1.1;
+  events.push({ type: 'foul', andOne });
+  if (!andOne) return;
+  move(shooter, 'flex', true);
+  const mate = Object.values(s.actors).filter(a => ACTORS[a.id].team === 'off' && a.id !== shooter.id)
+    .sort((a, b) => distance(a.pos, shooter.pos) - distance(b.pos, shooter.pos))[0];
+  if (mate) setup.mate = mate.id;
+}
+
+function stepToward(a: ActorState, to: Vec2, stepM: number): boolean {
+  const d = distance(a.pos, to);
+  if (d <= stepM) { a.pos = { ...to }; return true; }
+  a.facing = facingTo(a.pos, to);
+  a.pos = { x: a.pos.x + (to.x - a.pos.x) * stepM / d, z: a.pos.z + (to.z - a.pos.z) * stepM / d };
+  return false;
+}
+
+/** Schiri, Feier und Abklatschen während der Pfiff-Pause; true, solange die Aufstellung warten soll */
+function foulScene(s: PlayState, dtReal: number): boolean {
+  const setup = rt(s).lineup!, ref = s.actors.ref;
+  if (ref && setup.ref && ref.move !== 'ref_whistle') {
+    if (stepToward(ref, setup.ref, REF_SPEED * dtReal)) {
+      ref.facing = facingTo(ref.pos, s.actors[s.freeThrows!.shooter].pos);
+      move(ref, 'ref_whistle', true);
+    } else if (ref.move !== 'run') move(ref, 'run', true);
+  }
+  if (!((setup.hold ?? 0) > 0)) return false;
+  setup.hold! -= dtReal;
+  const shooter = s.actors[s.freeThrows!.shooter], mate = setup.mate ? s.actors[setup.mate] : undefined;
+  if (mate && !setup.fived) {
+    const spot = { x: shooter.pos.x + (shooter.pos.x >= 0 ? -.7 : .7), z: shooter.pos.z + .3 };
+    if (stepToward(mate, spot, MATE_SPEED * dtReal)) {
+      setup.fived = true;
+      mate.facing = facingTo(mate.pos, shooter.pos);
+      shooter.facing = facingTo(shooter.pos, mate.pos);
+      move(mate, 'high_five', true);
+      move(shooter, 'high_five', true);
+    } else if (mate.move !== 'run') move(mate, 'run', true);
+  }
+  if (setup.hold! > 0) return true;
+  // Pfiff/Feier vorbei: Aufstellung startet von den aktuellen Positionen
+  setup.from = Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }]));
+  setup.elapsed = 0;
+  return false;
 }
 
 function freeThrow(s: PlayState, events: EngineEvent[]): void {
@@ -716,7 +776,11 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
     if (s.freeThrows!.left > 0) freeThrow(s, events); else end(s, events);
   } else {
     const count = freeThrowCount(kind, result.made, fouled);
-    if (count) { s.freeThrows = { shooter: s.handler, left: count }; freeThrow(s, events); }
+    if (count) {
+      s.freeThrows = { shooter: s.handler, left: count };
+      freeThrow(s, events);
+      if (s.foulScene) callFoul(s, result.made, events);
+    }
     else end(s, events);
   }
 }

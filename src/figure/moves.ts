@@ -4,7 +4,8 @@ import type { Pose, V3 } from './skeleton';
 export type MoveId = 'idle'|'run'|'dribble'|'dribble_run'|'pass'|'catch'|'jumpshot'|'layup'|'dunk'|'contact_dunk'|'defend'|'block_jump'|'contact'|'knocked_down'
   | 'reverse_layup'|'block_jump_hit'|'crossover'|'behind_back'|'spin_move'|'hesitation'
   | 'euro_step'|'finger_roll'|'tomahawk_dunk'|'two_hand_dunk'|'step_back'|'fadeaway'
-  | 'celebrate'|'dejected'|'pass_bounce'|'pass_overhead';
+  | 'celebrate'|'dejected'|'pass_bounce'|'pass_overhead'
+  | 'ref_whistle'|'flex'|'high_five';
 export interface MoveDef { frames: number; fps: number; loop: boolean; keys: Pose[]; ballHand: 'haL' | 'haR' | null; rimFrame?: number }
 
 type Limb = [upperPitch: number, lowerPitch: number, upperSpread?: number, lowerSpread?: number];
@@ -256,6 +257,24 @@ export const MOVES: Record<MoveId, MoveDef> = {
     { height: .67, lean: -20, forward: -.14, arms: [[150, 170], [150, 170]], legs: [[15, -25], [15, -25]] },
     { height: .62, lean: -25, forward: -.2, arms: [[165, 180], [165, 180]], legs: [[20, -20], [20, -20]] },
   ]), 'haR', 5),
+  // Schiri: linker Arm gestreckt nach oben (Foul angezeigt), rechte Hand mit Pfeife am Mund
+  ref_whistle: newMove(sequence([
+    { arms: [[5, 20, -8, -5], [5, 20, 8, 5]] },
+    { arms: [[150, 165, -8, -6], [50, 150, 10, -20]] },
+    { arms: [[172, 178, -6, -4], [55, 165, 12, -25]] },
+  ]), null),
+  // And-one: Schütze feiert sich selbst ab (Bizeps zeigen, kurz in die Knie)
+  flex: newMove(sequence([
+    { arms: [[30, 60, -40, -40], [30, 60, 40, 40]] },
+    { height: .47, legs: [[10, -15], [10, -15]], arms: [[15, 170, -75, -15], [15, 170, 75, 15]] },
+    { height: .5, arms: [[20, 175, -80, -10], [20, 175, 80, 10]] },
+  ]), null),
+  // Abklatschen: rechter Arm schwingt nach oben vorn
+  high_five: newMove(sequence([
+    { arms: [[5, 20, -8, -5], [60, 110, 10, 10]] },
+    { height: .53, arms: [[5, 20, -8, -5], [145, 160, 5, 5]] },
+    { arms: [[5, 20, -8, -5], [120, 140, 8, 8]] },
+  ]), null),
   celebrate: newMove(sequence([
     { arms: [[80, 120, -30, -30], [80, 120, 30, 30]] },
     { height: .53, arms: [[140, 170, -20, -20], [140, 170, 20, 20]] },

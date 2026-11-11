@@ -32,6 +32,8 @@ export function createPlayHud(root: HTMLElement): {
   setPoster(x: number, y: number, visible: boolean, elapsed?: number): void;
   setDecision(frac: number | null): void;
   flash(text: string): void;
+  /** Pfiff: „FOUL!“ fliegt aus dem Bild; beim And-one wird es durchgestrichen und „AND-ONE!“ gefeiert */
+  foulCall(andOne: boolean): void;
   setPaused(paused: boolean): void;
   dispose(): void;
 } {
@@ -48,6 +50,8 @@ export function createPlayHud(root: HTMLElement): {
     <div class="phud-finish-feedback" role="status" hidden></div>
     <div class="phud-poster" aria-label="Benommen" hidden><span>★</span><span>★</span><span>★</span></div>
     <div class="phud-flash" hidden></div>
+    <div class="phud-foul" role="status" hidden>FOUL!</div>
+    <div class="phud-andone" hidden>AND-ONE!</div>
     <div class="phud-decision" hidden><div></div></div>
     <div class="phud-markers"></div>`;
   root.append(el);
@@ -166,9 +170,22 @@ export function createPlayHud(root: HTMLElement): {
       flashRemaining = 900;
       resumeFlash();
     },
+    foulCall(andOne) {
+      if (disposed) return;
+      const foul = q('.phud-foul'), one = q('.phud-andone');
+      // Klassen neu setzen, damit die CSS-Animation bei jedem Pfiff von vorn läuft
+      foul.classList.remove('run', 'struck'); one.classList.remove('run');
+      void foul.offsetWidth;
+      foul.hidden = false;
+      foul.classList.add('run');
+      foul.classList.toggle('struck', andOne);
+      one.hidden = !andOne;
+      if (andOne) one.classList.add('run');
+    },
     setPaused(value) {
       if (disposed || value === paused) return;
       paused = value;
+      el.classList.toggle('paused', paused);
       if (paused) {
         if (flashTimer === null) return;
         flashRemaining = Math.max(0, flashDeadline - performance.now());

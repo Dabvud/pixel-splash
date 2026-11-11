@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { CELL_W, FEET_ROW, PX_PER_M, rasterPose, type Look, type Projected } from '../src/figure/raster';
 import { MOVES, moveFrames, type MoveId } from '../src/figure/moves';
 import { project, type Dir } from '../src/figure/skeleton';
-import { ACTORS } from '../src/play/teams';
+import { ACTORS, RED, BLUE } from '../src/play/teams';
+// Die zehn Teamspieler (ohne Schiri)
+const PLAYERS = [...RED, ...BLUE];
 import legacy from './fixtures/legacy-raster.json';
 
 const dirs: Dir[] = ['front', 'back', 'left', 'right'];
@@ -125,7 +127,7 @@ describe.each(dirs)('Figuren-Baukasten: Pixelproben %s', dir => {
 
 describe('Figuren-Baukasten: Platzhalter-Teams', () => {
   it('gibt allen zehn Spielern paarweise verschiedene Baukasten-Kombinationen', () => {
-    const actors = Object.values(ACTORS);
+    const actors = PLAYERS;
     expect(actors).toHaveLength(10);
     const keys = actors.map(a => JSON.stringify([a.hair, a.beard ?? 'none', a.headband ?? null, a.armSleeve ?? 'none', a.shoes ?? '#222226', a.socks ?? 'low']));
     expect(new Set(keys).size).toBe(10);
@@ -138,7 +140,7 @@ describe('Figuren-Baukasten: Platzhalter-Teams', () => {
   });
 
   it.each(['front', 'back'] as Dir[])('liefert für alle zehn Spieler unterschiedliche idle-Pixelbilder: %s', dir => {
-    const hashes = Object.values(ACTORS).map(a => createHash('sha256').update(rasterPose(project(idle, dir), a, dir)).digest('hex'));
+    const hashes = PLAYERS.map(a => createHash('sha256').update(rasterPose(project(idle, dir), a, dir)).digest('hex'));
     expect(new Set(hashes).size).toBe(10);
   });
 });

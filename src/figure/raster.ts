@@ -106,7 +106,7 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
   // Rumpf: dicke Linie Schultermitte → Becken, Breite aus Schulterabstand bzw. Statur
   const shMid = mid(p.shL, p.shR);
   const span = Math.abs(p.shL.u - p.shR.u) * s;
-  const number = side ? '' : String(look.num);
+  const number = side || look.num < 0 ? '' : String(look.num);
   const numberWidth = number.length * 4 - 1; // 3 px je Ziffer, 1 px Zwischenraum
   // Die Nummer braucht beidseitig einen Trikotpixel Abstand zum Umriss.
   const tw = Math.max(Math.round(span - 1), Math.round((side ? 0.13 : 0.17) * s * bw), side ? 0 : numberWidth + 2);

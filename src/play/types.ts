@@ -3,7 +3,7 @@ import type { Look } from '../figure/raster';
 
 export type PlayId = 'pnr' | 'fastbreak' | 'kickout' | 'inbound';
 export interface ActorDef extends Look {
-  id: string; team: 'off' | 'def'; shot: number; athleticism: number;
+  id: string; team: 'off' | 'def' | 'ref'; shot: number; athleticism: number;
 }
 export type Activity = 'stand' | 'run' | 'dribble' | 'screen' | 'defend' | 'inbound';
 export interface Waypoint extends Vec2 { t: number; act: Activity }

@@ -8,7 +8,9 @@ import { startPlayLab } from '../src/modes/play-lab';
 import { DEFAULTS } from '../src/settings';
 import { MAX_FILL } from '../src/shot/resolve';
 import type { Mode } from '../src/modes/mode';
-import { ACTORS } from '../src/play/teams';
+import { ACTORS, RED, BLUE } from '../src/play/teams';
+// Die zehn Teamspieler (ohne Schiri)
+const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
 import { finishCameraPose, playCameraPose } from '../src/render/camera-pose';
 import { MOVES, moveFrames } from '../src/figure/moves';
@@ -130,13 +132,14 @@ describe('Spielzug-Labor Integration', () => {
   it('baut beim Fast Break nur die beteiligten Akteure bedarfsgesteuert auf', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'fastbreak', defenseRandom: false });
     const call = vi.mocked(buildAtlas).mock.calls.at(-1)!;
-    expect(Object.keys(call[0]).sort()).toEqual([...PLAYS.fastbreak.actors].sort());
+    // Beteiligte Spieler plus Schiri (erscheint nur bei Fouls)
+    expect(Object.keys(call[0]).sort()).toEqual([...PLAYS.fastbreak.actors, 'ref'].sort());
     expect(call[1]).toEqual({ lazy: true });
   });
   it('übergibt alle Baukasten-Merkmale der zehn Teamspieler an den Atlas', () => {
     const looks = vi.mocked(buildAtlas).mock.calls[0][0];
-    expect(Object.keys(looks)).toHaveLength(10);
-    for (const a of Object.values(ACTORS)) {
+    expect(Object.keys(looks)).toHaveLength(11); // zehn Spieler + Schiri
+    for (const a of PLAYERS) {
       expect(looks[a.id]).toMatchObject({
         hair: a.hair, beard: a.beard, headband: a.headband,
         armSleeve: a.armSleeve, shoes: a.shoes, socks: a.socks,
@@ -200,7 +203,7 @@ describe('Spielzug-Labor Integration', () => {
     expect(mark.hidden).toBe(false);
     for (let i = 0; i < 400 && s.phase !== 'ended'; i++) {
       if (s.phase === 'freethrows') {
-        advance(.8); // Aufstellung vor der Wurf-Kombi
+        advance(3); // Pfiff, ggf. And-one-Feier und Aufstellung vor der Wurf-Kombi
         gesture({ type: 'start' }); gesture({ type: 'hold' });
         now += s.combo!.meterMs;
         gesture({ type: 'release', holdMs: s.combo!.meterMs + 200, angleDeg: 0 });
