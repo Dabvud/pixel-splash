@@ -43,18 +43,33 @@ Du erstellst einen eigenen Spieler und spielst seine ganze NBA-Karriere (z. B. 1
 - **Vertragsende → 2–3 Angebote** von verschiedenen Teams. Jedes Angebot zeigt: Team, Teamstärke, Laufzeit (1–5 Jahre), Gehalt, Skillpunkte pro Jahr.
 - **Abwägung (vom Nutzer gewünscht):** Bei schlechten Teams ist es wirklich schwerer zu gewinnen (Mitspieler schwächer, Simulation schlechter, Gegner stärker in den Szenen). Dafür bieten schlechte Teams **manchmal** (nicht immer) den besseren Vertrag mit mehr Skillpunkten. Gute Teams bieten oft weniger, dafür Titelchancen.
 - Auch während eines laufenden Vertrags: **zufällige Trades** (selten, kurze Meldung „Du wurdest zu den Philadelphia 67ers getradet!“).
-- **Skillpunkte verteilen** auf: Wurf (Mitteldistanz), Dreier, Abschluss (Korbleger), Dunk, Dribbling, Passen, Athletik, Verteidigung, Führung. Werte wirken direkt aufs Spiel (Meter-Tempo, Größe der grünen Zone, Dunk-/Kontakt-Dunk-Chancen, Steal-Risiko beim Pass, Positionswert beim Ziehen …).
+- **Skillpunkte verteilen** auf die Spezialisierungs-Stufen (6.1) und auf: Wurf (Mitteldistanz), Dreier, Abschluss (Korbleger), Dunk, Dribbling, Passen, Athletik, Verteidigung, Führung. Werte wirken direkt aufs Spiel (Meter-Tempo, Größe der grünen Zone, Dunk-/Kontakt-Dunk-Chancen, Steal-Risiko beim Pass, Positionswert beim Ziehen …).
 - **Alter:** ab ca. 31 sinken Athletik und Dunk langsam von selbst, Wurf hält länger – Skillpunkte können das teilweise ausgleichen.
 - Die Teams werden über die Jahre automatisch besser oder schlechter (Draft, Alter, Zufall).
 
-## 6. Steuerung und Chemie (Leader-Stufen)
+## 6. Steuerung, Spezialisierung und Chemie
 
 - **Grundsatz:** Du steuerst nur deinen Spieler. Passt du zu einem Mitspieler, entscheidet dessen KI (wirft/zieht/passt nach seinen Werten); kommt der Ball zurück, steuerst du wieder. Assists zählen für dich.
-- **Leader-Stufe pro Team** (Neustart bei Teamwechsel):
-  1. **Neuling** – nur dein Spieler.
-  2. **Stammspieler** – du darfst den Spielzug ansagen (Coach-Call: 2 Spielzüge zur Wahl).
-  3. **Führungsspieler** – nach deinem Pass steuerst du den Mitspieler für diesen einen Abschluss.
-  4. **Franchise-Gesicht** – volle Kontrolle wie im Labor (Kontrolle wechselt mit dem Ball).
+
+### 6.1 Spezialisierung (genau eine, beim Erstellen gewählt)
+
+Drei Spezialisierungen, je 3 Stufen, mit Skillpunkten freigeschaltet. Stufe 3 = Oberbelohnung. **Alle drei müssen gleich stark sein:** gleiche Kosten, und per Simulation über viele Szenen wird die Siegchance-Wirkung angeglichen (Ziel: Abweichung ≤ ±3 %).
+
+| Stufe | Playmaking | Werfen | Korbabschluss |
+|---|---|---|---|
+| 1 | Genauere Pässe, weniger Steals | Größere grüne Zone beim Dreier | Abschluss-Meter langsamer |
+| 2 | Coach-Call: Spielzug aus 2 wählen | Deep Range: weite Dreier ohne Abzug | Kontakt-Dunks häufiger, And-one-Chance ×1,5 |
+| 3 | **Floor General:** nach deinem Pass steuerst du den Mitspieler (auch beim Abschluss) | **Green Light:** Heißlaufen schon nach 2 Treffern; brennend ist jeder grüne Wurf sicher drin | **Posterizer:** jeder grüne Kontakt-Dunk wird Poster, verfehlte Kontakt-Dunks werden nie geblockt, Ankle Breaker beim Ziehen |
+
+Die Spezialisierung ist für die ganze Karriere fest.
+
+### 6.2 Chemie / Leader-Stufe pro Team (Neustart bei Teamwechsel)
+
+Mitspieler steuern gibt es **nur** über Playmaking Stufe 3. Chemie belohnt anders:
+  1. **Neuling** – keine Boni.
+  2. **Stammspieler** – Coach-Call (2 Spielzüge zur Wahl; für Playmaker dann 3 zur Wahl).
+  3. **Führungsspieler** – Mitspieler treffen nach deinem Pass häufiger (bessere KI-Wertung).
+  4. **Franchise-Gesicht** – eine Szene mehr pro Key Game und bessere Vertragsangebote vom eigenen Team.
 - **Wege, die Stufe zu steigern [offen – Nutzer wollte mehr Möglichkeiten; Vorschläge, beliebig kombinierbar]:**
   - a) Jahre im Team (je Saison +1 Chemie),
   - b) Clutch-Szenen gewinnen (Gamewinner, Closing Game, Game 7),
@@ -95,7 +110,7 @@ Du erstellst einen eigenen Spieler und spielst seine ganze NBA-Karriere (z. B. 1
 4. Playoffs/Play-In mit Serien-Situationen.
 5. Off-Season: Verträge, Skillpunkte, Trades, Alter, Teamentwicklung.
 6. Draft-Combine.
-7. Chemie/Leader-Stufen.
+7. Spezialisierungen (inkl. Balance-Simulation) + Chemie/Leader-Stufen.
 8. Awards, Statistik, Legacy, Hall of Fame, Rangliste.
 9. Auswärtshalle und weitere Key-Game-Würze.
 
