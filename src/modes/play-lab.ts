@@ -16,7 +16,8 @@ import { buildAtlas } from "../figure/atlas";
 import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
-import { command, createPlayState, lastHint, playPositionValue, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
+import type { SceneResult, SceneSpec } from "../career/scene-types";
+import { command, createPlayState, inputOwner, lastHint, playPositionValue, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
 import { addPlay, boxRows, emptyGame } from "../stats/statline";
@@ -38,7 +39,9 @@ function seeded(seed: number): () => number {
   };
 }
 
-export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
+/** scene: Karriere-Szene – fester Spielzug, eigener Spieler, meldet das Ende einmal statt neu zu starten */
+export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spec: SceneSpec; onEnd: (r: SceneResult) => void }): Mode {
+  let sceneDone = false;
   const root = document.createElement("div");
   root.className = "play-lab";
   app.append(root);
@@ -94,7 +97,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     closeoutRandom: settings.closeoutRandom,
     shot: { meterMs: settings.meterMs, greenZone: settings.greenZone, aimDeg: settings.aimDeg, influence: INFLUENCE[settings.influence] },
     finish: { meterMs: settings.finishMeterMs, greenZone: settings.finishGreen, aimDeg: settings.finishAim },
+    ...(career ? { controlled: career.spec.controlled, ratingMeters: true, situationRandom: false } : {}),
   });
+  // Karriere: Meter und Entscheidungs-Marker nur, wenn der eigene Spieler am Zug ist
+  const mine = () => !career || inputOwner(s) === career.spec.controlled;
 
   let rng: () => number = Math.random;
   let s!: PlayState;
@@ -152,7 +158,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     shards.reset();
     rng = settings.defenseRandom ? Math.random : seeded(7);
     const id = settings.play === "random" ? PLAY_IDS[Math.min(PLAY_IDS.length - 1, Math.floor(rng() * PLAY_IDS.length))] : settings.play;
-    s = createPlayState(PLAYS[id], cfg(), rng);
+    s = createPlayState(career ? { ...career.spec.play, deficit: career.spec.deficit, clockS: career.spec.clockS } : PLAYS[id], cfg(), rng);
     // Zusatzakteure brauchen ihren Atlas schon vor dem ersten Auftritt.
     const ids = [...Object.keys(s.actors), "ref", "mop"];
     if (ids.join("|") !== actorIds) {
@@ -183,6 +189,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const period = s.overtime ? 'OVERTIME' : '4. VIERTEL';
     const name = s.play.name + (s.foulTrouble ? ` · #${ACTORS[s.foulTrouble].num} HAT 5 FOULS` : '');
     phud.setSituation(`${period} · ${formatPlayClock(s.clock, !Number.isInteger(s.clock))} · −${s.deficit}`, name);
+    if (career) phud.setSituation(career.spec.title, career.spec.subtitle);
     phud.setScoreboard(s.clock, s.deficit, s.points, s.overtime);
     showStats();
   }
@@ -385,7 +392,14 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       handle(step(s, dt, c, rng));
       bench.update(s.realTime);
       // Reinigung und Abtransport müssen vor dem Zurücksetzen fertig sein.
-      if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !s.glass && !bench.faint && !replayPending) newPlay();
+      if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !s.glass && !bench.faint && !replayPending) {
+        if (!career) newPlay();
+        else if (!sceneDone) {
+          sceneDone = true;
+          const line = s.box[career.spec.controlled];
+          career.onEnd({ won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0 });
+        }
+      }
       camHold = Math.max(0, camHold - dt);
       if (s.handler !== lastHandler) {
         lastHandler = s.handler;
@@ -546,7 +560,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     if (s.phase !== "intro") phud.setSituation(null);
     screen(h.pos.x, h.y + ACTORS[h.id].heightM + 0.35, h.pos.z, head);
     markers.length = 0;
-    if (s.phase === "decision" && !s.combo) {
+    if (s.phase === "decision" && !s.combo && mine()) {
       for (const o of options) {
         if (o.kind === "pass" && o.to) {
           const a = s.actors[o.to];
@@ -576,14 +590,14 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       phud.setPoster(projected.x, projected.y, true, posterElapsed);
     } else phud.setPoster(0, 0, false);
 
-    if (s.arrowMeter && s.realTime >= s.arrowMeter.startTime) {
+    if (mine() && s.arrowMeter && s.realTime >= s.arrowMeter.startTime) {
       const meter = s.arrowMeter;
       const raw = meter.fill ?? Math.min((s.realTime - meter.startTime) * 1000 / meter.meterMs, arrowEndFill(meter.kind));
       // Abschluss-Meter: Spitze = Ideal ganz oben, danach läuft der Pfeil wieder herunter
       const peak = meter.kind !== "catchshoot";
       const bank = peak && meter.bankWindow ? { lo: 2 - Math.min(meter.bankWindow.hi, arrowEndFill(meter.kind)), hi: 2 - meter.bankWindow.lo } : meter.bankWindow;
       hud.setMeter(meterDisplayFill(meter.kind, raw), meter.zones, peak ? 1 : MAX_FILL, true, bank && bank.hi > bank.lo ? bank : null);
-    } else if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL, false, s.combo.bankWindow);
+    } else if (mine() && s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL, false, s.combo.bankWindow);
     else hud.setMeter(null, noZones, MAX_FILL);
 
     if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); }
