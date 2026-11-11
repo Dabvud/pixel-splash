@@ -76,10 +76,11 @@ describe('Abschluss-Feedback und Poster', () => {
   it('verfehlt bei Aufsetzen bei Füllstand 1 und spätem Loslassen mit ZU SPÄT', () => {
     const s = takeoff('layup'), m = s.arrowMeter!;
     step(s, m.startTime + m.meterMs / 1000 - s.realTime, cfg, rng);
+    // Abschluss-Meter enden seit 2026-11-11 bei Füllstand 1,35 (Spitze + 35 % zurück)
     command(s, { kind: 'finger', down: true }, cfg, rng);
-    step(s, m.meterMs * .4 / 1000, cfg, rng);
+    step(s, m.meterMs * .3 / 1000, cfg, rng);
     command(s, { kind: 'tap' }, cfg, rng);
-    expect(m.fill).toBeCloseTo(1.4, 8);
+    expect(m.fill).toBeCloseTo(1.3, 8);
     expect(m.feedback).toBe('ZU SPÄT');
     step(s, 10, cfg, rng);
     expect(s.points).toBe(0);
@@ -88,7 +89,7 @@ describe('Abschluss-Feedback und Poster', () => {
     '%s läuft bei gehaltenem Finger ohne zusätzliche Wartezeit als Fehlversuch ab', kind => {
       const s = takeoff(kind), m = s.arrowMeter!;
       command(s, { kind: 'finger', down: true }, cfg, rng);
-      step(s, m.startTime + m.meterMs * 1.6 / 1000 - s.realTime + .001, cfg, rng);
+      step(s, m.startTime + m.meterMs * 1.35 / 1000 - s.realTime + .001, cfg, rng);
       expect(s.phase).toBe('ballflight');
       expect(m.feedback).toBe('ZU LANGSAM');
       step(s, 10, cfg, rng);
@@ -97,7 +98,7 @@ describe('Abschluss-Feedback und Poster', () => {
     });
   it.each(['layup', 'dunk', 'contact_dunk'] as const)(
     '%s zeigt nach kurzem tap alle Bilder 0…rimFrame in normaler Spielzeit vor result', kind => {
-      for (const [animSpeed, fill] of [[.5, 0], [.5, 1], [1.5, 1], [1.5, 1.4]]) {
+      for (const [animSpeed, fill] of [[.5, 0], [.5, 1], [1.5, 1], [1.5, 1.3]]) {
         const c = { ...cfg, animSpeed, slowmo: .1 }, s = takeoff(kind, false, c), m = s.arrowMeter!;
         step(s, m.startTime + m.meterMs * fill / 1000 - s.realTime, c, rng);
         command(s, { kind: 'finger', down: true }, c, rng);
@@ -150,9 +151,9 @@ describe('Abschluss-Feedback und Poster', () => {
     '%s zeigt ohne Tipp ZU LANGSAM während der Fehlversuchsanimation und erreicht ended', route => {
       const s = takeoff(route === 'alleyoop' ? 'contact_dunk' : route, route === 'alleyoop');
       const m = s.arrowMeter!;
-      step(s, m.startTime + m.meterMs * 1.6 / 1000 - s.realTime + .01, cfg, rng);
+      step(s, m.startTime + m.meterMs * 1.35 / 1000 - s.realTime + .01, cfg, rng);
       expect(s.arrowMeter?.feedback).toBe('ZU LANGSAM');
-      expect(s.arrowMeter?.fill).toBe(1.6);
+      expect(s.arrowMeter?.fill).toBe(1.35);
       expect(s.phase).toBe('ballflight');
       step(s, 10, cfg, rng);
       expect(s.phase).toBe('ended');

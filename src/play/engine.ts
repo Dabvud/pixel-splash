@@ -377,9 +377,22 @@ function refreshCatchArrow(s: PlayState, P: number, cfg: EngineConfig): void {
   s.arrowMeter!.bankWindow = c.bankWindow;
 }
 
+/** Abschluss-Meter (Korbleger/Dunk/Alley-oop): Pfeil läuft bis zur Spitze (Füllstand 1) und um diesen Anteil zurück */
+export const FINISH_RETURN = 0.35;
+
+/** Füllstand, bei dem ein Pfeil-Meter endet */
+export function arrowEndFill(kind: ArrowMeter['kind']): number {
+  return kind === 'catchshoot' ? MAX_FILL : 1 + FINISH_RETURN;
+}
+
+/** Angezeigte Pfeilhöhe: Abschluss-Meter steigen bis zur Spitze und fallen danach wieder */
+export function meterDisplayFill(kind: ArrowMeter['kind'], fill: number): number {
+  return kind === 'catchshoot' || fill <= 1 ? fill : 2 - fill;
+}
+
 function arrowInput(s: PlayState): ArrowInput | undefined {
   const m = s.arrowMeter;
-  if (!m || m.fill !== null || s.realTime < m.startTime || s.realTime >= m.startTime + m.meterMs * MAX_FILL / 1000
+  if (!m || m.fill !== null || s.realTime < m.startTime || s.realTime >= m.startTime + m.meterMs * arrowEndFill(m.kind) / 1000
     || (s.clock <= 0 && m.kind === 'catchshoot')) return;
   return { holdMs: (s.realTime - m.startTime) * 1000, P: currentP(s) };
 }
@@ -390,7 +403,7 @@ function tapArrow(s: PlayState, cfg: EngineConfig, rng: () => number, events: En
   const input = arrowInput(s);
   if (!input) return;
   a.tapped = input;
-  m.fill = Math.min(MAX_FILL, input.holdMs / m.meterMs);
+  m.fill = Math.min(arrowEndFill(m.kind), input.holdMs / m.meterMs);
   if (m.kind !== 'catchshoot') {
     const result = resolveShot({ holdMs: input.holdMs, angleDeg: 0 }, a.params, () => 1);
     m.feedback = Math.abs(result.t) <= 1 + 1e-9 ? 'PERFEKT' : result.t < -1 ? 'ZU FRÜH' : 'ZU SPÄT';
@@ -406,11 +419,12 @@ function tapArrow(s: PlayState, cfg: EngineConfig, rng: () => number, events: En
 
 function timeoutFinishArrow(s: PlayState, rng: () => number, events: EngineEvent[]): void {
   const m = s.arrowMeter!, data = rt(s).arrow!;
-  m.fill = MAX_FILL;
+  const endFill = arrowEndFill(m.kind);
+  m.fill = endFill;
   m.feedback = 'ZU LANGSAM';
   data.timedOut = true;
-  data.tapped = { holdMs: m.meterMs * MAX_FILL, P: data.combo.P };
-  events.push({ type: 'arrowTap', fill: MAX_FILL });
+  data.tapped = { holdMs: m.meterMs * endFill, P: data.combo.P };
+  events.push({ type: 'arrowTap', fill: endFill });
   if (s.phase !== 'passing') startShot(s, { holdMs: data.tapped.holdMs, angleDeg: 0 }, rng);
 }
 
@@ -910,7 +924,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   const meter = s.arrowMeter;
   if (meter && meter.fill === null) {
     if (meter.kind === 'catchshoot') refreshCatchArrow(s, currentP(s), cfg);
-    const endTime = meter.startTime + meter.meterMs * MAX_FILL / 1000;
+    const endTime = meter.startTime + meter.meterMs * arrowEndFill(meter.kind) / 1000;
     // Auch ein aufliegender Finger verlängert den einmaligen Durchlauf nicht.
     if (s.realTime + 1e-9 >= endTime) {
       s.fingerDown = false;

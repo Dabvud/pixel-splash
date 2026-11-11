@@ -99,9 +99,9 @@ describe.each([false, true])('Loslassen beim Pass-Pfeil (Lob=%s)', lob => {
     const s = lob ? pass(true) : ready();
     fill(s, 1);
     command(s, { kind: 'finger', down: true }, cfg, safe);
-    fill(s, 1.4);
+    fill(s, 1.3);
     command(s, { kind: 'tap' }, cfg, safe);
-    expect(s.arrowMeter!.fill).toBeCloseTo(1.4, 8);
+    expect(s.arrowMeter!.fill).toBeCloseTo(1.3, 8);
     if (lob) expect(s.arrowMeter!.feedback).toBe('ZU SPÄT');
     until(s, () => s.phase === 'ended');
     expect(s.points).toBe(0);

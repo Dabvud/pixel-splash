@@ -5,7 +5,8 @@ const MARK_MS = 1500;
 
 export function createHud(root: HTMLElement): {
   setMeter(fill: number | null, zones: Zones, fillMax: number, arrow?: boolean, bank?: BankWindow | null): void;
-  markRelease(fill: number, persist?: boolean, zones?: Zones): void;
+  /** shownFill: angezeigte Höhe, falls sie vom Füllstand abweicht (Abschluss-Meter mit Spitze) */
+  markRelease(fill: number, persist?: boolean, zones?: Zones, shownFill?: number): void;
   showResult(r: ShotResult): void;
   setStats(made: number, shots: number): void;
   setPaused(paused: boolean): void;
@@ -83,21 +84,22 @@ export function createHud(root: HTMLElement): {
       fillEl.style.height = pct(fill);
       if (zonesChanged) {
         green.style.bottom = pct(1 - zones.g);
-        green.style.height = `${((2 * zones.g) / max) * 100}%`;
+        // An der Spitze (max = 1) endet die grüne Zone am oberen Rand des Balkens
+        green.style.height = `${((Math.min(1 + zones.g, max) - (1 - zones.g)) / max) * 100}%`;
       }
       if (bank && bankChanged) {
         bankEl.style.bottom = pct(bank.lo);
         bankEl.style.height = `${(Math.min(bank.hi, max) - Math.min(bank.lo, max)) / max * 100}%`;
       }
     },
-    markRelease(fill, persist = false, zones) {
+    markRelease(fill, persist = false, zones, shownFill) {
       if (disposed) return;
       previousFill = undefined;
       const good = zones !== undefined && Math.abs(fill - 1) <= zones.g + 1e-9;
       mark.classList.toggle("good", good);
       arrowEl.classList.toggle("good", good);
       arrowEl.classList.add("released");
-      mark.style.bottom = pct(fill);
+      mark.style.bottom = pct(shownFill ?? fill);
       mark.hidden = false;
       clearTimer(markTimer);
       if (!persist) startTimer(markTimer, MARK_MS);

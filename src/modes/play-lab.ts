@@ -10,7 +10,7 @@ import { buildAtlas } from "../figure/atlas";
 import { ACTORS } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
-import { actorHead, command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
+import { actorHead, command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
 import { positionValue } from "../play/position";
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
@@ -158,7 +158,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         comboT0 = releasedFill = null;
         hud.setMeter(null, noZones, MAX_FILL);
       } else if (e.type === "arrowTap") {
-        hud.markRelease(e.fill, true, s.arrowMeter?.zones);
+        hud.markRelease(e.fill, true, s.arrowMeter?.zones, s.arrowMeter ? meterDisplayFill(s.arrowMeter.kind, e.fill) : undefined);
         phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
       }
       else if (e.type === "arrowEnd") hud.setMeter(null, noZones, MAX_FILL);
@@ -401,7 +401,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
     if (s.arrowMeter && s.realTime >= s.arrowMeter.startTime) {
       const meter = s.arrowMeter;
-      hud.setMeter(meter.fill ?? Math.min((s.realTime - meter.startTime) * 1000 / meter.meterMs, MAX_FILL), meter.zones, MAX_FILL, true, meter.bankWindow);
+      const raw = meter.fill ?? Math.min((s.realTime - meter.startTime) * 1000 / meter.meterMs, arrowEndFill(meter.kind));
+      // Abschluss-Meter: Spitze = Ideal ganz oben, danach läuft der Pfeil wieder herunter
+      const peak = meter.kind !== "catchshoot";
+      const bank = peak && meter.bankWindow ? { lo: 2 - Math.min(meter.bankWindow.hi, arrowEndFill(meter.kind)), hi: 2 - meter.bankWindow.lo } : meter.bankWindow;
+      hud.setMeter(meterDisplayFill(meter.kind, raw), meter.zones, peak ? 1 : MAX_FILL, true, bank && bank.hi > bank.lo ? bank : null);
     } else if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL, false, s.combo.bankWindow);
     else hud.setMeter(null, noZones, MAX_FILL);
 
