@@ -50,5 +50,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     // Atlas- und Arena-Tests brauchen unter Last (parallele Codex-Läufe, Handy-Emulation) mehr als 5 s
     testTimeout: 30000,
+    // Mit tausenden Spielzug-Tests liefen die Fork-Worker in „Timeout calling onTaskUpdate“ (CI rot trotz grüner Tests)
+    pool: "threads",
   },
 });
