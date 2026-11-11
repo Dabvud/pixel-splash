@@ -101,3 +101,21 @@ describe('Karriere: Pull-up und Zug zum Korb immer möglich', () => {
     if (s.phase === 'decision' && !s.arrowMeter) { command(s, { kind: 'drive', lane: 0 }, cfg, rng); expect(s.phase).toBe('driving'); }
   });
 });
+
+describe('Trefferquote der KI-Mitspieler (abgestimmte Wertetabelle)', () => {
+  it('Basiswerte, Verteidigung, Spielerwert, Schwierigkeit, Grenzen', async () => {
+    const { aiHitChance } = await import('../src/play/engine');
+    const pct = (v: number) => Math.round(v * 100);
+    // Pro, Wert 60: offen / leicht / eng / sehr eng
+    expect([.9, .7, .5, .3].map(P => pct(aiHitChance('layup', P, .6, 1)))).toEqual([70, 60, 49, 39]);
+    expect([.9, .7, .5, .3].map(P => pct(aiHitChance('jump2', P, .6, 5)))).toEqual([50, 43, 35, 28]);
+    expect([.9, .7, .5, .3].map(P => pct(aiHitChance('three', P, .6, 7)))).toEqual([40, 34, 28, 22]);
+    expect([.9, .7, .5, .3].map(P => pct(aiHitChance('three', P, .6, 8)))).toEqual([30, 26, 21, 17]);
+    expect(pct(aiHitChance('three', .9, .3, 7))).toBe(25);
+    expect(pct(aiHitChance('three', .9, .9, 7))).toBe(55);
+    expect(pct(aiHitChance('layup', .9, .6, 1, 1.1))).toBe(77);
+    expect(pct(aiHitChance('layup', .9, .6, 1, .85))).toBe(60);
+    expect(aiHitChance('layup', .9, 1, 1, 1.1)).toBe(.9);
+    expect(aiHitChance('three', .1, 0, 9, .85)).toBe(.05);
+  });
+});

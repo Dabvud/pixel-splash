@@ -61,6 +61,8 @@ describe('Karriere-Ablauf', () => {
   it('spielt eine ganze Saison: 5 Key Games, Speicherstand nach jedem Spiel, Saisonende mit Tabelle', () => {
     const st = memory();
     fresh(st);
+    // ohne Treffer: Bilanz bleibt schwach → keine Nachsaison, direkt „Nächste Saison“
+    outcome = () => ({ won: false, verdict: 'VERLOREN', pts: 0, ast: 0, teamPts: 0 });
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
     for (let g = 0; g < 5; g++) {
@@ -355,5 +357,22 @@ describe('Karriere – Skillpunkte zurücknehmen im Bildschirm', () => {
     minus().click();
     expect(loadCareer(st)!.player.ratings.pass).toBe(before);
     expect(loadCareer(st)!.offseason!.points).toBe(2);
+  });
+});
+
+describe('Karriere – Endstand passt zum Spielverlauf', () => {
+  it('Gamewinner: Endstand = Stand vor der Crunchtime + eigene Punkte, Sieg mit dem letzten Wurf', () => {
+    const st = memory(); fresh(st);
+    outcome = (i: number) => i === 0 ? { won: true, verdict: 'GAMEWINNER', pts: 3, ast: 0, teamPts: 3 } : { won: true, verdict: 'GAMEWINNER', pts: 3, ast: 0, teamPts: 3 };
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    playGame();
+    const last = specs.at(-1)!;
+    const m = /(\d+) : (\d+)/.exec(text())!;
+    if (last.title.startsWith('4. VIERTEL')) {
+      expect(Number(m[1])).toBe(last.score![0] + 3);
+      expect(Number(m[2])).toBe(last.score![1]);
+    }
+    expect(Number(m[1])).toBeGreaterThan(Number(m[2]));
   });
 });

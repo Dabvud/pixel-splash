@@ -40,6 +40,8 @@ export interface EngineConfig {
   ratingMeters?: boolean;
   /** Karriere: nur dieser Akteur nimmt Eingaben an; Mitspieler entscheiden und werfen per KI */
   controlled?: string;
+  /** Karriere: Schwierigkeits-Faktor auf die Trefferquote der KI-Mitspieler (Rookie 1,1 · Pro 1 · Hall of Fame 0,85) */
+  aiDifficulty?: number;
   /** Karriere-Spezialisierung: wirkt nur für `controlled` (onFire = Green Light aktiv) */
   perks?: Perks & { onFire?: boolean };
   posterVariant?: 'random' | PosterVariant;
@@ -729,9 +731,19 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
 }
 
 /** Ziel-Füllstand der KI: um die Ideallinie gestreut, enger bei hohem Wert (Einheiten der grünen Zone) */
-function aiFill(g: number, rating: number, rng: () => number): number {
-  const spread = 2.2 - 1.6 * Math.max(0, Math.min(1, rating));
-  return 1 + (rng() * 2 - 1) * spread * g;
+/** Karriere: Trefferquote der KI-Mitspieler (mit dem Nutzer abgestimmte Wertetabelle):
+ *  Basis Korb 70 % · Mitteldistanz 50 % · Dreier 40 % · weiter Dreier (> 7,5 m) 30 %,
+ *  × Verteidigung (offen 1 · leicht 0,85 · eng 0,7 · sehr eng 0,55), ± 5 %-Punkte je 10 Wertpunkte um 60, × Schwierigkeit, 5–90 % */
+export function aiHitChance(kind: ShotKind | 'ft', P: number, rating: number, distanceM: number, difficulty = 1): number {
+  if (kind === 'ft') return Math.max(.05, Math.min(.9, (.55 + .35 * rating) * difficulty));
+  const base = kind === 'three' ? distanceM > 7.5 ? .3 : .4 : kind === 'jump2' ? .5 : .7;
+  const defense = P >= .8 ? 1 : P >= .6 ? .85 : P >= .4 ? .7 : .55;
+  return Math.max(.05, Math.min(.9, (base * defense + (rating - .6) * .5) * difficulty));
+}
+
+/** Ziel-Füllstand der KI: Treffer → sicher im Grün, Fehlwurf → deutlich daneben (Einheiten der grünen Zone) */
+function aiFill(g: number, hit: boolean, rng: () => number): number {
+  return hit ? 1 + (rng() * 2 - 1) * .85 * g : 1 + (rng() < .5 ? -1 : 1) * (1.5 + .8 * rng()) * g;
 }
 
 /** KI-Mitspieler (Karriere): entscheidet nach kurzer Pause, wirft/tippt Meter mit wertabhängiger Streuung */
@@ -743,7 +755,11 @@ function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: Engin
   const ai = r.ai, ratings = ratingsOf(ACTORS[owner]);
   if (m && m.fill === null) {
     if (s.realTime < m.startTime) return;
-    ai.target ??= aiFill(m.zones.g, m.kind === 'catchshoot' ? ratings.three : ratings.finish, rng);
+    if (ai.target === undefined) {
+      const combo = r.arrow?.combo, kind = combo?.kind ?? 'jump2', pos = s.actors[owner]?.pos ?? { x: 0, z: 0 };
+      const rating = kind === 'three' ? ratings.three : kind === 'jump2' ? ratings.mid : ratings.finish;
+      ai.target = aiFill(m.zones.g, rng() < aiHitChance(kind, combo?.P ?? 1, rating, distance(pos, { x: 0, z: 0 }), cfg.aiDifficulty), rng);
+    }
     if ((s.realTime - m.startTime) * 1000 / m.meterMs + 1e-9 >= ai.target) tapArrow(s, cfg, rng, events);
     return;
   }
@@ -756,7 +772,8 @@ function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: Engin
     events.push(...runCommand(s, { kind: 'comboStart' }, cfg, rng));
     if (!s.combo) return;
     const kind = s.combo.kind, rating = s.freeThrows ? ratings.mid : kind === 'three' ? ratings.three : kind === 'jump2' ? ratings.mid : ratings.finish;
-    const hold = s.combo.meterMs * aiFill(s.combo.zones.g, rating, rng);
+    const chance = aiHitChance(s.freeThrows ? 'ft' : kind, s.combo.P, rating, distance(s.actors[owner].pos, { x: 0, z: 0 }), cfg.aiDifficulty);
+    const hold = s.combo.meterMs * aiFill(s.combo.zones.g, rng() < chance, rng);
     r.ai = { key: `${s.phase}|${owner}||${s.freeThrows?.left ?? ''}`, at: s.realTime, releaseAt: s.realTime + hold / 1000, hold };
   };
   if (s.phase === 'freethrows') { if ((r.lineup?.hold ?? 0) <= 0) shoot(); return; }

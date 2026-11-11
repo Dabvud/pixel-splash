@@ -11,9 +11,11 @@ export function strengthOf(state: CareerState, id: string): number {
 }
 
 /** Hochrechnung auf 82 Spiele aus Teamstärke, Key-Game-Bilanz und Schwierigkeit */
+/** Bilanz: die Key Games bestimmen zu 65 %, die Teamstärke zu 35 % */
 export function projectWins(teamStrength: number, keyWins: number, keyGames: number, difficulty: Difficulty, rng: () => number): number {
-  const p = Math.max(.2, Math.min(.8, .5 + (teamStrength - 60) / 100 + DIFF[difficulty]));
-  const wins = Math.round(82 * p + (keyWins - keyGames / 2) * 3 + (rng() * 2 - 1) * 3);
+  const team = Math.max(.2, Math.min(.8, .5 + (teamStrength - 60) / 100 + DIFF[difficulty]));
+  const key = keyGames ? keyWins / keyGames : .5;
+  const wins = Math.round(82 * (.35 * team + .65 * key) + (rng() * 2 - 1) * 3);
   return Math.max(10, Math.min(72, wins));
 }
 

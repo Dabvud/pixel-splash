@@ -23,6 +23,8 @@ import type { Mode } from './mode';
 export interface CareerDeps { storage?: Storage; seed?: number; playScene?: PlayScene }
 
 const TICKER_MS = 2500;
+/** Schwierigkeit in den Szenen (mit dem Nutzer abgestimmt): grüne Zone, Meter-Dauer, KI-Trefferquote, Steal-Chance eigener Pässe */
+const TUNING = { rookie: { zone: 1.2, meter: 1.1, ai: 1.1, steal: .8 }, pro: { zone: 1, meter: 1, ai: 1, steal: 1 }, hof: { zone: .8, meter: .9, ai: .85, steal: 1.2 } };
 const RATING_LABEL: Record<RatingKey, string> = { mid: 'Mitteldistanz', three: 'Dreier', finish: 'Korbleger', dunk: 'Dunk', dribble: 'Dribbling',
   pass: 'Passen', athleticism: 'Athletik', defense: 'Verteidigung', leadership: 'Führung' };
 const money = (m: number) => `${m.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Mio. $`;
@@ -102,8 +104,15 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       const i = results.length;
       if (i >= total) {
         // Crunchtime gespielt: die letzte Szene entscheidet, Gleichstand (Overtime) per Münzwurf
-        const last = results[i - 1], won = last.won || (/OVERTIME/.test(last.verdict) && rng() < .5);
+        const last = results[i - 1], ot = !last.won && /OVERTIME/.test(last.verdict);
+        const won = last.won || (ot && rng() < .5);
         const ownEnd = score!.own + (last.teamPts ?? 0);
+        if (ot) {
+          // Gleichstand mit der Sirene → Verlängerung: beide punkten, der Sieger mit 1–5 Punkten Vorsprung
+          const base = ownEnd + 6 + Math.floor(rng() * 7), margin = 1 + Math.floor(rng() * 5);
+          return finish(results, rng, { won, own: won ? base + margin : base, opp: won ? base : base + margin, note: 'Entschieden in der Verlängerung.' });
+        }
+        // Endstand = Stand vor der Crunchtime + eigene Punkte der Szene (kein ausgeloster Endstand mehr)
         return finish(results, rng, won ? { won, own: Math.max(ownEnd, score!.opp + 1), opp: score!.opp }
           : { won, own: ownEnd, opp: Math.max(score!.opp, ownEnd + 1) });
       }
@@ -124,7 +133,9 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
         score = { own: score.own, opp: score.own + deficit };
       } else deficit = Math.max(1, Math.min(3, score.opp - score.own));
       const perks = perksOf(c.player), hot = updateHot(c.hot ?? 0, results);
-      const withPerks = (sp: SceneSpec): SceneSpec => ({ ...sp, perks: { ...perks, onFire: Boolean(perks.greenLight) && hot >= 2 } });
+      const t = TUNING[c.difficulty];
+      const withPerks = (sp: SceneSpec): SceneSpec => ({ ...sp, tuning: { zone: t.zone, meter: t.meter, ai: t.ai },
+        perks: { ...perks, passSteal: (perks.passSteal ?? 1) * t.steal, onFire: Boolean(perks.greenLight) && hot >= 2 } });
       const spec = withPerks(sceneSpec(c, game, i, total, deficit, rng, score));
       // Coach-Call: zweiter Spielzug zur Wahl (gleiche Lage, anderer Spielzug)
       let alt: SceneSpec | undefined;

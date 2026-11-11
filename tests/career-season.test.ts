@@ -138,3 +138,12 @@ describe('Szenen-Anzeigetafel', () => {
     expect(last.period).toBe('4. VIERTEL');
   });
 });
+
+describe('Bilanz hängt vor allem an den Key Games', () => {
+  it('0 von 5 → wenige Siege, 5 von 5 → viele Siege (schwaches Team)', () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      expect(projectWins(40, 0, 5, 'pro', seededRng(seed))).toBeLessThanOrEqual(15);
+      expect(projectWins(40, 5, 5, 'pro', seededRng(seed))).toBeGreaterThanOrEqual(55);
+    }
+  });
+});

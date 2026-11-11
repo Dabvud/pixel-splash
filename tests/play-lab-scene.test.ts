@@ -115,3 +115,17 @@ describe('Spielzug-Labor als Karriere-Szene', () => {
     expect(vi.mocked(createPlayState).mock.calls.length).toBeGreaterThan(1);
   });
 });
+
+describe('Karriere-Schwierigkeit in der Szene', () => {
+  it('grüne Zone, Meter-Dauer und KI-Faktor kommen in der Engine an', () => {
+    registerHero({ ...SAMPLE.player, position: 'guard' }, TEAMS[0]);
+    const spec: SceneSpec = { play: castWithHero(PLAYS.pnr, 'guard', seededRng(1)), deficit: 2, clockS: 12, title: 't', subtitle: 's',
+      controlled: HERO_ID, tuning: { zone: .8, meter: .9, ai: .85 } };
+    vi.spyOn(Math, 'random').mockImplementation(seededRng(3));
+    mode = startPlayLab(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { spec, onEnd: vi.fn() });
+    const cfg = vi.mocked(createPlayState).mock.calls.at(-1)![1];
+    expect(cfg.shot.greenZone).toBeCloseTo(DEFAULTS.greenZone * .8, 9);
+    expect(cfg.finish.meterMs).toBeCloseTo(DEFAULTS.finishMeterMs * .9, 9);
+    expect(cfg.aiDifficulty).toBe(.85);
+  });
+});

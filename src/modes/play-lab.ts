@@ -43,6 +43,8 @@ function seeded(seed: number): () => number {
 /** scene: Karriere-Szene – fester Spielzug, eigener Spieler, meldet das Ende einmal statt neu zu starten */
 export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spec: SceneSpec; onEnd: (r: SceneResult) => void }): Mode {
   let sceneDone = false;
+  // Karriere-Schwierigkeit (Labor: neutral)
+  const tune = career?.spec.tuning ?? { zone: 1, meter: 1, ai: 1 };
   const root = document.createElement("div");
   root.className = "play-lab";
   app.append(root);
@@ -97,9 +99,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
     tempoSpread: settings.tempoSpread,
     passDelayMax: settings.passDelayMax,
     closeoutRandom: settings.closeoutRandom,
-    shot: { meterMs: settings.meterMs, greenZone: settings.greenZone, aimDeg: settings.aimDeg, influence: INFLUENCE[settings.influence] },
-    finish: { meterMs: settings.finishMeterMs, greenZone: settings.finishGreen, aimDeg: settings.finishAim },
-    ...(career ? { controlled: career.spec.controlled, ratingMeters: true, situationRandom: false, perks: career.spec.perks } : {}),
+    shot: { meterMs: settings.meterMs * tune.meter, greenZone: settings.greenZone * tune.zone, aimDeg: settings.aimDeg, influence: INFLUENCE[settings.influence] },
+    finish: { meterMs: settings.finishMeterMs * tune.meter, greenZone: settings.finishGreen * tune.zone, aimDeg: settings.finishAim },
+    ...(career ? { controlled: career.spec.controlled, ratingMeters: true, situationRandom: false, perks: career.spec.perks, aiDifficulty: tune.ai } : {}),
   });
   // Karriere: Meter und Entscheidungs-Marker nur, wenn der eigene Spieler am Zug ist
   const mine = () => !career || isControlled(s);
