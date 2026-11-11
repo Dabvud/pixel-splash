@@ -1,8 +1,11 @@
 import type { Settings } from '../settings';
-import { clearCareer, loadCareer } from '../career/state';
+import { clearCareer, loadCareer, saveCareer, type CareerState } from '../career/state';
+import { newCareer } from '../career/create';
+import { teamById, teamName } from '../career/league';
+import { createCareerScreen } from '../ui/career-create';
 import type { Mode } from './mode';
 
-export interface CareerDeps { storage?: Storage }
+export interface CareerDeps { storage?: Storage; seed?: number }
 
 /** Karriere-Modus: Bildschirme rund um die Szenen (Gerüst – Erstellen, Saison und Szenen folgen) */
 export function startCareer(app: HTMLElement, _s: Settings, deps: CareerDeps = {}): Mode {
@@ -33,7 +36,15 @@ export function startCareer(app: HTMLElement, _s: Settings, deps: CareerDeps = {
       [['Ja, löschen', () => { clearCareer(deps.storage); create(); }], ['Abbrechen', start]]);
   }
   function create(): void {
-    screen('<h2>Spieler erstellen</h2><p>Kommt im nächsten Schritt.</p>', [['Zurück', start]]);
+    createCareerScreen(root, input => {
+      const c = newCareer(input, deps.seed ?? (Date.now() >>> 0));
+      saveCareer(c, deps.storage);
+      draft(c);
+    });
+  }
+  function draft(c: CareerState): void {
+    screen(`<h2>Draft</h2><p>Die ${escape(teamName(teamById(c.team)))} holen ${escape(c.player.name)} mit der Nummer ${c.player.num}!</p>`,
+      [['Weiter', () => resume()]]);
   }
   function resume(): void {
     screen('<h2>Saison</h2><p>Kommt in einem späteren Schritt.</p>', [['Zurück', start]]);

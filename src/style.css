@@ -604,6 +604,35 @@ body {
   cursor: pointer;
 }
 .menu-btn:first-child { border-color: var(--accent); }
-.career-screen h2 { margin: 0; font: 18px/1.5 var(--pixel); color: var(--accent); }
+.career-screen h2 { margin: 0; font: 15px/1.5 var(--pixel); color: var(--accent); }
 .career-screen p { margin: 0; font: 15px/1.5 var(--body); color: var(--muted); }
 .main-menu { z-index: 50; } /* Hauptmenü verdeckt auch den Pause-Knopf */
+.career-create { justify-content: flex-start; gap: 16px; padding-top: calc(env(safe-area-inset-top, 0px) + 64px); }
+.cc-preview {
+  width: 96px;
+  height: 192px;
+  image-rendering: pixelated;
+  background: rgb(255 255 255 / 0.04);
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  flex: none;
+}
+.cc-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  width: min(420px, 100%);
+  text-align: left;
+}
+.cc-form label { display: flex; flex-direction: column; gap: 4px; font: 12px/1.3 var(--body); color: var(--muted); }
+.cc-form input,
+.cc-form select {
+  font: 15px var(--body);
+  min-height: 40px;
+  padding: 6px 8px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.cc-form input[type="range"] { padding: 0; min-height: 32px; }
