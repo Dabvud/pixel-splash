@@ -3,21 +3,22 @@ import { formatVersion } from "../version";
 import { PLAYS } from "../play/plays";
 
 type Key = keyof Settings;
-type Show = "all" | "shot" | "play";
+// any = auch in der Karriere; all = beide Labore
+type Show = "any" | "all" | "shot" | "play";
 interface SelectField { key: Key; label: string; show: Show; options: [string, string][]; parse?: (v: string) => unknown }
 interface RangeField { key: Key; label: string; show: Show; min: number; max: number; step: number; scale: number; fmt: (v: number) => string }
 
 const num = (v: string) => Number(v);
 const SELECTS: SelectField[] = [
-  { key: "mode", label: "Modus", show: "all", options: [["shot", "Wurf-Labor"], ["play", "Spielzug-Labor"]] },
+  { key: "mode", label: "Modus", show: "any", options: [["career", "Karriere"], ["shot", "Wurf-Labor"], ["play", "Spielzug-Labor"]] },
   { key: "play", label: "Spielzug", show: "play", options: [["random", "Zufall"], ...Object.values(PLAYS).map((p): [string, string] => [p.id, p.name])] },
   { key: "spot", label: "Wurfspot", show: "shot", options: SPOTS.map((p) => [p.id, p.label]) },
-  { key: "camera", label: "Kamera", show: "all", options: [["auto", "Automatisch"], ["low", "Tief hinter dem Spieler"], ["high", "Erhöht"]] },
+  { key: "camera", label: "Kamera", show: "any", options: [["auto", "Automatisch"], ["low", "Tief hinter dem Spieler"], ["high", "Erhöht"]] },
   { key: "profile", label: "Testprofil", show: "shot", options: PROFILES.map((p) => [p.id, p.label]) },
   { key: "influence", label: "Stat-Einfluss", show: "all", options: [["off", "Aus"], ["light", "Leicht"], ["fair", "Fair"], ["strong", "Stark"]] },
   { key: "defenseRandom", label: "Verteidigungs-Zufall", show: "play", options: [["true", "An"], ["false", "Aus (immer gleich)"]], parse: (v) => v === "true" },
   { key: "fouls", label: "Foul-Häufigkeit", show: "play", options: [["off", "Aus"], ["rare", "Selten"], ["normal", "Normal"], ["often", "Oft"]] },
-  { key: "pixelHeight", label: "Pixel-Auflösung", show: "all", options: [220, 320, 420, 540].map((r) => [String(r), `${r} px`]), parse: num },
+  { key: "pixelHeight", label: "Pixel-Auflösung", show: "any", options: [220, 320, 420, 540].map((r) => [String(r), `${r} px`]), parse: num },
 ];
 const pct = (v: number) => `${v} %`;
 const FINISH_FOUL_STEPS = [-1, 0, 0.25, 0.5, 0.75, 1];
@@ -40,7 +41,7 @@ const RANGES: RangeField[] = [
 
 // Zahnrad + Dialog; jede Änderung wird sofort gespeichert und gemeldet.
 export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Settings) => void, onToggle?: (open: boolean) => void, onRestart?: () => void,
-  onPauseOpen?: (extra: HTMLElement) => void): void {
+  onPauseOpen?: (extra: HTMLElement) => void, onMainMenu?: () => void): { sync(s: Settings): void } {
   const select = (f: SelectField) =>
     `<label data-show="${f.show}">${f.label} <select id="lab-${f.key}">${f.options.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>`;
   const range = (f: RangeField) =>
@@ -54,6 +55,7 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
        <button class="lab-close" id="pause-resume">Weiter</button>
        <button class="pause-btn" id="pause-restart">${s.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen"}</button>
        <button class="pause-btn" id="pause-settings">Einstellungen</button>
+       <button class="pause-btn" id="pause-menu">Hauptmenü</button>
        <div id="pause-extra"></div>
      </dialog>
      <dialog class="lab" id="lab" aria-labelledby="lab-title">
@@ -113,7 +115,10 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     el<HTMLInputElement>('forceBoardOop').checked = cur.forceBoardOop;
     el<HTMLInputElement>('forceFaint').checked = cur.forceFaint;
     el<HTMLSelectElement>('posterVariant').value = cur.posterVariant;
-    dialog.querySelectorAll<HTMLElement>("[data-show]").forEach((l) => (l.hidden = l.dataset.show !== "all" && l.dataset.show !== cur.mode));
+    dialog.querySelectorAll<HTMLElement>("[data-show]").forEach((l) => {
+      const show = l.dataset.show;
+      l.hidden = !(show === "any" || (show === "all" && cur.mode !== "career") || show === cur.mode);
+    });
   };
 
   dialog.addEventListener("input", () => {
@@ -139,7 +144,9 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     toSettings = false;
   });
   root.querySelector("#lab-open")!.addEventListener("click", () => {
-    root.querySelector("#pause-restart")!.textContent = cur.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen";
+    const restartBtn = root.querySelector<HTMLElement>("#pause-restart")!;
+    restartBtn.textContent = cur.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen";
+    restartBtn.hidden = cur.mode === "career";
     const extra = root.querySelector<HTMLElement>("#pause-extra")!;
     extra.replaceChildren();
     onPauseOpen?.(extra);
@@ -151,6 +158,10 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     onRestart?.();
     pause.close();
   });
+  root.querySelector("#pause-menu")!.addEventListener("click", () => {
+    pause.close();
+    onMainMenu?.();
+  });
   root.querySelector("#pause-settings")!.addEventListener("click", () => {
     toSettings = true;
     pause.close();
@@ -158,4 +169,5 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     dialog.showModal();
   });
   fill();
+  return { sync(s) { cur = { ...s }; fill(); } };
 }

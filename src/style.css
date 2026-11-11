@@ -163,6 +163,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 10px;
   cursor: pointer;
+  z-index: 45; /* auch über den Karriere-Bildschirmen erreichbar (Pause → Hauptmenü) */
 }
 .lab {
   width: min(420px, calc(100vw - 32px));
@@ -560,3 +561,49 @@ body {
   font-size: 8px;
   color: var(--muted);
 }
+
+/* Hauptmenü und Karriere-Bildschirme: liegen über allem, eigener Hintergrund */
+.main-menu,
+.career-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: calc(env(safe-area-inset-top, 0px) + 24px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px);
+  background: radial-gradient(circle at 50% 30%, #2a1d14, var(--bg) 70%);
+  color: var(--fg);
+  text-align: center;
+  overflow-y: auto;
+}
+.main-menu[hidden] { display: none; }
+.main-menu-title {
+  margin: 0;
+  font: 32px/1.4 var(--pixel);
+  color: var(--accent);
+  text-shadow: 3px 3px 0 #000;
+}
+.main-menu-list,
+.career-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(320px, 100%);
+}
+.menu-btn {
+  font: 13px/1.4 var(--pixel);
+  min-height: 52px;
+  padding: 12px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.menu-btn:first-child { border-color: var(--accent); }
+.career-screen h2 { margin: 0; font: 18px/1.5 var(--pixel); color: var(--accent); }
+.career-screen p { margin: 0; font: 15px/1.5 var(--body); color: var(--muted); }
+.main-menu { z-index: 50; } /* Hauptmenü verdeckt auch den Pause-Knopf */
