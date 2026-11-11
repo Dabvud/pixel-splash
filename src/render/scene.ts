@@ -1,36 +1,32 @@
 import * as THREE from "three";
 import { netHit, netPose } from "./net";
+import { pixelTexture } from "./arena-textures";
+import { createCrowd, type CrowdController } from "./crowd";
+import { createStadium } from "./stadium";
 
-// Halle aus der Look-Test-Vorschau (Variante „Pixel“): Feld, Korb, Publikum, Licht.
-export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet(nowMs: number): void } {
+// Pixel-Arena; die Modi steuern Netz und optional das Publikum unabhängig.
+export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet(nowMs: number): void; crowd?: CrowdController } {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x120d0a);
+  scene.background = new THREE.Color(0x0b101b);
 
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(15, 14), new THREE.MeshLambertMaterial({ map: courtTexture() }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, 0, 5.425);
   floor.receiveShadow = true;
   scene.add(floor);
-  const apron = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshLambertMaterial({ color: 0x2a1e17 }));
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(70, 70), new THREE.MeshLambertMaterial({ color: 0x22202a }));
   apron.rotation.x = -Math.PI / 2;
   apron.position.set(0, -0.01, 5);
   scene.add(apron);
 
-  const wall = (w: number, x: number, z: number, ry: number) => {
-    // 14 m hoch, damit im Hochformat über dem Publikum keine leere Fläche bleibt
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 14), new THREE.MeshLambertMaterial({ map: crowdTexture(w / 8, 2) }));
-    m.position.set(x, 7, z);
-    m.rotation.y = ry;
-    scene.add(m);
-  };
-  wall(30, 0, -7, 0);
-  wall(30, -11, 6, Math.PI / 2);
-  wall(30, 11, 6, -Math.PI / 2);
+  const stadium = createStadium();
+  const crowd = createCrowd(stadium.seats);
+  scene.add(stadium.group, crowd.mesh);
 
   const net = addHoop(scene);
 
-  scene.add(new THREE.HemisphereLight(0xfff0e0, 0x2a1a12, 0.8));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+  scene.add(new THREE.HemisphereLight(0xd7e3ff, 0x251d27, 0.45));
+  const sun = new THREE.DirectionalLight(0xfff0dc, 0.85);
   sun.position.set(4, 12, 9);
   sun.castShadow = true;
   Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10 });
@@ -51,7 +47,7 @@ export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet
     net.scale.y = sy;
     net.position.set(dx, 3.05 - 0.21 * sy, 0);
   };
-  return { scene, ball, updateNet };
+  return { scene, ball, updateNet, crowd };
 }
 
 function courtTexture(): THREE.CanvasTexture {
@@ -86,29 +82,7 @@ function courtTexture(): THREE.CanvasTexture {
   g.beginPath();
   g.arc(X(0), c.height, 1.8 * S, Math.PI, 2 * Math.PI);
   g.stroke();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-function crowdTexture(repeat: number, rows: number): THREE.CanvasTexture {
-  const c = document.createElement("canvas");
-  c.width = 64;
-  c.height = 16;
-  const g = c.getContext("2d")!;
-  g.fillStyle = "#1a1620";
-  g.fillRect(0, 0, 64, 16);
-  for (let y = 1; y < 16; y += 3)
-    for (let x = y % 2; x < 64; x += 2) {
-      g.fillStyle = `hsl(${Math.random() * 360},35%,${25 + Math.random() * 30}%)`;
-      g.fillRect(x, y, 1, 2);
-    }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.magFilter = THREE.NearestFilter;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(repeat, rows);
-  return t;
+  return pixelTexture(c);
 }
 
 function addHoop(scene: THREE.Scene): THREE.Mesh {
@@ -131,8 +105,7 @@ function addHoop(scene: THREE.Scene): THREE.Mesh {
     scene.add(m);
     return m;
   };
-  const texture = new THREE.CanvasTexture(c);
-  texture.colorSpace = THREE.SRGBColorSpace;
+  const texture = pixelTexture(c);
   part(new THREE.BoxGeometry(1.8, 1.05, 0.05), new THREE.MeshLambertMaterial({ map: texture }), 0, 3.42, -0.4);
   const rim = part(new THREE.TorusGeometry(0.23, 0.02, 8, 24), new THREE.MeshLambertMaterial({ color: 0xe8601c }), 0, 3.05, 0);
   rim.rotation.x = Math.PI / 2;
