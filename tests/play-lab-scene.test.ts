@@ -56,6 +56,8 @@ beforeEach(() => {
 afterEach(() => { mode?.stop(); unregisterHero(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function startScene(seed = 1, deficit = 2, clockS = 12) {
+  // fester Zufall: keine zufällige Bank-Ohnmacht/Replays, die das Ende in CI unterschiedlich weit verschieben
+  vi.spyOn(Math, 'random').mockImplementation(seededRng(seed + 1000));
   registerHero({ ...SAMPLE.player, position: 'guard' }, TEAMS[0]);
   const spec: SceneSpec = { play: castWithHero(PLAYS.pnr, 'guard', seededRng(seed)), deficit, clockS,
     title: '4. VIERTEL · 0:12 · −2', subtitle: 'Christmas Game', controlled: HERO_ID };
@@ -107,6 +109,7 @@ describe('Spielzug-Labor als Karriere-Szene', () => {
     }
   });
   it('ohne Szene verhält sich das Labor wie bisher (neuer Spielzug nach dem Ende)', () => {
+    vi.spyOn(Math, 'random').mockImplementation(seededRng(5));
     mode = startPlayLab(document.querySelector('#app')!, { ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false });
     advance(80);
     expect(vi.mocked(createPlayState).mock.calls.length).toBeGreaterThan(1);
