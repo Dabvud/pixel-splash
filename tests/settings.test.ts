@@ -14,7 +14,7 @@ describe('Einstellungen', () => {
       spot: 'top', camera: 'auto', profile: 'avg', influence: 'fair',
       meterMs: 700, greenZone: 0.07, aimDeg: 6, pixelHeight: 320,
       mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2.5, animSpeed: 1,
-      defenseRandom: true, fouls: 'normal', finishMeterMs: 450, finishGreen: 0.1,
+      defenseRandom: true, fouls: 'normal', finishMeterMs: 900, finishGreen: 0.18,
       finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
       passDelayMax: 0.6, closeoutRandom: 1,
     });
@@ -136,8 +136,8 @@ describe('Spielzug-Einstellungen', () => {
     ['slowmo', -1, 0.2], ['slowmo', 0.9, 0.5],
     ['decisionS', 0, 1.5], ['decisionS', 9, 4],
     ['animSpeed', 0, 0.5], ['animSpeed', 2, 1.5],
-    ['finishMeterMs', 0, 300], ['finishMeterMs', 900, 700],
-    ['finishGreen', 0, 0.05], ['finishGreen', 1, 0.2],
+    ['finishMeterMs', 0, 300], ['finishMeterMs', 2000, 1500],
+    ['finishGreen', 0, 0.05], ['finishGreen', 1, 0.25],
     ['finishAim', 0, 4], ['finishAim', 20, 14],
     ['tempoSpread', -1, 0], ['tempoSpread', 1, 0.5],
     ['zoneFloor', 0, 0.5], ['zoneFloor', 1, 0.9],
@@ -163,4 +163,27 @@ describe('Spielzug-Einstellungen', () => {
         expect(loadSettings()).toEqual(settings);
       }
     });
+});
+
+describe('Testphase: langsames, großzügiges Abschluss-Meter', () => {
+  it('nutzt als Standard 900 ms und ±18 % grüne Zone', () => {
+    expect(DEFAULTS.finishMeterMs).toBe(900);
+    expect(DEFAULTS.finishGreen).toBeCloseTo(0.18, 10);
+  });
+
+  it('hebt gespeicherte alte Standardwerte (450 ms, ±10 %) auf die neuen an, eigene Werte bleiben', () => {
+    const store = (v: Record<string, unknown>) => ({ getItem: () => JSON.stringify(v) }) as unknown as Storage;
+    const old = loadSettings(store({ finishMeterMs: 450, finishGreen: 0.1 }));
+    expect(old.finishMeterMs).toBe(900);
+    expect(old.finishGreen).toBeCloseTo(0.18, 10);
+    const own = loadSettings(store({ finishMeterMs: 600, finishGreen: 0.12 }));
+    expect(own.finishMeterMs).toBe(600);
+    expect(own.finishGreen).toBeCloseTo(0.12, 10);
+  });
+
+  it('erlaubt bis 1500 ms und ±25 %', () => {
+    const store = { getItem: () => JSON.stringify({ finishMeterMs: 1500, finishGreen: 0.25 }) } as unknown as Storage;
+    expect(loadSettings(store).finishMeterMs).toBe(1500);
+    expect(loadSettings(store).finishGreen).toBeCloseTo(0.25, 10);
+  });
 });

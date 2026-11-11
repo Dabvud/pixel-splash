@@ -432,7 +432,8 @@ describe('Spielzug-Labor Integration', () => {
     expect(s.arrowMeter).toBeNull();
   });
   it.each([false, true])('zeigt nach tap alle Abschlussbilder und hält finishCameraPose bis result (halten=%s)', hold => {
-    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, fouls: 'off' });
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, fouls: 'off', finishMeterMs: 450 });
+    // Kamera-Test: kurzes Meter, damit der Zeitsprung bis zur Spitze unter der 1-s-Hintergrundgrenze bleibt
     const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
     advance(2.3);
     const s = state(), c = vi.mocked(step).mock.calls.at(-1)![2];

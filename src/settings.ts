@@ -53,7 +53,7 @@ export const DEFAULTS: Settings = {
   spot: 'top', camera: 'auto', profile: 'avg', influence: 'fair',
   meterMs: 700, greenZone: 0.07, aimDeg: 6, pixelHeight: 320,
   mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2.5, animSpeed: 1,
-  defenseRandom: true, fouls: 'normal', finishMeterMs: 450, finishGreen: 0.1,
+  defenseRandom: true, fouls: 'normal', finishMeterMs: 900, finishGreen: 0.18,
   finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
   passDelayMax: 0.6, closeoutRandom: 1,
 };
@@ -90,8 +90,9 @@ export function loadSettings(storage?: Storage | null): Settings {
       animSpeed: bounded(fields.animSpeed, 0.5, 1.5, DEFAULTS.animSpeed),
       defenseRandom: typeof fields.defenseRandom === 'boolean' ? fields.defenseRandom : DEFAULTS.defenseRandom,
       fouls: choice(fields.fouls, ['off', 'rare', 'normal', 'often'], DEFAULTS.fouls),
-      finishMeterMs: bounded(fields.finishMeterMs, 300, 700, DEFAULTS.finishMeterMs),
-      finishGreen: bounded(fields.finishGreen, 0.05, 0.2, DEFAULTS.finishGreen),
+      // Testphase: alte Standardwerte (450 ms, ±10 %) werden auf das langsamere, großzügigere Meter angehoben
+      finishMeterMs: fields.finishMeterMs === 450 ? DEFAULTS.finishMeterMs : bounded(fields.finishMeterMs, 300, 1500, DEFAULTS.finishMeterMs),
+      finishGreen: fields.finishGreen === 0.1 ? DEFAULTS.finishGreen : bounded(fields.finishGreen, 0.05, 0.25, DEFAULTS.finishGreen),
       finishAim: bounded(fields.finishAim, 4, 14, DEFAULTS.finishAim),
       tempoSpread: bounded(fields.tempoSpread, 0, 0.5, DEFAULTS.tempoSpread),
       zoneFloor: bounded(fields.zoneFloor, 0.5, 0.9, DEFAULTS.zoneFloor),
