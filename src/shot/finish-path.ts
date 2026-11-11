@@ -6,7 +6,8 @@ export function buildFinishFlight(kind: 'layup' | 'dunk' | 'contact_dunk', outco
   release: Vec3, rimContactS: number, context?: { from?: Vec3; block?: Vec3 }): Flight {
   const start = { ...release };
   const made = outcome === 'swish' || outcome === 'rim_in' || outcome === 'roll_in' || outcome === 'bank_in';
-  if (!made && (kind !== 'layup' || ['airball', 'board', 'rim_back'].includes(outcome))) {
+  // Alle Fehlversuche am Korb nutzen die Abprallbahn, die den Ball sichtbar vom Ring wegführt.
+  if (!made) {
     return reboundFlight(start, outcome, kind === 'layup' ? .45 : rimContactS, context, kind === 'layup');
   }
   if (kind === 'layup') {
@@ -69,11 +70,14 @@ function reboundFlight(start: Vec3, outcome: Outcome, arcEnd: number,
   const late = outcome === 'rim_back' || outcome === 'board';
   const contact = block ? { ...block } : outcome === 'board' ? targetPoint('board', from)
     : targetPoint(outcome === 'airball' ? 'rim_front' : outcome, from);
-  // Späte Versuche bleiben hinter dem Ring bzw. direkt am Brett. Blockbälle
-  // fallen ohne Aufwärtsimpuls von der Hand auf die Seite des Angreifers.
-  const speed = block ? 1.8 : late ? (outcome === 'board' ? 0 : .15) : 1.6;
-  const vx = (late && !block ? -1 : 1) * ux * speed;
-  const vz = (late && !block ? -1 : 1) * uz * speed;
+  // Kontaktpunkt nie hinter dem Brett: Ballmittelpunkt mindestens einen Ballradius davor.
+  if (contact.z < -0.375 + 0.12) contact.z = -0.375 + 0.12;
+  // Späte Versuche springen von hinterer Ringkante bzw. Brett deutlich nach vorn heraus –
+  // fielen sie direkt hinter dem Ring herunter, sähe es aus der Seitenkamera wie ein Korb aus.
+  // Blockbälle fallen ohne Aufwärtsimpuls von der Hand auf die Seite des Angreifers.
+  const speed = block ? 1.8 : late ? 2.2 : 1.6;
+  const vx = ux * speed;
+  const vz = uz * speed;
   const vy = block ? 0 : 2.45, gravity = 9.81, ground = .12, bounceS = .3;
   const fallS = (vy + Math.sqrt(vy ** 2 + 2 * gravity * (contact.y - ground))) / gravity;
   const landing = arcEnd + fallS, duration = landing + bounceS;

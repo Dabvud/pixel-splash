@@ -18,6 +18,8 @@ describe('Seitlicher Korbleger-Bogen (φ ≈ 26,6°)', () => {
   it.each(outcomes)('erreicht für %s nach 0,4–0,5 Sekunden den spezifizierten Zielpunkt', (outcome) => {
     const expectedOutcome = made.includes(outcome) ? 'bank_in' : outcome === 'airball' ? 'rim_front' : outcome;
     const target = targetPoint(expectedOutcome, release);
+    // Fehlversuche treffen höchstens einen Ballradius vor dem Brett (nie dahinter)
+    if (!made.includes(outcome) && target.z < -0.375 + 0.12) target.z = -0.375 + 0.12;
     const flight = buildFinishFlight('layup', outcome, release, rimContactS);
     expect(flight.arcEnd).toBeGreaterThanOrEqual(0.4);
     expect(flight.arcEnd).toBeLessThanOrEqual(0.5);
@@ -26,7 +28,8 @@ describe('Seitlicher Korbleger-Bogen (φ ≈ 26,6°)', () => {
     expect(Math.max(...heights)).toBeGreaterThan(Math.max(release.y, target.y));
   });
 
-  it.each(outcomes.filter(o => !['airball', 'board', 'rim_back'].includes(o)))('führt Fallen, Abpraller und Aufspringen für %s mit der passenden buildFlight-Bahn fort', (outcome) => {
+  // Fehlversuche nutzen seit 2026-11-11 die Abprallbahn (sichtbar vom Ring weg), nur Treffer folgen buildFlight.
+  it.each(outcomes.filter(o => made.includes(o)))('führt Fallen, Abpraller und Aufspringen für %s mit der passenden buildFlight-Bahn fort', (outcome) => {
     const flight = buildFinishFlight('layup', outcome, release, rimContactS);
     const original = buildFlight(made.includes(outcome) ? 'bank_in' : outcome, release);
     const remaining = original.duration - original.arcEnd;
@@ -94,12 +97,14 @@ describe('Abschlussbahn zeigt den Timingfehler', () => {
         expect(end.x * from.x + end.z * from.z).toBeGreaterThan(.3);
       }
     });
-    it.each(['rim_back', 'board'] as const)(`${kind}: %s prallt hinter dem Ring nach oben ab und landet hinten`, outcome => {
+    // Zu spät: Kontakt hinten (Ring bzw. Brett), dann nach oben und deutlich nach vorn heraus –
+    // ein Ball, der direkt hinter dem Ring herunterfällt, sähe aus der Seitenkamera wie ein Korb aus.
+    it.each(['rim_back', 'board'] as const)(`${kind}: %s trifft hinten, prallt nach oben ab und springt nach vorn heraus`, outcome => {
       const from = { x: 0, y: 3.1, z: 1.2 }, flight = buildFinishFlight(kind, outcome, from, .3);
       const contact = flight.at(flight.arcEnd);
       expect(contact.z).toBeLessThan(0);
       expect(flight.at(flight.arcEnd + .1).y).toBeGreaterThan(contact.y);
-      expect(flight.at(flight.duration).z).toBeLessThan(0);
+      expect(flight.at(flight.duration).z).toBeGreaterThan(0.5);
     });
   }
 

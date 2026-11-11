@@ -88,19 +88,9 @@ describe('Bankshot-Bahnen und Brett-Kollision', () => {
 
   it.each([-1, 1])('fängt einen kurzen Brett-Durchtritt am Korbleger-Phasenwechsel ab (Seite %s)', side => {
     const from = { x: side * .6352, y: 3.2, z: 1 };
-    const outcome = side < 0 ? 'wide_left' : 'wide_right';
-    const target = targetPoint(outcome, from);
-    const flight = buildFinishFlight('layup', outcome, from, .3);
-    // Das Ziel liegt nur knapp hinter dem Brett. Ein grobes Zeitraster allein
-    // übersieht den Durchtritt kurz vor arcEnd in der früheren zusammengesetzten Bahn.
-    const contactS = flight.arcEnd * (from.z + .375) / (from.z - target.z);
-    const contact = flight.at(contactS);
-    expect(contact.z).toBeCloseTo(-.375, 10);
-    expect(Math.abs(contact.x)).toBeLessThan(.9);
-    expect(contact.y).toBeGreaterThan(2.895);
-    expect(contact.y).toBeLessThan(3.945);
-    expect(flight.at(contactS - .00001).z).toBeGreaterThan(-.375);
-    expect(flight.at(contactS + .00001).z).toBeGreaterThan(-.375);
+    const flight = buildFinishFlight('layup', side < 0 ? 'wide_left' : 'wide_right', from, .3);
+    // Seit 2026-11-11 nutzen Korbleger-Fehlversuche die Abprallbahn; geprüft bleibt:
+    // kein Brett-Durchtritt und eine stetige Bahn am Phasenwechsel.
     const before = flight.at(flight.arcEnd - .00000001);
     const after = flight.at(flight.arcEnd + .00000001);
     expect(Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z)).toBeLessThan(.000001);
