@@ -8,7 +8,7 @@ import { createGlassShards } from "../render/glass";
 import { BENCH_MOVES, DOC_MOVES, benchHighlightTeam, createBenchState } from "../render/bench";
 import { createBenchSeats } from "../render/bench-view";
 import { createPixelRenderer } from "../render/pixel";
-import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
+import { benchCameraPose, finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, spriteJointWorld, type ActorView } from "../render/actors";
 import { createRecorder, replayAt, REPLAY_SECONDS, type Snap } from "../render/replay";
 import { buildAtlas } from "../figure/atlas";
@@ -370,10 +370,11 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       const ms = Math.min(50, left), dt = ms / 1000;
       activeNow += ms;
       if (endedAt !== null) {
-        if ((activeNow - endedAt) / 1000 >= NEXT_PLAY_S) newPlay();
-        else step(s, dt, c, rng);
+        step(s, dt, c, rng);
       } else handle(step(s, dt, c, rng));
       bench.update(s.realTime);
+      // Die Arzt-Szene muss vor dem Zurücksetzen der Bank zu Ende laufen.
+      if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !bench.faint) newPlay();
       camHold = Math.max(0, camHold - dt);
       if (s.handler !== lastHandler) {
         lastHandler = s.handler;
@@ -463,18 +464,24 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const finishing = aimPhase && !s.freeThrows && s.combo !== null && s.combo.kind !== "jump2" && s.combo.kind !== "three";
     if (!finishing) finishCam = null;
     else finishCam ??= finishCameraPose(h.pos);
-    const pose = finishCam ?? (overview ? overviewPose(h.pos, targets, camera.aspect) : playCameraPose(view, h.pos));
-    const k = !camInit || overview ? 1 : 1 - Math.exp(-(menuOpen ? 0 : dt) * 9);
+    const bankPose = bench.faint ? { ...benchCameraPose(bench.faint, camera.aspect), fov: 60 } : null;
+    const pose = bankPose ?? finishCam ?? (overview ? overviewPose(h.pos, targets, camera.aspect) : playCameraPose(view, h.pos));
+    const k = !camInit || overview || bankPose ? 1 : 1 - Math.exp(-(menuOpen ? 0 : dt) * 9);
     camInit = true;
     // Die Übersicht kann auf der Schwerpunktachse stehen; der Wurf folgt der Korbachse.
-    const len = Math.hypot(pose.pos.x, pose.pos.z), ux = len > 0 ? pose.pos.x / len : 0, uz = len > 0 ? pose.pos.z / len : 1;
-    const radius = THREE.MathUtils.lerp(Math.hypot(camPos.x, camPos.z), Math.hypot(pose.pos.x, pose.pos.z), k);
-    const lookRadius = THREE.MathUtils.lerp(Math.hypot(camLook.x, camLook.z), Math.hypot(pose.look.x, pose.look.z), k);
-    camPos.set(ux * radius, THREE.MathUtils.lerp(camPos.y, pose.pos.y, k), uz * radius);
-    camLook.set(ux * lookRadius, THREE.MathUtils.lerp(camLook.y, pose.look.y, k), uz * lookRadius);
+    if (bankPose) {
+      camPos.set(pose.pos.x, pose.pos.y, pose.pos.z);
+      camLook.set(pose.look.x, pose.look.y, pose.look.z);
+    } else {
+      const len = Math.hypot(pose.pos.x, pose.pos.z), ux = len > 0 ? pose.pos.x / len : 0, uz = len > 0 ? pose.pos.z / len : 1;
+      const radius = THREE.MathUtils.lerp(Math.hypot(camPos.x, camPos.z), Math.hypot(pose.pos.x, pose.pos.z), k);
+      const lookRadius = THREE.MathUtils.lerp(Math.hypot(camLook.x, camLook.z), Math.hypot(pose.look.x, pose.look.z), k);
+      camPos.set(ux * radius, THREE.MathUtils.lerp(camPos.y, pose.pos.y, k), uz * radius);
+      camLook.set(ux * lookRadius, THREE.MathUtils.lerp(camLook.y, pose.look.y, k), uz * lookRadius);
+    }
     camera.position.copy(camPos);
     camera.lookAt(camLook);
-    if (overview || Math.abs(camera.fov - pose.fov) > 0.01) {
+    if (overview || bankPose || Math.abs(camera.fov - pose.fov) > 0.01) {
       camera.fov += (pose.fov - camera.fov) * k;
       camera.updateProjectionMatrix();
     }

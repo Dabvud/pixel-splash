@@ -3,6 +3,22 @@ import { benchHighlightTeam, createBenchState } from '../src/render/bench';
 import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, RED, BLUE } from '../src/play/teams';
 
 describe('Bank-Reaktionen', () => {
+  it.each(['off', 'def'] as const)('meldet die Ohnmacht ab dem Fall bis zum Verschwinden beider Figuren, höchstens sechs Sekunden: %s', team => {
+    const bank = createBenchState(() => 0);
+    bank.forceFaint = true;
+    bank.highlight(10, team);
+    bank.update(10.9); expect(bank.faint).toBeNull();
+    bank.update(11);
+    expect(bank.faint).toEqual({ x: team === 'off' ? -7.6 : 7.6, z: 3 });
+    bank.update(15.5);
+    expect(bank.faint).not.toBeNull();
+    expect(bank.doctor.visible).toBe(true);
+    bank.update(17);
+    expect(bank.faint).toBeNull();
+    expect(bank.doctor.visible).toBe(false);
+    expect(bank.figures.filter(f => f.visible)).toHaveLength(5);
+    bank.reset(); expect(bank.faint).toBeNull();
+  });
   it.each(['off', 'def'] as const)('jubelt nur auf der richtigen Bank binnen 0,3 s und sitzt nach 2,2 s wieder: %s', team => {
     const rng = vi.fn(() => .5), bank = createBenchState(rng);
     bank.highlight(10, team);

@@ -3,6 +3,15 @@ import type { Vec3 } from '../shot/trajectory';
 
 export interface Pose { pos: Vec3; look: Vec3 }
 
+export function benchCameraPose(benchPos: { x: number; z: number }, aspect: number): Pose {
+  const side = Math.sign(benchPos.x) || 1;
+  // Entlang der Grundlinie liegen Korb und Bank auch im Hochformat hintereinander im Bild.
+  return {
+    pos: { x: -side * Math.min(9.2, Math.max(6.5, 4 / aspect)), y: 8.5, z: 0 },
+    look: { x: benchPos.x * .5, y: 1.2, z: Math.max(3, Math.min(3.5, benchPos.z)) },
+  };
+}
+
 export function cameraPose(mode: 'low' | 'high' | 'auto', shooter: Vec3, flightProgress: number | null): Pose {
   const distance = Math.hypot(shooter.x, shooter.z);
   const ux = shooter.x / distance;

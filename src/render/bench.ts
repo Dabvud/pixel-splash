@@ -24,10 +24,12 @@ export function createBenchState(rng: () => number) {
   const doctor: ActorView = { id: 'doc', x: 0, y: 0, z: 9, facing: 0, move: 'idle', moveT: 0, visible: false };
   const cheers = new Map<string, { start: number; end: number }>();
   let faint: { victim: BenchFigure; at: number; tunnelX: number } | null = null;
-  const state = { figures, doctor, forceFaint: false, highlight, update, reset };
+  let faintPosition: { x: number; z: number } | null = null;
+  const state = { figures, doctor, forceFaint: false, highlight, update, reset,
+    get faint() { return faintPosition; } };
 
   function reset(): void {
-    faint = null; cheers.clear(); doctor.visible = false;
+    faint = null; faintPosition = null; cheers.clear(); doctor.visible = false;
     figures.forEach((f, i) => {
       f.x = f.team === 'off' ? -8.4 : 8.4; f.y = 0; f.z = 3 + i % 3;
       f.facing = f.team === 'off' ? Math.PI / 2 : -Math.PI / 2;
@@ -67,6 +69,7 @@ export function createBenchState(rng: () => number) {
     const { victim, at, tunnelX } = faint;
     const x = victim.team === 'off' ? -7.6 : 7.6;
     const z = 3 + figures.indexOf(victim) % 3;
+    faintPosition ??= { x, z };
     victim.x = x; victim.z = z; victim.move = 'knocked_down'; victim.moveT = nowS - at;
     const spawn = at + 1.2, targetZ = z + .45;
     const arrival = spawn + Math.hypot(x - tunnelX, targetZ - 9) / 3, leave = arrival + 1.5;
@@ -79,8 +82,9 @@ export function createBenchState(rng: () => number) {
       walk(victim, x, z, tunnelX, 9, nowS - leave, 2);
       walk(doctor, x, targetZ, tunnelX, 9, nowS - leave, 2);
       const end = leave + Math.max(Math.hypot(x - tunnelX, z - 9), Math.hypot(x - tunnelX, targetZ - 9)) / 2;
-      if (nowS >= end) {
-        victim.visible = doctor.visible = false; cheers.delete(victim.id); faint = null;
+      if (nowS >= Math.min(end, at + 6)) {
+        victim.x = doctor.x = tunnelX; victim.z = doctor.z = 9;
+        victim.visible = doctor.visible = false; cheers.delete(victim.id); faint = null; faintPosition = null;
       }
     }
   }

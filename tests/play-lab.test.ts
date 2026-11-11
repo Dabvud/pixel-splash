@@ -12,7 +12,7 @@ import { ACTORS, RED, BLUE, BENCH_RED, BENCH_BLUE } from '../src/play/teams';
 // Die zehn Teamspieler (ohne Schiri)
 const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
-import { finishCameraPose, playCameraPose } from '../src/render/camera-pose';
+import { benchCameraPose, finishCameraPose, playCameraPose } from '../src/render/camera-pose';
 import { MOVES } from '../src/figure/moves';
 import { frameAt , spriteJointWorld } from '../src/render/actors';
 import { buildAtlas } from '../src/figure/atlas';
@@ -96,17 +96,52 @@ describe('Spielzug-Labor Integration', () => {
     document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
   });
 
-  it('startet den nächsten Spielzug während einer Ohnmacht normal und füllt die Bank wieder auf', () => {
+  it('zeigt nach dem Umfallen die Bank-Kamera und startet newPlay erst nach der Arzt-Szene', () => {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, forceFaint: true });
     vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
     const previous = state();
     vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }, { type: 'end', verdict: 'VERLOREN' }]);
     advance(1.1);
     expect(benchViews().filter(v => v.move === 'knocked_down')).toHaveLength(1);
+    const down = benchViews().find(v => v.move === 'knocked_down')!;
+    const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+    const pose = benchCameraPose(down, camera.aspect);
+    expect(camera.position.toArray()).toEqual([pose.pos.x, pose.pos.y, pose.pos.z]);
+    const direction = new Vector3(pose.look.x, pose.look.y, pose.look.z).sub(camera.position).normalize();
+    expect(camera.getWorldDirection(new Vector3()).distanceTo(direction)).toBeLessThan(1e-10);
+    expect(camera.fov).toBe(60);
     advance(1.1);
+    expect(state()).toBe(previous);
+    advance(3.8);
+    expect(state()).toBe(previous);
+    expect(benchViews().find(v => v.id === 'doc')!.visible).toBe(true);
+    advance(1.2);
     expect(state()).not.toBe(previous);
     expect(benchViews().filter(v => v.visible && v.move === 'sit')).toHaveLength(6);
     expect(benchViews().find(v => v.id === 'doc')!.visible).toBe(false);
+  });
+
+  it('gibt dem Replay Vorrang und zeigt danach die pausierte Ohnmacht mit der Bank-Kamera', () => {
+    const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, forceFaint: true });
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }]);
+    advance(1.1);
+    const down = benchViews().find(v => v.move === 'knocked_down')!;
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: true, banner: 'POSTER!' }, { type: 'end', verdict: 'VERLOREN' }]);
+    advance(.1);
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(false);
+    const camera = look.mock.contexts.at(-1) as PerspectiveCamera;
+    expect(camera.position.y).toBe(3.6);
+    const previous = state(), time = previous.realTime;
+    advance(.3); expect(previous.realTime).toBe(time);
+    document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+    advance(1 / 60);
+    const pose = benchCameraPose(down, camera.aspect);
+    expect(camera.position.toArray()).toEqual([pose.pos.x, pose.pos.y, pose.pos.z]);
+    advance(2.1); expect(state()).toBe(previous);
+    advance(4); expect(state()).not.toBe(previous);
   });
 
   it('erkennt auch einen getroffenen Brett-Dreier über die drei hinzugekommenen Punkte', () => {

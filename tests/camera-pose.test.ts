@@ -1,10 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import { PerspectiveCamera, Vector3 } from 'three';
-import { cameraPose } from '../src/render/camera-pose';
+import { benchCameraPose, cameraPose } from '../src/render/camera-pose';
 import { RIM } from '../src/shot/trajectory';
 
 const top = { x: 0, y: 0, z: 6.9 };
 const corner = { x: -6.6, y: 0, z: 0.5 };
+
+describe('Bank-Kamera', () => {
+  it.each([-8.4, 8.4].flatMap(x => [2.5, 3, 4, 5, 5.5].flatMap(z =>
+    [390 / 844, 16 / 9].map(aspect => ({ x, z, aspect })))))('zeigt Korb, Boden, Bankspieler und Abtransport bei %j', ({ x, z, aspect }) => {
+    const pose = benchCameraPose({ x, z }, aspect);
+    expect(Math.abs(pose.pos.x)).toBeLessThan(9.6);
+    expect(pose.pos.y).toBeLessThanOrEqual(9);
+    const camera = new PerspectiveCamera(60, aspect, .1, 100);
+    camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
+    camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
+    camera.updateMatrixWorld(true);
+    const points = [new Vector3(0, 3.05, 0), new Vector3(0, 0, .5),
+      ...[0, 1.9].map(y => new Vector3(x, y, z)),
+      new Vector3(x - Math.sign(x) * .8, .2, z),
+      ...[0, 1.9].map(y => new Vector3(Math.sign(x) * 9.5, y, 9))];
+    for (const p of points) {
+      expect(p.clone().applyMatrix4(camera.matrixWorldInverse).z).toBeLessThan(0);
+      const ndc = p.project(camera);
+      expect(Math.abs(ndc.x)).toBeLessThanOrEqual(.9);
+      expect(Math.abs(ndc.y)).toBeLessThanOrEqual(.9);
+      expect(Math.abs(ndc.z)).toBeLessThan(1);
+    }
+  });
+});
 
 describe('Kamera-Pose', () => {
   it('steht tief hinter dem Top-Spot', () => {

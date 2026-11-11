@@ -29,6 +29,20 @@ export function createGrave(scene: THREE.Scene) {
     front.name = 'grave-inscription';
     front.position.set(0, .36, .061);
     group.add(stone, front);
+    const earth = new THREE.Group();
+    earth.name = 'grave-earth';
+    const browns = [0x5a3a22, 0x7a5233, 0x946640].map(color => new THREE.MeshLambertMaterial({ color }));
+    const clod = (x: number, z: number, w: number, h: number, d: number, y: number, color: number): void => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), browns[color]);
+      mesh.position.set(x, y + h / 2, z);
+      earth.add(mesh);
+    };
+    clod(0, .62, .55, .06, 1, 0, 0);
+    clod(-.025, .61, .44, .045, .84, .06, 1);
+    clod(.025, .63, .3, .025, .62, .105, 0);
+    for (let i = 0; i < 5; i++) clod((i % 2 ? -.13 : .12), .28 + i * .16, .09, .025, .1, .105, 2);
+    for (let i = 0; i < 4; i++) clod(i % 2 ? -.36 : .35, .3 + i * .21, .07, .045, .08, 0, i % 3);
+    group.add(earth);
   }
 
   return {
@@ -41,8 +55,15 @@ export function createGrave(scene: THREE.Scene) {
     },
     dispose(): void {
       scene.remove(group);
-      stone?.geometry.dispose(); stone?.material.dispose();
-      front?.geometry.dispose(); front?.material.map?.dispose(); front?.material.dispose();
+      const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
+      group.traverse(o => {
+        if (!(o instanceof THREE.Mesh)) return;
+        geometries.add(o.geometry);
+        for (const material of Array.isArray(o.material) ? o.material : [o.material]) materials.add(material);
+      });
+      geometries.forEach(g => g.dispose());
+      front?.material.map?.dispose();
+      materials.forEach(m => m.dispose());
     },
   };
 }
