@@ -4,6 +4,26 @@ import { createRecorder, replayAt, REPLAY_SPEED } from '../src/render/replay';
 const view = (id: string, x: number) => ({ id, x, y: 0, z: 0, facing: 0, move: 'idle' as const, moveT: 0, visible: true });
 
 describe('Instant-Replay-Aufzeichnung', () => {
+  it('kopiert Flug, versunkene Figuren, Sterne und Grabstein ab ihrem Auftreten', () => {
+    const rec = createRecorder(4), v = view('b1', .8);
+    const effects = { realTime: 1, poster: null, grave: null } as Pick<import('../src/play/engine').PlayState, 'realTime' | 'poster' | 'grave'>;
+    rec.push(1000, [v], { x: 0, y: 1, z: 0 }, effects);
+    v.y = 2.8; v.z = -1.8;
+    effects.realTime = 1.5;
+    effects.poster = { victim: 'b1', kind: 'poster', variant: 'flyout', startedAt: 2 };
+    rec.push(1500, [v], { x: 0, y: 1, z: 0 }, effects);
+    v.y = -2;
+    effects.realTime = 2;
+    effects.poster.variant = 'grave'; effects.grave = { x: .8, z: -2.4, since: 2 };
+    rec.push(2000, [v], { x: 0, y: 1, z: 0 }, effects);
+    const clip = rec.clip(4);
+    effects.grave.x = 99; effects.poster.victim = 'r23';
+    expect(clip[0].grave).toBeNull(); expect(clip[0].poster).toBeNull();
+    expect(clip[1].actors[0]).toMatchObject({ y: 2.8, z: -1.8 });
+    expect(clip[1].poster).toMatchObject({ victim: 'b1', variant: 'flyout' });
+    expect(clip[2].actors[0].y).toBe(-2);
+    expect(clip[2].grave).toEqual({ x: .8, z: -2.4, since: 2 });
+  });
   it('liefert die letzten Sekunden in zeitlicher Reihenfolge als unabhängige Kopien', () => {
     const rec = createRecorder(4);
     const v = [view('r3', 0)];

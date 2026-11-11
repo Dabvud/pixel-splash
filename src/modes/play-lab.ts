@@ -3,6 +3,7 @@ import { FOUL_MULT, INFLUENCE, type Settings } from "../settings";
 import { MAX_FILL, type ShotResult } from "../shot/resolve";
 import { attachGesture, type GestureEvent } from "../input/gesture";
 import { createScene } from "../render/scene";
+import { createGrave } from "../render/grave";
 import { createPixelRenderer } from "../render/pixel";
 import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, spriteJointWorld, type ActorView } from "../render/actors";
@@ -49,6 +50,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
   let settings = initial;
   const { scene, ball, updateNet, crowd } = createScene();
+  const grave = createGrave(scene);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
   let atlas: ReturnType<typeof buildAtlas>;
@@ -70,6 +72,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     foulMult: FOUL_MULT[settings.fouls],
     finishFoulOverride: settings.finishFoulChance,
     forcePoster: settings.forcePoster,
+    posterVariant: settings.posterVariant,
+    blockFoulChance: settings.fouls === "off" ? 0 : 0.15, // „Fouls aus“ gilt auch für den Block
     zoneFloor: settings.zoneFloor,
     tempoSpread: settings.tempoSpread,
     passDelayMax: settings.passDelayMax,
@@ -96,6 +100,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const recorder = createRecorder(REPLAY_SECONDS + 1);
   let replay: { clip: Snap[]; start: number; andOne: boolean } | null = null;
   let replayPending: { andOne: boolean } | null = null;
+  let blockReplayQueued = false;
   let foulJustCalled = false;
   let raf = 0;
   let last = performance.now();
@@ -121,6 +126,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
   function newPlay(): void {
     recorder.reset();
+    blockReplayQueued = false;
     rng = settings.defenseRandom ? Math.random : seeded(7);
     const id = settings.play === "random" ? PLAY_IDS[Math.min(PLAY_IDS.length - 1, Math.floor(rng() * PLAY_IDS.length))] : settings.play;
     s = createPlayState(PLAYS[id], cfg(), rng);
@@ -149,6 +155,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     phud.setMarkers([]);
     phud.setFinishFeedback(null);
     phud.setPoster(0, 0, false);
+    grave.sync(null);
     phud.setSituation(`4. VIERTEL · ${formatPlayClock(s.clock, false)} · −${s.deficit}`, s.play.name);
     phud.setScoreboard(s.clock, s.deficit, s.points);
     showStats();
@@ -194,6 +201,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       } else if (e.type === "result") {
         if (e.made) crowd?.cheer(/DUNK|POSTER/.test(e.banner) ? .9 : .6);
         if (e.made && e.banner.includes("POSTER")) replayPending ??= { andOne: false };
+        if (!e.made && s.poster?.kind === 'block' && !blockReplayQueued) {
+          blockReplayQueued = true;
+          replayPending ??= { andOne: false };
+        }
         hud.showResult({ banner: e.banner, hint: e.made ? "" : lastHint(s), made: e.made } as ShotResult);
         comboT0 = null;
       } else if (e.type === "freethrow") {
@@ -372,12 +383,14 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const yaw = Math.atan2(-camera.position.x, camera.position.z);
     actors.sync(snap.actors, yaw);
     ball.position.set(snap.ball.x, snap.ball.y, snap.ball.z);
-    // Sterne im Replay erst ab dem Moment, in dem der Verteidiger auch in der Szene liegt
-    const down = s.poster ? snap.actors.find((a) => a.id === s.poster!.defender) : undefined;
-    if (down && down.visible && down.move === "knocked_down" && down.moveT < 1.5) {
+    // Auch im Replay beginnen die Sterne erst nach dem Aufprall.
+    const poster = snap.poster, elapsed = poster ? snap.realTime - poster.startedAt : -1;
+    const down = poster ? snap.actors.find((a) => a.id === poster.victim) : undefined;
+    if (poster?.variant !== 'grave' && down && down.visible && down.move === "knocked_down" && elapsed >= 0 && elapsed < 1.5) {
       const p = spriteJointWorld(down, "head", ACTORS[down.id].heightM, yaw), q = screen(p.x, p.y + .25, p.z, posterPoint);
-      phud.setPoster(q.x, q.y, true, down.moveT);
+      phud.setPoster(q.x, q.y, true, elapsed);
     } else phud.setPoster(0, 0, false);
+    grave.sync(snap.grave, snap.realTime);
     updateNet(snap.t);
     crowd?.update(now);
     px.renderer.render(scene, camera);
@@ -433,12 +446,13 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
     for (const v of views) {
       const a = s.actors[v.id];
-      v.visible = Boolean(a);
+      v.visible = Boolean(a && a.y > -ACTORS[a.id].heightM);
       if (!a) continue;
       v.x = a.pos.x; v.y = a.y; v.z = a.pos.z; v.facing = a.facing;
       v.move = a.move; v.moveT = a.moveT; v.moveSide = a.moveSide;
     }
     actors.sync(views, yaw);
+    grave.sync(s.grave, s.realTime);
     ball.position.set(s.ball.x, s.ball.y, s.ball.z);
 
     // HUD
@@ -470,9 +484,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const poster = s.poster;
     // Auch die Endreaktionen nutzen die pausierbare Engine-Echtzeit.
     const posterElapsed = poster ? s.realTime - poster.startedAt : 0;
-    if (poster && posterElapsed < 1.5) {
+    const victim = poster ? views.find(v => v.id === poster.victim) : undefined;
+    if (poster && poster.variant !== 'grave' && posterElapsed >= 0 && posterElapsed < 1.5 && victim?.visible && victim.move === 'knocked_down') {
       // Sterne am Kopf, wie er im Pixel-Sprite gezeichnet ist (liegend weicht er stark von der 3D-Pose ab)
-      const d = views.find((v) => v.id === poster.defender)!;
+      const d = victim;
       const p = spriteJointWorld(d, "head", ACTORS[d.id].heightM, yaw), projected = screen(p.x, p.y + .25, p.z, posterPoint);
       phud.setPoster(projected.x, projected.y, true, posterElapsed);
     } else phud.setPoster(0, 0, false);
@@ -490,7 +505,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); }
     px.renderer.render(scene, camera);
     // Spielzeit statt Echtzeit: Zeitlupen im Spiel werden im Replay zu gleichmäßiger Zeitlupe
-    if (!menuOpen) recorder.push(s.gameT * 1000, views, s.ball);
+    if (!menuOpen) recorder.push(s.gameT * 1000, views, s.ball, s);
     if (replayPending && !menuOpen) startReplay(replayPending.andOne);
   }
 
@@ -549,6 +564,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       document.removeEventListener("visibilitychange", visibility);
       detach();
       actors.dispose();
+      grave.dispose();
       (atlas.textures ?? [atlas.texture]).forEach(texture => texture.dispose());
       hud.dispose();
       phud.dispose();

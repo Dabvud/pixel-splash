@@ -87,17 +87,17 @@ describe('Abschluss-Feedback und Poster', () => {
   });
   it.each(['layup', 'dunk', 'contact_dunk'] as const)(
     '%s läuft bei gehaltenem Finger ohne zusätzliche Wartezeit als Fehlversuch ab', kind => {
-      const s = takeoff(kind), m = s.arrowMeter!;
-      command(s, { kind: 'finger', down: true }, cfg, rng);
-      step(s, m.startTime + m.meterMs * 1.35 / 1000 - s.realTime + .001, cfg, rng);
+      const c = { ...cfg, blockFoulChance: 0 }, s = takeoff(kind, false, c), m = s.arrowMeter!;
+      command(s, { kind: 'finger', down: true }, c, rng);
+      step(s, m.startTime + m.meterMs * 1.35 / 1000 - s.realTime + .001, c, rng);
       expect(s.phase).toBe('ballflight');
       expect(m.feedback).toBe('ZU LANGSAM');
-      step(s, 10, cfg, rng);
+      step(s, 10, c, rng);
       expect(s.points).toBe(0);
       expect(s.phase).toBe('ended');
     });
   it.each(['layup', 'dunk', 'contact_dunk'] as const)(
-    '%s zeigt über takeoff und ballflight alle Bilder 0…rimFrame und läuft nach tap in normaler Spielzeit bis result', kind => {
+    '%s zeigt alle Abschlussbilder, beim Block bis zum Wechsel am Kontakt, und läuft nach tap in normaler Spielzeit bis result', kind => {
       for (const [animSpeed, fill] of [[.5, 0], [.5, 1], [1.5, 1], [1.5, 1.3]]) {
         const c = { ...cfg, animSpeed, slowmo: .1 }, s = takeoff(kind, false, c), m = s.arrowMeter!;
         const a = s.actors[s.handler], animation = kind === 'layup' ? 'finger_roll' : kind;
@@ -146,9 +146,12 @@ describe('Abschluss-Feedback und Poster', () => {
         }
         expect(result).toBe(true);
         expect(s.gameT - started).toBeGreaterThanOrEqual(.6);
-        expect(indices).toEqual(Array.from({ length: MOVES[kind].frames }, (_, i) => i));
-        expect(indices.slice(0, MOVES[kind].rimFrame! + 1)).toEqual(
-          Array.from({ length: MOVES[kind].rimFrame! + 1 }, (_, i) => i));
+        const blocked = kind === 'contact_dunk' && fill !== 1;
+        const shown = blocked ? MOVES[kind].rimFrame! : MOVES[kind].frames;
+        expect(indices).toEqual(Array.from({ length: shown }, (_, i) => i));
+        const contactFrames = MOVES[kind].rimFrame! + (blocked ? 0 : 1);
+        expect(indices.slice(0, contactFrames)).toEqual(Array.from({ length: contactFrames }, (_, i) => i));
+        if (blocked) expect(s.poster).toMatchObject({ kind: 'block', victim: a.id });
         if (kind !== 'layup' && fill === 1) { expect(contactY).toBeGreaterThan(0); expect(fell).toBe(true); }
       }
     });
@@ -163,35 +166,36 @@ describe('Abschluss-Feedback und Poster', () => {
 
   it.each(['layup', 'dunk', 'contact_dunk', 'alleyoop'] as const)(
     '%s zeigt ohne Tipp ZU LANGSAM während der Fehlversuchsanimation und erreicht ended', route => {
-      const s = takeoff(route === 'alleyoop' ? 'contact_dunk' : route, route === 'alleyoop');
+      const c = { ...cfg, blockFoulChance: 0 };
+      const s = takeoff(route === 'alleyoop' ? 'contact_dunk' : route, route === 'alleyoop', c);
       const m = s.arrowMeter!;
-      step(s, m.startTime + m.meterMs * 1.35 / 1000 - s.realTime + .01, cfg, rng);
+      step(s, m.startTime + m.meterMs * 1.35 / 1000 - s.realTime + .01, c, rng);
       expect(s.arrowMeter?.feedback).toBe('ZU LANGSAM');
       expect(s.arrowMeter?.fill).toBe(1.35);
       expect(s.phase).toBe('ballflight');
-      step(s, 10, cfg, rng);
+      step(s, 10, c, rng);
       expect(s.phase).toBe('ended');
       expect(s.points).toBe(0);
     });
 
   it.each([0, 2])('blockt den Kontakt-Dunk-Fehlversuch auch bei Foulmultiplikator %s vor dem Verteidiger', foulMult => {
-    const c = { ...cfg, foulMult }, s = takeoff('contact_dunk', false, c);
+    const c = { ...cfg, foulMult, blockFoulChance: foulMult ? 1 : 0 }, s = takeoff('contact_dunk', false, c);
     command(s, { kind: 'tap' }, c, rng);
-    expect(s.actors.b1.move).toBe('block_jump');
+    expect(s.actors.b1.move).toBe('block_jump_hit');
     let handContact = false;
     for (let i = 0; i < 700 && s.phase === 'ballflight'; i++) {
       step(s, 1 / 240, c, rng);
       const d = s.actors.b1;
       // Hinter dem Verteidiger darf kein Ball über Ringhöhe vorbeifliegen.
       if (s.ball.z < d.pos.z) expect(s.ball.y).toBeLessThanOrEqual(RIM.y);
-      const f = Math.min(MOVES.block_jump.frames - 1, Math.floor((d.moveT + 1e-10) * MOVES.block_jump.fps));
-      const h = moveFrames('block_jump')[f].haR, size = ACTORS.b1.heightM;
+      const f = Math.min(MOVES.block_jump_hit.frames - 1, Math.floor((d.moveT + 1e-10) * MOVES.block_jump_hit.fps));
+      const h = moveFrames('block_jump_hit')[f].haR, size = ACTORS.b1.heightM;
       const co = Math.cos(d.facing), si = Math.sin(d.facing);
       handContact ||= Math.hypot(s.ball.x - d.pos.x - size * (h.x * co + h.z * si),
         s.ball.y - d.y - size * h.y, s.ball.z - d.pos.z - size * (h.x * si - h.z * co)) < .03;
     }
     expect(handContact).toBe(true);
-    expect(s.poster).toBeNull();
+    expect(s.poster).toMatchObject({ kind: 'block', victim: s.handler, variant: 'classic' });
     // Bei Foul anschließend die Freiwürfe ausführen.
     for (let i = 0; i < 2000 && s.phase !== 'ended'; i++) {
       if (s.phase === 'freethrows') {
@@ -227,8 +231,8 @@ describe('Abschluss-Feedback und Poster', () => {
     expect(s.ball.z * Math.sign(-t)).toBeGreaterThan(.2);
   });
 
-  it('behält angekündigte Fouls beim Meter-Timeout als Fehlversuch plus Freiwürfe', () => {
-    const c = { ...cfg, foulMult: 2 }, s = takeoff('contact_dunk', false, c);
+  it('gibt beim Meter-Timeout mit Block-Foulchance 1 einen Fehlversuch plus Freiwürfe', () => {
+    const c = { ...cfg, foulMult: 2, blockFoulChance: 1 }, s = takeoff('contact_dunk', false, c);
     expect(s.combo!.fouled).toBe(true);
     const events = step(s, 10, c, rng);
     expect(events.some(e => e.type === 'freethrow')).toBe(true);
@@ -241,10 +245,11 @@ describe('Abschluss-Feedback und Poster', () => {
   it.each(['layup', 'dunk', 'contact_dunk', 'alleyoop'] as const)(
     '%s erreicht auch mit frühem und spätem Tipp ended', route => {
       for (const t of [-2, 2]) {
-        const s = takeoff(route === 'alleyoop' ? 'contact_dunk' : route, route === 'alleyoop'), m = s.arrowMeter!;
-        step(s, Math.max(0, m.startTime + m.meterMs * (1 + t * m.zones.g) / 1000 - s.realTime), cfg, rng);
-        command(s, { kind: 'tap' }, cfg, rng);
-        step(s, 10, cfg, rng);
+        const c = { ...cfg, blockFoulChance: 0 };
+        const s = takeoff(route === 'alleyoop' ? 'contact_dunk' : route, route === 'alleyoop', c), m = s.arrowMeter!;
+        step(s, Math.max(0, m.startTime + m.meterMs * (1 + t * m.zones.g) / 1000 - s.realTime), c, rng);
+        command(s, { kind: 'tap' }, c, rng);
+        step(s, 10, c, rng);
         expect(s.phase).toBe('ended');
         expect(s.points).toBe(0);
       }
@@ -267,7 +272,7 @@ describe('Abschluss-Feedback und Poster', () => {
       if (down) expect(s.actors.b1.move).toBe('knocked_down');
     }
     expect(down).toBe(true);
-    expect(s.poster?.defender).toBe('b1');
+    expect(s.poster?.victim).toBe('b1');
     expect(actorHead(s.actors.b1).y).toBeLessThan(ACTORS.b1.heightM * .25);
     expect(events.some(e => e.type === 'result' && e.made && e.banner.includes('POSTER!'))).toBe(true);
     expect(s.phase).toBe('ended');

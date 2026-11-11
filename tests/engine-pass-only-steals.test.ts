@@ -183,12 +183,12 @@ describe('Steals nur bei abgefangenen Pässen', () => {
     segment.options = [{ kind: 'drive' }];
     segment.paths.r50 = [{ t: 0, x: 0, z: 3, act: 'dribble' }];
     segment.paths.b1 = [{ t: 0, x: 0, z: .8, act: 'defend' }];
-    const rng = () => 0, s = createPlayState(play, cfg, rng), t = track(s, cfg, rng);
+    const c = { ...cfg, blockFoulChance: 0 }, rng = () => 0, s = createPlayState(play, c, rng), t = track(s, c, rng);
     t.until(() => s.phase === 'decision');
-    t.record(command(s, { kind: 'drive', lane: 0 }, cfg, rng));
+    t.record(command(s, { kind: 'drive', lane: 0 }, c, rng));
     t.until(() => s.phase === 'takeoff');
     expect(s.combo!.kind).toBe('contact_dunk');
-    release(s, cfg, rng, t, false);
+    release(s, c, rng, t, false);
     expect(s.banner).toBe('GEBLOCKT');
     expect(s.points).toBe(0);
     t.noLoss('Kontakt-Dunk-Block');

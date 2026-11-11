@@ -1,3 +1,5 @@
+import type { PosterVariant } from './play/engine';
+
 export type SpotId = 'corner_l' | 'wing_l' | 'top' | 'wing_r' | 'corner_r' | 'ft' | 'mid';
 export type CameraMode = 'low' | 'high' | 'auto';
 export type ProfileId = 'elite' | 'avg' | 'center';
@@ -34,6 +36,7 @@ export interface Settings {
   closeoutRandom: number;
   finishFoulChance: number;
   forcePoster: boolean;
+  posterVariant: 'random' | PosterVariant;
 }
 
 export const SPOTS: readonly Spot[] = [
@@ -58,7 +61,7 @@ export const DEFAULTS: Settings = {
   defenseRandom: true, fouls: 'normal', finishMeterMs: 900, finishGreen: 0.18,
   finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
   passDelayMax: 0.6, closeoutRandom: 1,
-  finishFoulChance: -1, forcePoster: false,
+  finishFoulChance: -1, forcePoster: false, posterVariant: 'random',
 };
 export const STORAGE_KEY = 'pixel-splash.settings.v1';
 
@@ -104,6 +107,7 @@ export function loadSettings(storage?: Storage | null): Settings {
       finishFoulChance: typeof fields.finishFoulChance === 'number' && fields.finishFoulChance < 0
         ? -1 : bounded(fields.finishFoulChance, 0, 1, DEFAULTS.finishFoulChance),
       forcePoster: typeof fields.forcePoster === 'boolean' ? fields.forcePoster : DEFAULTS.forcePoster,
+      posterVariant: choice(fields.posterVariant, ['random', 'classic', 'flyout', 'grave'], DEFAULTS.posterVariant),
     };
   } catch {
     // Gesperrter Speicher darf den Start nicht verhindern.

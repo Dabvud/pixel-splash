@@ -62,6 +62,56 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('reicht die Poster-Variante weiter und startet beim Block ein Replay mit Opfer-Sternen', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', posterVariant: 'grave' });
+    const s = state(), a = s.actors[s.handler];
+    a.move = 'knocked_down';
+    s.poster = { victim: a.id, kind: 'block', variant: 'classic', startedAt: s.realTime };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: false, banner: 'GEBLOCKT' }]);
+    advance(1 / 60);
+    expect(vi.mocked(step).mock.calls.at(-1)![2].posterVariant).toBe('grave');
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.phud-poster')!.hidden).toBe(false);
+    document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: false, banner: 'DANEBEN' }]);
+    advance(1 / 60);
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(true);
+  });
+  it('zeigt bei Abflug erst nach Landung Sterne und bei Grabstein keine', () => {
+    const s = state(), d = s.actors.b1;
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; return []; });
+    d.move = 'knocked_down'; d.y = 2.8;
+    s.poster = { victim: d.id, kind: 'poster', variant: 'flyout', startedAt: Infinity };
+    advance(1 / 60);
+    const stars = document.querySelector<HTMLElement>('.phud-poster')!;
+    expect(stars.hidden).toBe(true);
+    d.y = 0; s.poster.startedAt = s.realTime;
+    advance(1 / 60); expect(stars.hidden).toBe(false);
+    s.poster.variant = 'grave'; d.y = -ACTORS[d.id].heightM;
+    advance(1 / 60);
+    expect(stars.hidden).toBe(true);
+    expect((sceneSpies.sync.mock.calls.at(-1)![0] as import('../src/render/actors').ActorView[]).find(v => v.id === d.id)!.visible).toBe(false);
+  });
+  it('zeigt den Grabstein im Replay erst ab since und entfernt ihn beim Neustart', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ fillRect: vi.fn(), fillText: vi.fn() } as unknown as CanvasRenderingContext2D);
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    advance(.2);
+    const s = state(), d = s.actors.b1;
+    s.poster = { victim: d.id, kind: 'poster', variant: 'grave', startedAt: s.realTime };
+    s.grave = { x: d.pos.x, z: d.pos.z, since: s.realTime + .1 };
+    d.move = 'knocked_down'; d.y = -ACTORS[d.id].heightM;
+    advance(.05);
+    const scene = sceneSpies.render.mock.calls.at(-1)![0] as import('three').Scene;
+    const stone = scene.getObjectByName('poster-grave')!;
+    expect(stone.visible).toBe(false);
+    advance(.25); expect(stone.visible).toBe(true);
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: true, banner: 'POSTER!' }]);
+    advance(1 / 60);
+    advance(1 / 60); expect(stone.visible).toBe(false);
+    advance(.9); expect(stone.visible).toBe(true);
+    document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+    mode.restart!(); expect(stone.visible).toBe(false);
+  });
   it('reicht geänderte Test-Szenarien an die Engine durch', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', finishFoulChance: .75, forcePoster: true });
     advance(1 / 60);
@@ -165,7 +215,7 @@ describe('Spielzug-Labor Integration', () => {
     Object.defineProperties(stage, { clientWidth: { value: 800 }, clientHeight: { value: 600 } });
     const s = state(), d = s.actors.b1;
     s.phase = 'ballflight';
-    s.poster = { defender: d.id, startedAt: s.realTime };
+    s.poster = { victim: d.id, kind: 'poster', variant: 'classic', startedAt: s.realTime };
     d.move = 'knocked_down'; d.moveT = .35; d.y = 0; d.facing = .7;
     vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; return []; });
     advance(1 / 60);

@@ -67,6 +67,10 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
            </label>
            <p id="lab-finishFoulChance-steps">${FINISH_FOUL_STEPS.map(finishFoulLabel).join(' / ')}</p>
            <label>Poster erzwingen <input type="checkbox" role="switch" id="lab-forcePoster"></label>
+           <label>Poster-Variante <select id="lab-posterVariant">
+             <option value="random">Zufall</option><option value="classic">Klassisch</option>
+             <option value="flyout">Abflug</option><option value="grave">Grabstein</option>
+           </select></label>
          </section>
          <button class="lab-close" value="close">Fertig</button>
        </form>
@@ -98,6 +102,7 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     el<HTMLInputElement>('finishFoulChance').setAttribute('aria-valuetext', finishFoulLabel(cur.finishFoulChance));
     el('finishFoulChance-out').textContent = finishFoulLabel(cur.finishFoulChance);
     el<HTMLInputElement>('forcePoster').checked = cur.forcePoster;
+    el<HTMLSelectElement>('posterVariant').value = cur.posterVariant;
     dialog.querySelectorAll<HTMLElement>("[data-show]").forEach((l) => (l.hidden = l.dataset.show !== "all" && l.dataset.show !== cur.mode));
   };
 
@@ -107,6 +112,7 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     for (const f of RANGES) next[f.key] = Number(el<HTMLInputElement>(f.key).value) / f.scale;
     next.finishFoulChance = FINISH_FOUL_STEPS[Number(el<HTMLInputElement>('finishFoulChance').value)];
     next.forcePoster = el<HTMLInputElement>('forcePoster').checked;
+    next.posterVariant = el<HTMLSelectElement>('posterVariant').value;
     cur = next as unknown as Settings;
     fill();
     saveSettings(cur);

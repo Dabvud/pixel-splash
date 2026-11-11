@@ -137,7 +137,7 @@ describe('Alley-oop-Pfeil', () => {
     expect(s.points).toBe(0);
   });
   it('wendet Positions-, Foul-, Kontakt- und Lobfaktor genau einmal an und gibt ohne Tipp GEBLOCKT plus zwei Freiwürfe', () => {
-    const play = fixture(true), c = { ...cfg, foulMult: 2 };
+    const play = fixture(true), c = { ...cfg, foulMult: 2, blockFoulChance: 1 };
     play.segments.setup.paths.b1 = [{ t: 0, x: 0, z: .1, act: 'defend' }];
     const s = createPlayState(play, c, safe);
     until(s, () => s.phase === 'decision', c);

@@ -17,7 +17,7 @@ describe('Einstellungen', () => {
       defenseRandom: true, fouls: 'normal', finishMeterMs: 900, finishGreen: 0.18,
       finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
       passDelayMax: 0.6, closeoutRandom: 1,
-      finishFoulChance: -1, forcePoster: false,
+      finishFoulChance: -1, forcePoster: false, posterVariant: 'random',
     });
     expect(STORAGE_KEY).toBe('pixel-splash.settings.v1');
   });

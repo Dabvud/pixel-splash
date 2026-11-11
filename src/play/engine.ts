@@ -15,6 +15,7 @@ import { ACTORS } from './teams';
 import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types';
 
 export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'receiving' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
+export type PosterVariant = 'classic' | 'flyout' | 'grave';
 export interface EngineConfig {
   /** Bei Fouls: Schiri läuft ein und pfeift, beim And-one Feier + Abklatschen vor den Freiwürfen */ foulScene?: boolean;
   /** Korbleger/Dunk nach dem Ziehen per Pfeil-Meter (ein Tipp) statt Halten + Wischen */ finishArrow?: boolean;
@@ -23,6 +24,8 @@ export interface EngineConfig {
   passDelayMax?: number; closeoutRandom?: number; // alte Aufrufe: 0,6 s und kein zusätzlicher Zufall
   finishFoulOverride?: number; // < 0 oder nicht gesetzt: normale Foul-Chance
   forcePoster?: boolean;
+  posterVariant?: 'random' | PosterVariant;
+  blockFoulChance?: number;
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
   finish: { meterMs: number; greenZone: number; aimDeg: number };
 }
@@ -41,7 +44,8 @@ export interface PlayState {
   combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
-  poster: { defender: string; startedAt: number } | null;
+  poster: { victim: string; kind: 'poster' | 'block'; variant: PosterVariant; startedAt: number } | null;
+  grave: { x: number; z: number; since: number } | null;
 }
 export type Command = { kind: 'pass'; to: string; quality?: number } | { kind: 'drive'; lane: -1 | 0 | 1 } | { kind: 'comboStart' }
   | { kind: 'comboRelease'; holdMs: number; angleDeg: number } | { kind: 'finger'; down: boolean } | { kind: 'tap' };
@@ -71,6 +75,7 @@ interface Shot {
 interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams; foulRoll: number }
 interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
+  impact?: { victim: string; from: Vec2; to: Vec2; elapsed: number; duration: number; variant: PosterVariant };
   segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
   paths: Record<string, Waypoint[]>;
   decisionEnd?: number;
@@ -121,7 +126,7 @@ function jointPosition(a: ActorState, joint: 'head' | 'haL' | 'haR'): Vec3 {
     z: a.pos.z + size * (x * si - h.z * co) };
 }
 
-/** Tatsächlicher Kopf der aktuellen Pose, auch beim liegenden Verteidiger. */
+/** Tatsächlicher Kopf der aktuellen Pose, auch bei liegenden Figuren. */
 export function actorHead(a: ActorState): Vec3 { return jointPosition(a, 'head'); }
 
 function heldBall(s: PlayState): void {
@@ -194,10 +199,12 @@ function end(s: PlayState, events: EngineEvent[], banner?: string): void {
   s.fingerDown = false;
   s.verdict = verdict(s.points, s.deficit);
   const h = s.actors[s.handler];
-  if (s.verdict === 'GAMEWINNER' || s.verdict === 'OVERTIME') {
+  if (h.move === 'knocked_down') {
+    // Der Block bleibt auch im Ergebnisbild sichtbar.
+  } else if (s.verdict === 'GAMEWINNER' || s.verdict === 'OVERTIME') {
     move(h, 'celebrate', true);
     rt(s).celebration = { elapsed: 0, from: {} };
-    for (const a of Object.values(s.actors)) if (a.id !== h.id && ACTORS[a.id].team === 'off') {
+    for (const a of Object.values(s.actors)) if (a.id !== h.id && ACTORS[a.id].team === 'off' && a.move !== 'knocked_down') {
       rt(s).celebration!.from[a.id] = { ...a.pos };
       move(a, 'run', true); a.facing = facingTo(a.pos, h.pos);
     }
@@ -259,7 +266,7 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
   const s: PlayState = {
     play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, foulScene: cfg.foulScene ?? false, box: {}, lastPasser: null,
-    combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null,
+    combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null, grave: null,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
     segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
@@ -580,7 +587,7 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
   const nearest = !s.freeThrows && defenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
   const defender = nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
   if (defender) {
-    move(defender, combo.kind === 'contact_dunk' ? result.made ? 'block_jump_hit' : 'block_jump'
+    move(defender, combo.kind === 'contact_dunk' ? 'block_jump_hit'
       : combo.fouled ? 'contact' : 'block_jump', true);
     defender.facing = facingTo(defender.pos, h.pos);
   }
@@ -752,6 +759,7 @@ function freeThrow(s: PlayState, events: EngineEvent[]): void {
   phase(s, 'freethrows');
   s.combo = null;
   const h = s.actors[s.freeThrows!.shooter];
+  if (rt(s).impact?.victim === h.id) rt(s).impact = undefined;
   s.handler = h.id;
   h.y = 0; h.facing = 0;
   rt(s).lineup = { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0 };
@@ -795,26 +803,54 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
       s.freeThrows = { shooter: s.handler, left: count };
       freeThrow(s, events);
       if (s.foulScene) callFoul(s, result.made, events);
+      else if (s.poster?.kind === 'block' && !result.made) events.push({ type: 'foul', andOne: false });
     }
     else end(s, events);
   }
 }
 
-function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
+function startImpact(s: PlayState, shot: Shot, cfg: EngineConfig, rng: () => number): void {
+  const blocked = !shot.result.made, h = s.actors[s.handler], victim = blocked ? h : s.actors[shot.defender!];
+  const choice = cfg.posterVariant ?? 'random';
+  const roll = !blocked && choice === 'random' ? rng() : 0;
+  const variant: PosterVariant = blocked ? 'classic' : choice === 'random' ? roll < .5 ? 'classic' : roll < .75 ? 'flyout' : 'grave' : choice;
+  if (blocked) shot.fouled = rng() < (cfg.blockFoulChance ?? .15);
+  victim.y = 0;
+  move(victim, 'knocked_down', true);
+  s.poster = { victim: victim.id, kind: blocked ? 'block' : 'poster', variant,
+    startedAt: variant === 'flyout' ? Infinity : s.realTime };
+  const from = { ...victim.pos }, sign = blocked ? -1 : 1;
+  // Hinter Grundlinie und Ständer, mit Abstand zur rückwärtigen Bande.
+  const to = variant === 'flyout' ? { x: (from.x >= 0 ? 1 : -1) * .8, z: -2.4 }
+    : variant === 'grave' ? { ...from }
+      : { x: from.x + sign * .9 * Math.sin(h.facing), z: from.z - sign * .9 * Math.cos(h.facing) };
+  rt(s).impact = { victim: victim.id, from, to, elapsed: 0,
+    duration: variant === 'flyout' ? .9 : variant === 'grave' ? .5 : .3, variant };
+  if (variant === 'grave') s.grave = { ...from, since: s.realTime };
+}
+
+function updateImpact(s: PlayState, dt: number): void {
+  const impact = rt(s).impact;
+  if (!impact) return;
+  const a = s.actors[impact.victim];
+  impact.elapsed = Math.min(impact.duration, impact.elapsed + dt);
+  const f = impact.elapsed / impact.duration;
+  a.pos = { x: mix(impact.from.x, impact.to.x, f), z: mix(impact.from.z, impact.to.z, f) };
+  a.y = impact.variant === 'flyout' ? 4 * 2.8 * f * (1 - f)
+    : impact.variant === 'grave' ? -ACTORS[a.id].heightM * f : 0;
+  if (f === 1) {
+    if (impact.variant === 'flyout') s.poster!.startedAt = s.realTime;
+    rt(s).impact = undefined;
+  }
+}
+
+function shotAnimation(s: PlayState, dt: number, events: EngineEvent[], cfg: EngineConfig, rng: () => number): void {
   const shot = rt(s).shot!, a = s.actors[s.handler], m = MOVES[a.move];
   shot.elapsed += dt;
   const t = shot.elapsed;
   const blocked = shot.kind === 'contact_dunk' && !shot.result.made && shot.defender !== undefined;
-  if (shot.kind === 'contact_dunk' && shot.result.made && shot.defender && !s.poster
-    && t + 1e-9 >= (MOVES.contact_dunk.rimFrame! + 2) / MOVES.contact_dunk.fps) {
-    const d = s.actors[shot.defender];
-    d.y = 0;
-    move(d, 'knocked_down', true);
-    s.poster = { defender: d.id, startedAt: s.realTime };
-  }
   if (t >= Math.max(1.1, shot.delay + .2) && shot.flight) {
-    a.y = 0;
-    move(a, 'idle');
+    if (a.move !== 'knocked_down') { a.y = 0; move(a, 'idle'); }
     if (shot.defender) {
       const d = s.actors[shot.defender];
       if (d.move !== 'knocked_down') { d.y = 0; move(d, 'defend'); }
@@ -824,7 +860,9 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
     return;
   }
   const isDunk = shot.kind === 'dunk' || shot.kind === 'contact_dunk';
-  if (isDunk && !blocked) {
+  if (a.move === 'knocked_down') {
+    // Die Kontaktbewegung gehört updateImpact, nicht mehr der Wurfanimation.
+  } else if (isDunk && !blocked) {
     const contactT = m.rimFrame! / m.fps;
     const target = shot.result.made ? { x: 0, y: 3.05, z: 0 }
       : targetPoint(shot.result.outcome === 'airball' ? 'rim_front' : shot.result.outcome, { ...shot.from, y: 0 });
@@ -850,14 +888,14 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
     }
     a.y = Math.max(0, Math.sin(Math.PI * Math.min(1, t / 1.1))) * (shot.kind === 'layup' ? .35 : .25);
   }
-  if (shot.fouled) a.pos.x += .12 * Math.sin(Math.PI * Math.min(1, t / 1.1));
+  if (shot.fouled && a.move !== 'knocked_down') a.pos.x += .12 * Math.sin(Math.PI * Math.min(1, t / 1.1));
   if (shot.defender) {
     const d = s.actors[shot.defender];
     if (blocked) d.moveT = Math.min(t, shot.delay);
     const posterContact = shot.kind === 'contact_dunk' && shot.result.made;
     if (d.move !== 'knocked_down') d.y = shot.fouled && !blocked && !posterContact ? 0
       : .3 * Math.max(0, Math.sin(Math.PI * Math.min(1, (blocked ? Math.min(t, shot.delay) : t) / .8)));
-    if (posterContact && shot.defenderFrom) {
+    if (posterContact && shot.defenderFrom && d.move !== 'knocked_down') {
       const from = shot.defenderFrom, contactT = MOVES.contact_dunk.rimFrame! / MOVES.contact_dunk.fps;
       const push = Math.max(0, Math.min(1, (t - contactT) / .3));
       const co = Math.cos(a.facing), si = Math.sin(a.facing);
@@ -871,9 +909,11 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[]): void {
       d.pos = { x: from.x + (shot.from.x - from.x) / len * p, z: from.z + (shot.from.z - from.z) / len * p };
     }
   }
+  const release = hand(a);
+  if (shot.kind === 'contact_dunk' && shot.defender && !s.poster
+    && t + 1e-9 >= MOVES.contact_dunk.rimFrame! / MOVES.contact_dunk.fps) startImpact(s, shot, cfg, rng);
   if (t < shot.delay - 1e-9) { heldBall(s); return; }
   if (!shot.flight) {
-    const release = hand(a);
     shot.flight = shot.kind === 'layup' || isDunk ? buildFinishFlight(shot.kind as 'layup' | 'dunk' | 'contact_dunk', shot.result.outcome, release, .1,
       { from: { ...shot.from, y: 0 }, block: blocked ? hand(s.actors[shot.defender!]) : undefined })
       : buildFlight(shot.result.outcome, release);
@@ -887,6 +927,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   if (oldPhase === 'ended') {
     // Nur die Ergebnis-Animation läuft weiter; Spieluhr und Regeln sind abgeschlossen.
     s.realTime += dtReal;
+    updateImpact(s, dtReal * cfg.animSpeed);
     for (const a of Object.values(s.actors)) a.moveT += dtReal * cfg.animSpeed;
     const c = r.celebration;
     if (c) {
@@ -910,6 +951,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     return;
   }
   s.gameT += dt;
+  updateImpact(s, dt);
   if (s.freeThrows && (oldPhase === "freethrows" || oldPhase === "combo")) { lineUp(s, dtReal); heldBall(s); }
   if (r.clockStarted && !s.freeThrows) {
     s.clock = Math.max(0, s.clock - dt);
@@ -1006,7 +1048,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     // Auch abgebrochene Kombis und Freiwürfe haben eine endliche Wartezeit.
     // Freiwürfe warten ohne Zeitlimit auf den Nutzer
     if (!s.freeThrows && r.realT >= cfg.decisionS + s.combo!.meterMs * 1.6 / 1000) miss(s, events, finishing ? 'VERLEGT' : 'ZU LANGE GEZÖGERT');
-  } else if (oldPhase === 'ballflight') shotAnimation(s, dt, events);
+  } else if (oldPhase === 'ballflight') shotAnimation(s, dt, events, cfg, rng);
   const meter = s.arrowMeter;
   if (meter && meter.fill === null) {
     if (meter.kind === 'catchshoot') refreshCatchArrow(s, currentP(s), cfg);

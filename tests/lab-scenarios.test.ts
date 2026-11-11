@@ -5,6 +5,27 @@ import { createLabMenu } from '../src/ui/lab-menu';
 afterEach(() => { localStorage.clear(); document.body.innerHTML = ''; });
 
 describe('Test-Szenarien: Einstellungen', () => {
+  it('verwendet random als Poster-Standard und ersetzt ungültige Werte', () => {
+    expect(DEFAULTS.posterVariant).toBe('random');
+    for (const value of [undefined, 'invalid', null, 1]) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ posterVariant: value }));
+      expect(loadSettings().posterVariant).toBe('random');
+    }
+  });
+
+  it('bietet und speichert alle Poster-Varianten im Abschnitt Test-Szenarien', () => {
+    const change = vi.fn();
+    createLabMenu(document.body, { ...DEFAULTS, mode: 'play' }, change);
+    const select = document.querySelector<HTMLSelectElement>('#lab-test-scenarios #lab-posterVariant')!;
+    expect(select.closest('label')!.textContent).toContain('Poster-Variante');
+    expect([...select.options].map(o => o.text)).toEqual(['Zufall', 'Klassisch', 'Abflug', 'Grabstein']);
+    expect(select.value).toBe('random');
+    for (const value of ['classic', 'flyout', 'grave', 'random']) {
+      select.value = value; select.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(loadSettings().posterVariant).toBe(value);
+      expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ posterVariant: value }));
+    }
+  });
   it('verwendet Normal und keinen erzwungenen Poster als Standard, auch bei alten Daten', () => {
     expect(DEFAULTS).toMatchObject({ finishFoulChance: -1, forcePoster: false });
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode: 'play', fouls: 'off' }));
