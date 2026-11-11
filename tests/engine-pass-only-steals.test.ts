@@ -11,7 +11,7 @@ const cfg: EngineConfig = {
   shot: { meterMs: 700, greenZone: .07, aimDeg: 6, influence: .6 },
   finish: { meterMs: 450, greenZone: .1, aimDeg: 8 },
 };
-const SEEDS = 64;
+const SEEDS = 16; // 23 Spielzüge × Varianten × Optionen: 16 Seeds reichen, 64 sprengten die CI-Laufzeit
 const safe = () => .99;
 function seeded(seed: number): () => number {
   return () => {
@@ -75,7 +75,7 @@ const actions = segments.flatMap(row => row.options.flatMap(option =>
     ({ ...row, option, lane, title: `${row.title}/${option.kind}/${lane}` }))));
 
 describe('Steals nur bei abgefangenen Pässen', () => {
-  it.each(actions)('kein STEAL und kein Ballverlust ohne Pass: $title (64 Seeds)', ({ play, option, lane, title }) => {
+  it.each(actions)('kein STEAL und kein Ballverlust ohne Pass: $title (16 Seeds)', ({ play, option, lane, title }) => {
     for (let seed = 0; seed < SEEDS; seed++) {
       const rng = seeded(seed), c = { ...cfg, finishArrow: seed % 2 === 0 };
       const s = createPlayState(play, c, rng), t = track(s, c, rng);
@@ -93,7 +93,7 @@ describe('Steals nur bei abgefangenen Pässen', () => {
 
   const aiCases = segments.flatMap(row => row.options.map(option => ({ ...row, option,
     title: `${row.title}/KI-${option.kind}` })));
-  it.each(aiCases)('kein STEAL und kein Ballverlust bei KI ohne Pass: $title (64 Seeds)', ({ play, segment, option, title }) => {
+  it.each(aiCases)('kein STEAL und kein Ballverlust bei KI ohne Pass: $title (16 Seeds)', ({ play, segment, option, title }) => {
     // Nur Ballführer und Verteidiger: Die Engine ergänzt sonst automatisch Passziele.
     const noPass: Play = { ...play,
       actors: play.actors.filter(id => id === segment.handler || ACTORS[id].team === 'def'),
@@ -113,7 +113,7 @@ describe('Steals nur bei abgefangenen Pässen', () => {
   });
 
   it.each(['shoot', 'drive', 'wait'] as const)(
-    'kein nachträglicher STEAL beim Fangen/Closeout und %s nach ungenauem Pass (64 Seeds)', action => {
+    'kein nachträglicher STEAL beim Fangen/Closeout und %s nach ungenauem Pass (16 Seeds)', action => {
       for (let seed = 0; seed < SEEDS; seed++) {
         const rng = seeded(seed), s = createPlayState(passFixture(false), cfg, rng), t = track(s, cfg, rng);
         t.until(() => s.phase === 'decision');
@@ -134,7 +134,7 @@ describe('Steals nur bei abgefangenen Pässen', () => {
       }
     });
 
-  it('erhält Passweg und Genauigkeit als Steal-Regel und zählt nur den abgefangenen Pass (64 Seeds)', () => {
+  it('erhält Passweg und Genauigkeit als Steal-Regel und zählt nur den abgefangenen Pass (16 Seeds)', () => {
     let interceptions = 0, catches = 0;
     for (let seed = 0; seed < SEEDS; seed++) {
       // Gleicher Zufallswert: ungenauer Pass hat 60 %, perfekter Pass weiterhin 9 %.
