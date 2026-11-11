@@ -13,6 +13,8 @@ export interface Look {
   jersey: string;
   shorts: string;
   num: number;
+  /** Farbe senkrechter Trikotstreifen (Schiri), jede zweite Pixelspalte */
+  stripes?: string;
 }
 export type Projected = Record<Joint, { u: number; v: number; depth: number }>;
 
@@ -59,12 +61,15 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
     for (let i = 0; i <= n; i++) stamp(x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n, t, c);
   };
   // Waagerechtes Band entlang einer Linie: Rumpf ohne Überstand nach oben/unten (sonst verschwinden Hals und Beine)
-  const band = (a: { u: number; v: number }, b: { u: number; v: number }, width: number, c: number[]) => {
+  const band = (a: { u: number; v: number }, b: { u: number; v: number }, width: number, c: number[], alt?: number[]) => {
     const x0 = X(a.u), y0 = Y(a.v), x1 = X(b.u), y1 = Y(b.v);
     const n = Math.max(1, Math.ceil(Math.abs(y1 - y0)));
     for (let i = 0; i <= n; i++) {
       const cx = x0 + ((x1 - x0) * i) / n, cy = y0 + ((y1 - y0) * i) / n;
-      for (let dx = 0; dx < width; dx++) set(cx - (width - 1) / 2 + dx, cy, c);
+      for (let dx = 0; dx < width; dx++) {
+        const x = cx - (width - 1) / 2 + dx;
+        set(x, cy, alt && Math.round(x) % 2 ? alt : c);
+      }
     }
   };
   const mid = (a: { u: number; v: number }, b: { u: number; v: number }, f = 0.5) => ({ u: a.u + (b.u - a.u) * f, v: a.v + (b.v - a.v) * f });
@@ -111,7 +116,7 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
   // Die Nummer braucht beidseitig einen Trikotpixel Abstand zum Umriss.
   const tw = Math.max(Math.round(span - 1), Math.round((side ? 0.13 : 0.17) * s * bw), side ? 0 : numberWidth + 2);
   line(p.neck, shMid, limb, skin);
-  band(shMid, p.pelvis, tw, jersey);
+  band(shMid, p.pelvis, tw, jersey, look.stripes ? rgb(look.stripes) : undefined);
   band(p.pelvis, mid(mid(p.hipL, p.hipR), mid(p.knL, p.knR), 0.25), tw, shorts);
 
   // Kopf

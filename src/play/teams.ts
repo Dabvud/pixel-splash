@@ -15,6 +15,6 @@ export const BLUE: ActorDef[] = [
   { id: 'b44', team: 'def', num: 44, heightM: 2.11, build: 'broad', skin: '#70452f', hair: 'bald', beard: 'stubble', headband: null, armSleeve: 'right', shoes: '#ed8848', socks: 'high', jersey: '#3263b9', shorts: '#244787', shot: .3, athleticism: .5 },
 ];
 // Schiedsrichter: kommt nur bei Fouls ins Bild; Nummer −1 = keine Rückennummer
-export const REF: ActorDef = { id: 'ref', team: 'ref', num: -1, heightM: 1.86, build: 'normal', skin: '#c58c63', hair: 'buzz', beard: 'none', headband: null, armSleeve: 'none', shoes: '#1d1d22', socks: 'low', jersey: '#d9d9d9', shorts: '#1d1d22', shot: 0, athleticism: 0 };
+export const REF: ActorDef = { id: 'ref', team: 'ref', num: -1, heightM: 1.86, build: 'normal', skin: '#c58c63', hair: 'buzz', beard: 'none', headband: null, armSleeve: 'none', shoes: '#1d1d22', socks: 'low', jersey: '#d9d9d9', stripes: '#1d1d22', shorts: '#1d1d22', shot: 0, athleticism: 0 };
 
 export const ACTORS: Record<string, ActorDef> = Object.fromEntries([...RED, ...BLUE, REF].map(a => [a.id, a]));

@@ -123,3 +123,16 @@ describe('32×64 Figurenraster mit Füßen in Zeile 62', () => {
     expect(a).not.toEqual(b);
   });
 });
+
+describe('Schiri-Trikot', () => {
+  const ref: Look = { ...look, jersey: '#d9d9d9', stripes: '#1d1d22', num: -1 };
+  it.each(['back', 'front', 'left', 'right'] as Dir[])('zeigt vertikale Streifen im Rumpf: %s', dir => {
+    const buf = rasterPose(project(idle, dir), ref, dir);
+    const grey = pixels(buf, [217, 217, 217, 255]), black = pixels(buf, [29, 29, 34, 255]);
+    expect(grey.length).toBeGreaterThan(5);
+    expect(black.length).toBeGreaterThan(5);
+    // Streifen sind spaltenweise: jede Spalte trägt im Rumpf nur eine der beiden Farben
+    const greyCols = new Set(grey.map(p => p.x)), blackCols = new Set(black.filter(p => p.y < 48).map(p => p.x));
+    expect([...blackCols].some(x => greyCols.has(x))).toBe(false);
+  });
+});
