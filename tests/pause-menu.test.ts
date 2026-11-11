@@ -58,3 +58,13 @@ it('bietet das Entscheidungsfenster mit Spielsekunden, 1,5–4 und Standard 2,5 
   expect(input.min).toBe('1.5'); expect(input.max).toBe('4'); expect(input.value).toBe('2.5');
   expect(input.closest('label')!.textContent).toContain('Entscheidungsfenster');
 });
+
+describe('Pause-Menü: Zusatzbereich', () => {
+  it('lässt den Modus beim Öffnen den Zusatzbereich füllen', () => {
+    const fill = vi.fn((el: HTMLElement) => { el.textContent = 'BOX'; });
+    createLabMenu(document.body, DEFAULTS, () => {}, () => {}, () => {}, fill);
+    q('#lab-open').click();
+    expect(fill).toHaveBeenCalledTimes(1);
+    expect(q('#pause-extra').textContent).toBe('BOX');
+  });
+});

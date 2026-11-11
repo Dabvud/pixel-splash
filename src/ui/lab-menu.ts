@@ -36,7 +36,8 @@ const RANGES: RangeField[] = [
 ];
 
 // Zahnrad + Dialog; jede Änderung wird sofort gespeichert und gemeldet.
-export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Settings) => void, onToggle?: (open: boolean) => void, onRestart?: () => void): void {
+export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Settings) => void, onToggle?: (open: boolean) => void, onRestart?: () => void,
+  onPauseOpen?: (extra: HTMLElement) => void): void {
   const select = (f: SelectField) =>
     `<label data-show="${f.show}">${f.label} <select id="lab-${f.key}">${f.options.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>`;
   const range = (f: RangeField) =>
@@ -50,6 +51,7 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
        <button class="lab-close" id="pause-resume">Weiter</button>
        <button class="pause-btn" id="pause-restart">${s.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen"}</button>
        <button class="pause-btn" id="pause-settings">Einstellungen</button>
+       <div id="pause-extra"></div>
      </dialog>
      <dialog class="lab" id="lab" aria-labelledby="lab-title">
        <form method="dialog">
@@ -101,6 +103,9 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
   });
   root.querySelector("#lab-open")!.addEventListener("click", () => {
     root.querySelector("#pause-restart")!.textContent = cur.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen";
+    const extra = root.querySelector<HTMLElement>("#pause-extra")!;
+    extra.replaceChildren();
+    onPauseOpen?.(extra);
     pause.showModal();
     onToggle?.(true);
   });

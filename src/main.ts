@@ -25,6 +25,6 @@ const onChange = (s: Settings): void => {
   }
 };
 
-createLabMenu(app, settings, onChange, (open) => mode.setPaused?.(open), () => mode.restart?.());
+createLabMenu(app, settings, onChange, (open) => mode.setPaused?.(open), () => mode.restart?.(), (extra) => mode.renderPause?.(extra));
 
 registerAppUpdate(registerSW);

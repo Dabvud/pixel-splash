@@ -14,6 +14,7 @@ import { actorHead, command, createPlayState, lastHint, step, type ArrowMeter, t
 import { positionValue } from "../play/position";
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
+import { addPlay, boxRows, emptyGame } from "../stats/statline";
 import { createPlayHud, formatPlayClock, type Marker } from "../ui/play-hud";
 import type { Mode } from "./mode";
 
@@ -51,6 +52,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const phud = createPlayHud(root);
   const statsEl = root.querySelector<HTMLElement>("#hud-stats")!;
   const stats: Record<string, { tries: number; points: number; turnovers: number }> = {};
+  let game = emptyGame(); // Statline des laufenden Spiels (über alle Spielzüge, bis „Neues Spiel“)
 
   const cfg = (): EngineConfig => ({
     decisionLead: settings.decisionS,
@@ -179,6 +181,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         phud.flash(e.left === 1 ? "LETZTER FREIWURF" : `${e.left} FREIWÜRFE`);
         releasedFill = null;
       } else if (e.type === "end") {
+        addPlay(game, s.box);
         if (e.verdict === "GAMEWINNER") crowd?.cheer(1);
         options = [];
         const st = (stats[s.play.id] ??= { tries: 0, points: 0, turnovers: 0 });
@@ -437,6 +440,19 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       settings = next;
       resize();
       if (restart) newPlay();
+    },
+    renderPause(extra) {
+      const ids = Object.values(ACTORS).filter((a) => a.team === "off").map((a) => a.id);
+      const rows = boxRows(game, ids);
+      const sum = rows.reduce((t, r) => ({ pts: t.pts + r.pts, ast: t.ast + r.ast }), { pts: 0, ast: 0 });
+      extra.innerHTML = `<table class="box" aria-label="Boxscore ROT"><thead><tr><th>ROT</th><th>PTS</th><th>AST</th></tr></thead><tbody>${rows
+        .map((r) => `<tr><td>#${ACTORS[r.id].num}</td><td>${r.pts}</td><td>${r.ast}</td></tr>`)
+        .join("")}</tbody><tfoot><tr><td>Gesamt</td><td>${sum.pts}</td><td>${sum.ast}</td></tr></tfoot></table>
+        <button class="pause-btn" id="pause-newgame">Neues Spiel (Statistik leeren)</button>`;
+      extra.querySelector("#pause-newgame")!.addEventListener("click", () => {
+        game = emptyGame();
+        this.renderPause!(extra);
+      });
     },
     restart() {
       newPlay();

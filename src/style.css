@@ -417,3 +417,36 @@ body {
   border-radius: 10px;
   cursor: pointer;
 }
+
+/* Boxscore im Pause-Menü */
+.box {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px/1.6 var(--pixel);
+  font-variant-numeric: tabular-nums;
+}
+.box th,
+.box td {
+  padding: 4px 6px;
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+}
+.box th:first-child,
+.box td:first-child {
+  text-align: left;
+}
+.box th {
+  color: var(--muted);
+  font-weight: 400;
+}
+.box tfoot td {
+  color: var(--accent);
+  border-bottom: 0;
+}
+#pause-extra {
+  display: grid;
+  gap: 10px;
+}
+#pause-extra:empty {
+  display: none;
+}

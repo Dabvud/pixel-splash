@@ -8,4 +8,6 @@ export interface Mode {
   setPaused?(paused: boolean): void;
   /** Pause-Menü: Spielzug neu starten bzw. Statistik zurücksetzen */
   restart?(): void;
+  /** Pause-Menü: Zusatzinhalt (z. B. Boxscore) in den Bereich schreiben */
+  renderPause?(extra: HTMLElement): void;
 }

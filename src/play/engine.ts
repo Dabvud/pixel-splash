@@ -1,4 +1,5 @@
 import type { MoveId } from '../figure/moves';
+import { emptyLine, type StatLine } from '../stats/statline';
 import { MOVES, moveFrames } from '../figure/moves';
 import { buildFinishFlight } from '../shot/finish-path';
 import { bankWindow, effectiveZones, MAX_FILL, resolveShot } from '../shot/resolve';
@@ -33,6 +34,7 @@ export type FinishFeedback = 'PERFEKT' | 'ZU FRÜH' | 'ZU SPÄT' | 'ZU LANGSAM';
 export interface PlayState {
   play: Play; variant: string; deficit: number; phase: Phase; gameT: number; clock: number; handler: string;
   actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number;
+  /** Statline dieses Spielzugs (Punkte, Assists) je Spieler-ID */ box: Record<string, StatLine>; lastPasser: string | null;
   combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
@@ -251,7 +253,7 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
     : play.deficit[0] + Math.min(play.deficit[1] - play.deficit[0], Math.floor(rng() * (play.deficit[1] - play.deficit[0] + 1)));
   const s: PlayState = {
     play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
-    actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0,
+    actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, box: {}, lastPasser: null,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
@@ -670,9 +672,20 @@ function freeThrow(s: PlayState, events: EngineEvent[]): void {
   events.push({ type: 'freethrow', left: s.freeThrows!.left });
 }
 
+function addPoints(s: PlayState, id: string, pts: number): void {
+  (s.box[id] ??= emptyLine()).pts += pts;
+}
+
 function finishShot(s: PlayState, events: EngineEvent[]): void {
   const shot = rt(s).shot!, { result, kind, fouled, ft } = shot;
-  if (result.made) s.points += ft ? 1 : kind === 'three' ? 3 : 2;
+  if (result.made) {
+    const pts = ft ? 1 : kind === 'three' ? 3 : 2;
+    s.points += pts;
+    const scorer = ft ? s.freeThrows!.shooter : s.handler;
+    addPoints(s, scorer, pts);
+    // Assist nur für den Feldkorb, nicht für Freiwürfe
+    if (!ft && s.assisted && s.lastPasser && s.lastPasser !== scorer) (s.box[s.lastPasser] ??= emptyLine()).ast++;
+  }
   s.banner = shot.timedOut ? kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING'
     : result.outcome === 'bank_in'
     ? `${!ft && s.assisted ? 'ASSIST + ' : ''}${result.banner}${!ft && fouled ? ' + AND-ONE' : ''}`
@@ -846,6 +859,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
         s.ball = hand(s.actors[p.stolenBy]); s.turnovers++;
         end(s, events, 'STEAL');
       } else {
+        s.lastPasser = s.handler;
         s.handler = p.option.to!;
         const a = s.actors[s.handler];
         a.pos = { ...p.catchPos };
