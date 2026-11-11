@@ -26,6 +26,8 @@ export interface EngineConfig {
   forcePoster?: boolean;
   glassChance?: number;
   forceGlass?: boolean;
+  /** Alley-oop vom Brett bei freier Bahn + Athletik ≥ 0,8: Chance (Standard 0,1) bzw. erzwungen */
+  boardOopChance?: number; forceBoardOop?: boolean;
   posterVariant?: 'random' | PosterVariant;
   blockFoulChance?: number;
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
@@ -62,13 +64,15 @@ export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pas
   | { type: 'arrowStart'; kind: ArrowMeter['kind'] } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
   | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
   | { type: 'foul'; andOne: boolean }
-  | { type: 'glass' } | { type: 'glassFixed' }
+  | { type: 'glass' } | { type: 'glassFixed' } | { type: 'boardOop' }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
 
 interface Pass {
   option: Option; from: Vec3; to: Vec3; catchPos: Vec2; duration: number; elapsed: number; stolenBy?: string;
   quality: number; startOffset: number; endOffset: number;
   style: 'normal' | 'bounce' | 'overhead';
+  /** Alley-oop vom Brett: Ball prallt hier vom Glas zum Fänger */
+  board?: Vec3;
 }
 interface Reception {
   quality: number; delay: number; elapsed: number; offset: Vec3;
@@ -551,6 +555,12 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
     const kind = cfg.forcePoster
       ? defense.some(pos => distance(pos, target.pos) <= 2.5) ? 'contact_dunk' : 'dunk'
       : finishKind(ACTORS[catcher.id].athleticism, P, rng);
+    // Nur bei freier Bahn (Dunk ohne Kontakt) und hohem Dunk-Wert; gewürfelt nur dann
+    if (kind === 'dunk' && ACTORS[catcher.id].athleticism >= .8
+      && (cfg.forceBoardOop || rng() < (cfg.boardOopChance ?? .1))) {
+      r.pass.board = { x: target.pos.x * .3, y: 3.6, z: -.36 };
+      events.push({ type: 'boardOop' });
+    }
     const data = comboData(s, kind, P, cfg, rng, catcher.id, target.pos, quality);
     const catchTime = s.realTime + target.duration / cfg.animSpeed;
     startArrow(s, 'alleyoop', Math.max(s.realTime, catchTime - data.combo.meterMs / 1000), data, events);
@@ -1092,6 +1102,13 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
       ? (f <= .5 ? mix(p.from.y, .12, half) : mix(.12, p.to.y, half)) + .12 * 4 * half * (1 - half)
       : mix(p.from.y, p.to.y, f) + (p.style === 'overhead' ? 1.5 : .35) * 4 * f * (1 - f);
     s.ball = { x: mix(p.from.x, p.to.x, f), y, z: mix(p.from.z, p.to.z, f) };
+    if (p.board) {
+      // 60 % der Zeit zum Brett, dann im kleinen Bogen herunter in die Hand des Fängers
+      const b = p.board, g = f <= .6 ? f / .6 : (f - .6) / .4;
+      s.ball = f <= .6
+        ? { x: mix(p.from.x, b.x, g), y: mix(p.from.y, b.y, g) + 1.2 * 4 * g * (1 - g), z: mix(p.from.z, b.z, g) }
+        : { x: mix(b.x, p.to.x, g), y: mix(b.y, p.to.y, g) + .35 * 4 * g * (1 - g), z: mix(b.z, p.to.z, g) };
+    }
     if (f >= 1) {
       if (p.stolenBy) {
         // Nur das tatsächliche Abfangen zählt als Ballverlust, niemals Ballbesitz oder Closeout.

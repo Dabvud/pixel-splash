@@ -85,6 +85,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     finishFoulOverride: settings.finishFoulChance,
     forcePoster: settings.forcePoster,
     forceGlass: settings.forceGlass,
+    forceBoardOop: settings.forceBoardOop,
     posterVariant: settings.posterVariant,
     blockFoulChance: settings.fouls === "off" ? 0 : 0.15, // „Fouls aus“ gilt auch für den Block
     zoneFloor: settings.zoneFloor,
@@ -221,6 +222,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         else if (e.kind === "dunk") phud.flash("DUNK!");
       } else if (e.type === "combo") {
         if (e.fouled) phud.flash("KONTAKT!");
+      } else if (e.type === "boardOop") {
+        phud.flash("VOM BRETT!");
+        crowd?.cheer(0.7);
       } else if (e.type === "glass") {
         hoop.setGlassBroken(true);
         shards.burst((s.glass?.since ?? s.realTime) * 1000);
