@@ -122,3 +122,13 @@ describe('Saison', () => {
     expect(finishSeason(state({ player: { ...SAMPLE.player, age: 39 } }), 40, seededRng(1)).retired).toBe(true);
   });
 });
+
+describe('Szenen-Anzeigetafel', () => {
+  it('liefert Teamkürzel (eigenes Team zuerst) und das Viertel der Szene', () => {
+    const away = sceneSpec(state(), { opponent: 'bos', label: 'Rivalen-Duell', home: false }, 0, 2, 3, seededRng(1));
+    expect(away.teams).toEqual([SAMPLE.team.toUpperCase(), 'BOS']);
+    expect(away.title.startsWith(away.period!)).toBe(true);
+    const last = sceneSpec(state(), { opponent: 'bos', label: 'Rivalen-Duell', home: true }, 1, 2, 3, seededRng(1));
+    expect(last.period).toBe('4. VIERTEL');
+  });
+});

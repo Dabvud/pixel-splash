@@ -120,3 +120,16 @@ describe('Spielzug-Optionsmarker', () => {
     hud.dispose();
   });
 });
+
+describe('Anzeigetafel in der Karriere', () => {
+  it('zeigt Teamkürzel und das feste Viertel der Szene, auch nach weiteren Updates', () => {
+    document.body.innerHTML = '';
+    const hud = createPlayHud(document.body);
+    hud.setLabels('CHA', 'NOP', '2. VIERTEL');
+    hud.setScoreboard(12, 3, 0);
+    const text = document.querySelector('.phud-scoreboard, .phud-score')?.textContent ?? document.body.textContent!;
+    expect(text).toContain('CHA'); expect(text).toContain('NOP'); expect(text).toContain('2. VIERTEL');
+    expect(text).not.toContain('ROT'); expect(text).not.toContain('4. VIERTEL');
+    hud.dispose();
+  });
+});

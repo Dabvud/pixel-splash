@@ -25,6 +25,8 @@ export function playScore(deficit: number, points: number): { red: number; blue:
 export function createPlayHud(root: HTMLElement): {
   setSituation(top: string | null, name?: string): void;
   setScoreboard(clock: number, deficit: number, points: number, overtime?: boolean): void;
+  /** Karriere: Teamkürzel (eigenes Team links) und festes Viertel der Szene */
+  setLabels(own: string, opp: string, period?: string): void;
   setMarkers(markers: Marker[]): void;
   setRing(x: number, y: number, P: number | null, visible: boolean): void;
   setHandler(x: number, y: number, visible: boolean): void;
@@ -62,6 +64,7 @@ export function createPlayHud(root: HTMLElement): {
   const feedback = q('.phud-finish-feedback'), poster = q('.phud-poster');
   const stars = [...poster.querySelectorAll<HTMLElement>('span')];
   const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue'), period = q('.phud-game span');
+  let periodLabel: string | undefined;
   const markerNodes: { el: HTMLDivElement; icon: HTMLElement; label: HTMLElement }[] = [];
   let flashTimer: number | null = null;
   let flashRemaining: number | null = null;
@@ -97,7 +100,12 @@ export function createPlayHud(root: HTMLElement): {
       setText(clock, formatPlayClock(seconds));
       setText(red, String(score.red));
       setText(blue, String(score.blue));
-      setText(period, overtime ? 'OVERTIME' : '4. VIERTEL');
+      setText(period, periodLabel ?? (overtime ? 'OVERTIME' : '4. VIERTEL'));
+    },
+    setLabels(own, opp, label) {
+      const [a, b] = el.querySelectorAll<HTMLElement>('.phud-team span');
+      setText(a, own); setText(b, opp);
+      periodLabel = label;
     },
     setMarkers(markers) {
       // display:grid der Marker übersteuert das native hidden; unbenutzte Knoten entfernen.

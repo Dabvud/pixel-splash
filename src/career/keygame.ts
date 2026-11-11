@@ -53,6 +53,7 @@ export function sceneSpec(state: CareerState, game: KeyGame, index: number, tota
   const opp = teamName(teamById(game.opponent));
   return {
     play: castWithHero(PLAYS[id], state.player.position, rng), deficit, clockS, controlled: HERO_ID,
+    teams: [state.team.toUpperCase(), game.opponent.toUpperCase()], period,
     title: `${period} · ${formatPlayClock(clockS, false)} · −${deficit}`,
     subtitle: `${game.label} · ${game.home ? 'gegen die' : 'bei den'} ${opp}`,
   };

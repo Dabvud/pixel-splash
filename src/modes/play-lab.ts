@@ -189,7 +189,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
     const period = s.overtime ? 'OVERTIME' : '4. VIERTEL';
     const name = s.play.name + (s.foulTrouble ? ` · #${ACTORS[s.foulTrouble].num} HAT 5 FOULS` : '');
     phud.setSituation(`${period} · ${formatPlayClock(s.clock, !Number.isInteger(s.clock))} · −${s.deficit}`, name);
-    if (career) phud.setSituation(career.spec.title, career.spec.subtitle);
+    if (career) {
+      phud.setSituation(career.spec.title, career.spec.subtitle);
+      if (career.spec.teams) phud.setLabels(career.spec.teams[0], career.spec.teams[1], career.spec.period);
+    }
     phud.setScoreboard(s.clock, s.deficit, s.points, s.overtime);
     showStats();
   }
