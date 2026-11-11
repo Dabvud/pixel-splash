@@ -4,6 +4,7 @@ import { MAX_FILL, type ShotResult } from "../shot/resolve";
 import { attachGesture, type GestureEvent } from "../input/gesture";
 import { createScene } from "../render/scene";
 import { createGrave } from "../render/grave";
+import { createGlassShards } from "../render/glass";
 import { createPixelRenderer } from "../render/pixel";
 import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
 import { createActors, spriteJointWorld, type ActorView } from "../render/actors";
@@ -49,8 +50,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   root.append(replayBadge);
 
   let settings = initial;
-  const { scene, ball, updateNet, crowd } = createScene();
+  const { scene, ball, updateNet, crowd, hoop } = createScene();
   const grave = createGrave(scene);
+  const shards = createGlassShards(scene);
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
   let atlas: ReturnType<typeof buildAtlas>;
@@ -72,6 +74,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     foulMult: FOUL_MULT[settings.fouls],
     finishFoulOverride: settings.finishFoulChance,
     forcePoster: settings.forcePoster,
+    forceGlass: settings.forceGlass,
     posterVariant: settings.posterVariant,
     blockFoulChance: settings.fouls === "off" ? 0 : 0.15, // „Fouls aus“ gilt auch für den Block
     zoneFloor: settings.zoneFloor,
@@ -101,6 +104,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let replay: { clip: Snap[]; start: number; andOne: boolean } | null = null;
   let replayPending: { andOne: boolean } | null = null;
   let blockReplayQueued = false;
+  let glassReplayPlayed = false;
   let foulJustCalled = false;
   let raf = 0;
   let last = performance.now();
@@ -127,11 +131,14 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   function newPlay(): void {
     recorder.reset();
     blockReplayQueued = false;
+    glassReplayPlayed = false;
+    hoop.setGlassBroken(false);
+    shards.reset();
     rng = settings.defenseRandom ? Math.random : seeded(7);
     const id = settings.play === "random" ? PLAY_IDS[Math.min(PLAY_IDS.length - 1, Math.floor(rng() * PLAY_IDS.length))] : settings.play;
     s = createPlayState(PLAYS[id], cfg(), rng);
-    // Der Schiri ist immer im Atlas, erscheint aber nur bei Fouls
-    const ids = [...Object.keys(s.actors), "ref"];
+    // Zusatzakteure brauchen ihren Atlas schon vor dem ersten Auftritt.
+    const ids = [...Object.keys(s.actors), "ref", "mop"];
     if (ids.join("|") !== actorIds) {
       actors?.dispose();
       if (atlas) (atlas.textures ?? [atlas.texture]).forEach(t => t.dispose());
@@ -198,9 +205,22 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         else if (e.kind === "dunk") phud.flash("DUNK!");
       } else if (e.type === "combo") {
         if (e.fouled) phud.flash("KONTAKT!");
+      } else if (e.type === "glass") {
+        hoop.setGlassBroken(true);
+        shards.burst((s.glass?.since ?? s.realTime) * 1000);
+        phud.flash("BRETT ZERBROCHEN!");
+        crowd?.cheer(1);
+      } else if (e.type === "glassFixed") {
+        hoop.setGlassBroken(false);
+        shards.reset();
       } else if (e.type === "result") {
         if (e.made) crowd?.cheer(/DUNK|POSTER/.test(e.banner) ? .9 : .6);
         if (e.made && e.banner.includes("POSTER")) replayPending ??= { andOne: false };
+        if (s.glass && e.made && /POSTER|AND-ONE/.test(e.banner)) {
+          // Der Pfiff folgt erst nach dem Wischen; das Dunk-Replay bleibt davor.
+          glassReplayPlayed = true;
+          replayPending ??= { andOne: false };
+        }
         if (!e.made && s.poster?.kind === 'block' && !blockReplayQueued) {
           blockReplayQueued = true;
           replayPending ??= { andOne: false };
@@ -214,8 +234,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         releasedFill = null;
       } else if (e.type === "foul") {
         // Beim And-one zuerst das Replay, die Einblendung folgt danach
-        if (e.andOne) replayPending = { andOne: true };
-        else { phud.foulCall(false); crowd?.cheer(0.3); }
+        if (e.andOne && !glassReplayPlayed) replayPending = { andOne: true };
+        else { phud.foulCall(e.andOne); crowd?.cheer(e.andOne ? .9 : .3); }
       } else if (e.type === "end") {
         addPlay(game, s.box);
         if (e.verdict === "GAMEWINNER") crowd?.cheer(1);
@@ -391,6 +411,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       phud.setPoster(q.x, q.y, true, elapsed);
     } else phud.setPoster(0, 0, false);
     grave.sync(snap.grave, snap.realTime);
+    hoop.setGlassBroken(Boolean(snap.glass));
+    shards.update(snap.realTime * 1000);
+    shards.sweep(snap.glass ? snap.glassSweep ?? 0 : 1);
     updateNet(snap.t);
     crowd?.update(now);
     px.renderer.render(scene, camera);
@@ -453,6 +476,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     }
     actors.sync(views, yaw);
     grave.sync(s.grave, s.realTime);
+    hoop.setGlassBroken(s.glass !== null);
+    shards.update(s.realTime * 1000);
+    shards.sweep(s.glass ? s.glassSweep : 1);
     ball.position.set(s.ball.x, s.ball.y, s.ball.z);
 
     // HUD

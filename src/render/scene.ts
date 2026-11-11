@@ -5,7 +5,7 @@ import { createCrowd, type CrowdController } from "./crowd";
 import { createStadium } from "./stadium";
 
 // Pixel-Arena; die Modi steuern Netz und optional das Publikum unabhängig.
-export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet(nowMs: number): void; crowd?: CrowdController } {
+export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet(nowMs: number): void; crowd?: CrowdController; hoop: { setGlassBroken(broken: boolean): void } } {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b101b);
 
@@ -23,7 +23,7 @@ export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet
   const crowd = createCrowd(stadium.seats);
   scene.add(stadium.group, crowd.mesh);
 
-  const net = addHoop(scene);
+  const { net, hoop } = addHoop(scene);
 
   scene.add(new THREE.HemisphereLight(0xd7e3ff, 0x251d27, 0.45));
   const sun = new THREE.DirectionalLight(0xfff0dc, 0.85);
@@ -47,7 +47,7 @@ export function createScene(): { scene: THREE.Scene; ball: THREE.Mesh; updateNet
     net.scale.y = sy;
     net.position.set(dx, 3.05 - 0.21 * sy, 0);
   };
-  return { scene, ball, updateNet, crowd };
+  return { scene, ball, updateNet, crowd, hoop };
 }
 
 function courtTexture(): THREE.CanvasTexture {
@@ -85,7 +85,7 @@ function courtTexture(): THREE.CanvasTexture {
   return pixelTexture(c);
 }
 
-function addHoop(scene: THREE.Scene): THREE.Mesh {
+function addHoop(scene: THREE.Scene): { net: THREE.Mesh; hoop: { setGlassBroken(broken: boolean): void } } {
   const c = document.createElement("canvas");
   c.width = 90;
   c.height = 52;
@@ -106,11 +106,11 @@ function addHoop(scene: THREE.Scene): THREE.Mesh {
     return m;
   };
   const texture = pixelTexture(c);
-  part(new THREE.BoxGeometry(1.8, 1.05, 0.05), new THREE.MeshLambertMaterial({ map: texture }), 0, 3.42, -0.4);
+  const glass = part(new THREE.BoxGeometry(1.8, 1.05, 0.05), new THREE.MeshLambertMaterial({ map: texture }), 0, 3.42, -0.4);
   const rim = part(new THREE.TorusGeometry(0.23, 0.02, 8, 24), new THREE.MeshLambertMaterial({ color: 0xe8601c }), 0, 3.05, 0);
   rim.rotation.x = Math.PI / 2;
   const net = part(new THREE.CylinderGeometry(0.23, 0.15, 0.42, 12, 3, true), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }), 0, 2.84, 0);
   part(new THREE.BoxGeometry(0.15, 0.15, 1.2), dark, 0, 3.3, -1);
   part(new THREE.BoxGeometry(0.25, 3.4, 0.25), dark, 0, 1.7, -1.6);
-  return net;
+  return { net, hoop: { setGlassBroken(broken) { glass.visible = !broken; } } };
 }

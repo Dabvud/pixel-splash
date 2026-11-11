@@ -75,8 +75,8 @@ function lazyAtlas(looks: Record<string, Look>): Atlas {
   const cols = 16;
   const poses = new Map<MoveId, ReturnType<typeof moveFrames>>();
   const pages = new Map(Object.entries(looks).map(([id, look]) => {
-    // Der Schiri braucht nur wenige Bewegungen (laufen, stehen, pfeifen): halbe Seite spart Speicher am Handy
-    const rows = (look as { team?: string }).team === 'ref' ? 8 : 16, capacity = cols * rows;
+    // Zusatzakteure brauchen wenige Bewegungen: halbe Seiten sparen Speicher am Handy.
+    const rows = ['ref', 'crew'].includes((look as { team?: string }).team ?? '') ? 8 : 16, capacity = cols * rows;
     const canvas = document.createElement('canvas');
     canvas.width = cols * CELL_W; canvas.height = rows * CELL_H;
     const context = canvas.getContext('2d')!;

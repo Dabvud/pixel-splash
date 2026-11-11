@@ -17,4 +17,6 @@ export const BLUE: ActorDef[] = [
 // Schiedsrichter: kommt nur bei Fouls ins Bild; Nummer −1 = keine Rückennummer
 export const REF: ActorDef = { id: 'ref', team: 'ref', num: -1, heightM: 1.86, build: 'normal', skin: '#c58c63', hair: 'buzz', beard: 'none', headband: null, armSleeve: 'none', shoes: '#1d1d22', socks: 'low', jersey: '#d9d9d9', stripes: '#1d1d22', shorts: '#1d1d22', shot: 0, athleticism: 0 };
 
-export const ACTORS: Record<string, ActorDef> = Object.fromEntries([...RED, ...BLUE, REF].map(a => [a.id, a]));
+export const MOP: ActorDef = { id: 'mop', team: 'crew', num: -1, heightM: 1.55, build: 'slim', skin: '#d5a078', hair: 'short', beard: 'none', headband: null, armSleeve: 'none', shoes: '#ffffff', socks: 'low', jersey: '#ffffff', shorts: '#162849', mop: true, shot: 0, athleticism: 0 };
+
+export const ACTORS: Record<string, ActorDef> = Object.fromEntries([...RED, ...BLUE, REF, MOP].map(a => [a.id, a]));

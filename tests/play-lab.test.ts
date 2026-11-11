@@ -17,10 +17,11 @@ import { MOVES } from '../src/figure/moves';
 import { frameAt , spriteJointWorld } from '../src/render/actors';
 import { buildAtlas } from '../src/figure/atlas';
 
-const sceneSpies = vi.hoisted(() => ({ update: vi.fn(), cheer: vi.fn(), net: vi.fn(), render: vi.fn(), sync: vi.fn() }));
+const sceneSpies = vi.hoisted(() => ({ update: vi.fn(), cheer: vi.fn(), net: vi.fn(), render: vi.fn(), sync: vi.fn(), glass: vi.fn() }));
 vi.mock('../src/render/scene', async () => {
   const THREE = await import('three');
   return { createScene: () => ({ scene: new THREE.Scene(), ball: new THREE.Object3D(), updateNet: sceneSpies.net,
+    hoop: { setGlassBroken: sceneSpies.glass },
     crowd: { update: sceneSpies.update, cheer: sceneSpies.cheer } }) };
 });
 vi.mock('../src/render/pixel', () => ({ createPixelRenderer: () => ({ renderer: { render: sceneSpies.render, dispose: vi.fn() }, resize: vi.fn() }) }));
@@ -62,6 +63,53 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('zeigt Glas-Flash, Scherben, Mop und Reparatur und setzt beim Neustart alles zurück', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', forceGlass: true });
+    const s = state();
+    s.glass = { since: s.realTime };
+    s.actors.mop = { id: 'mop', pos: { x: 0, z: .6 }, y: 0, facing: 0, move: 'mop_sweep', moveT: 0 };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }]);
+    advance(1 / 60);
+    expect(vi.mocked(step).mock.calls.at(-1)![2].forceGlass).toBe(true);
+    expect(document.querySelector('.phud-flash')!.textContent).toBe('BRETT ZERBROCHEN!');
+    expect(sceneSpies.cheer).toHaveBeenLastCalledWith(1);
+    expect(sceneSpies.glass).toHaveBeenLastCalledWith(true);
+    const scene = sceneSpies.render.mock.calls.at(-1)![0] as import('three').Scene;
+    const pieces = scene.children.filter(o => o.name === 'glass-shard');
+    expect(pieces.filter(o => o.visible)).toHaveLength(30);
+    expect(sceneSpies.sync.mock.calls.at(-1)![0]).toContainEqual(expect.objectContaining({ id: 'mop', visible: true, move: 'mop_sweep' }));
+    s.glassSweep = .5; advance(1 / 60);
+    expect(pieces.filter(o => o.visible)).toHaveLength(15);
+    s.glass = null; delete s.actors.mop;
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glassFixed' }]); advance(1 / 60);
+    expect(sceneSpies.glass).toHaveBeenLastCalledWith(false);
+    expect(pieces.some(o => o.visible)).toBe(false);
+    expect(sceneSpies.sync.mock.calls.at(-1)![0]).toContainEqual(expect.objectContaining({ id: 'mop', visible: false }));
+    s.glass = { since: s.realTime }; vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }]); advance(1 / 60);
+    mode.restart!();
+    expect(sceneSpies.glass).toHaveBeenLastCalledWith(false);
+    expect(pieces.some(o => o.visible)).toBe(false);
+  });
+
+  it('pausiert die Mop-Szene während des And-one-Replays und startet danach kein zweites Replay', () => {
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    advance(.4);
+    const s = state();
+    s.glass = { since: s.realTime };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glass' }, { type: 'result', made: true, banner: 'DUNK! + AND-ONE' }]);
+    advance(1 / 60);
+    const time = s.realTime, calls = vi.mocked(step).mock.calls.length;
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(false);
+    advance(.4);
+    expect(s.realTime).toBe(time);
+    expect(vi.mocked(step).mock.calls.length).toBe(calls);
+    document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+    s.glass = null;
+    vi.mocked(step).mockReturnValueOnce([{ type: 'glassFixed' }, { type: 'freethrow', left: 1 }, { type: 'foul', andOne: true }]);
+    advance(1 / 60);
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(true);
+    expect(document.querySelector<HTMLElement>('.phud-andone')!.hidden).toBe(false);
+  });
   it('reicht die Poster-Variante weiter und startet beim Block ein Replay mit Opfer-Sternen', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', posterVariant: 'grave' });
     const s = state(), a = s.actors[s.handler];
@@ -196,12 +244,12 @@ describe('Spielzug-Labor Integration', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'fastbreak', defenseRandom: false });
     const call = vi.mocked(buildAtlas).mock.calls.at(-1)!;
     // Beteiligte Spieler plus Schiri (erscheint nur bei Fouls)
-    expect(Object.keys(call[0]).sort()).toEqual([...PLAYS.fastbreak.actors, 'ref'].sort());
+    expect(Object.keys(call[0]).sort()).toEqual([...PLAYS.fastbreak.actors, 'ref', 'mop'].sort());
     expect(call[1]).toEqual({ lazy: true });
   });
   it('übergibt alle Baukasten-Merkmale der zehn Teamspieler an den Atlas', () => {
     const looks = vi.mocked(buildAtlas).mock.calls[0][0];
-    expect(Object.keys(looks)).toHaveLength(11); // zehn Spieler + Schiri
+    expect(Object.keys(looks)).toHaveLength(12); // zehn Spieler + Schiri + Mop-Boy
     for (const a of PLAYERS) {
       expect(looks[a.id]).toMatchObject({
         hair: a.hair, beard: a.beard, headband: a.headband,

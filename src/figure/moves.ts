@@ -5,7 +5,7 @@ export type MoveId = 'idle'|'run'|'dribble'|'dribble_run'|'pass'|'catch'|'jumpsh
   | 'reverse_layup'|'block_jump_hit'|'crossover'|'behind_back'|'spin_move'|'hesitation'
   | 'euro_step'|'finger_roll'|'tomahawk_dunk'|'two_hand_dunk'|'step_back'|'fadeaway'
   | 'celebrate'|'dejected'|'pass_bounce'|'pass_overhead'
-  | 'ref_whistle'|'flex'|'high_five';
+  | 'ref_whistle'|'flex'|'high_five'|'mop_sweep';
 export interface MoveDef { frames: number; fps: number; loop: boolean; keys: Pose[]; ballHand: 'haL' | 'haR' | null; rimFrame?: number }
 
 type Limb = [upperPitch: number, lowerPitch: number, upperSpread?: number, lowerSpread?: number];
@@ -156,6 +156,11 @@ function knockedDownKeys(): Pose[] {
 }
 
 export const MOVES: Record<MoveId, MoveDef> = {
+  mop_sweep: { frames: 8, fps: 10, loop: true, ballHand: null, keys: sequence([
+    { lean: 14, arms: [[40, 65, -30, -25], [40, 65, -25, -20]] },
+    { lean: 14, arms: [[40, 65, 25, 20], [40, 65, 30, 25]] },
+    { lean: 14, arms: [[40, 65, -30, -25], [40, 65, -25, -20]] },
+  ]) },
   idle: { frames: 2, fps: 10, loop: true, ballHand: null, keys: [
     pose(), pose({ height: 0.505 }),
   ] },

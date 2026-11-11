@@ -4,6 +4,18 @@ import { createRecorder, replayAt, REPLAY_SPEED } from '../src/render/replay';
 const view = (id: string, x: number) => ({ id, x, y: 0, z: 0, facing: 0, move: 'idle' as const, moveT: 0, visible: true });
 
 describe('Instant-Replay-Aufzeichnung', () => {
+  it('kopiert den Glaszustand ab Ringkontakt und den Wischfortschritt unabhängig', () => {
+    const rec = createRecorder(4);
+    const effects = { realTime: 1, poster: null, grave: null, glass: null, glassSweep: 0 } as Pick<import('../src/play/engine').PlayState, 'realTime' | 'poster' | 'grave' | 'glass' | 'glassSweep'>;
+    rec.push(1000, [], { x: 0, y: 3, z: 0 }, effects);
+    effects.glass = { since: 1.2 }; effects.realTime = 1.2;
+    rec.push(1200, [], { x: 0, y: 3, z: 0 }, effects);
+    const clip = rec.clip(4);
+    effects.glass.since = 99; effects.glassSweep = 1;
+    expect(clip[0].glass).toBeNull();
+    expect(clip[1].glass).toEqual({ since: 1.2 });
+    expect(clip[1].glassSweep).toBe(0);
+  });
   it('kopiert Flug, versunkene Figuren, Sterne und Grabstein ab ihrem Auftreten', () => {
     const rec = createRecorder(4), v = view('b1', .8);
     const effects = { realTime: 1, poster: null, grave: null } as Pick<import('../src/play/engine').PlayState, 'realTime' | 'poster' | 'grave'>;

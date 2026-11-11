@@ -4,7 +4,7 @@ import type { PlayState } from '../play/engine';
 export const REPLAY_SPEED = 0.4; // Zeitlupe
 export const REPLAY_SECONDS = 1.6; // Vorlauf vor dem Höhepunkt: erst kurz vor dem Abschluss einsteigen
 
-type Effects = Pick<PlayState, 'realTime' | 'poster' | 'grave'>;
+type Effects = Pick<PlayState, 'realTime' | 'poster' | 'grave'> & Partial<Pick<PlayState, 'glass' | 'glassSweep'>>;
 export interface Snap extends Effects { t: number; ball: { x: number; y: number; z: number }; actors: ActorView[] }
 
 /** Ringpuffer der letzten Sekunden; Schnappschüsse werden wiederverwendet (keine Allokation pro Bild im Dauerbetrieb). */
@@ -14,11 +14,13 @@ export function createRecorder(maxSeconds: number, fps = 60) {
   let next = 0, size = 0;
   return {
     push(t: number, views: readonly ActorView[], ball: { x: number; y: number; z: number }, effects?: Effects): void {
-      const snap = (ring[next] ??= { t: 0, ball: { x: 0, y: 0, z: 0 }, actors: [], realTime: 0, poster: null, grave: null });
+      const snap = (ring[next] ??= { t: 0, ball: { x: 0, y: 0, z: 0 }, actors: [], realTime: 0, poster: null, grave: null, glass: null, glassSweep: 0 });
       snap.t = t;
       snap.realTime = effects?.realTime ?? t / 1000;
       snap.poster = effects?.poster ? Object.assign(snap.poster ?? {}, effects.poster) : null;
       snap.grave = effects?.grave ? Object.assign(snap.grave ?? {}, effects.grave) : null;
+      snap.glass = effects?.glass ? Object.assign(snap.glass ?? {}, effects.glass) : null;
+      snap.glassSweep = effects?.glassSweep ?? 0;
       snap.ball.x = ball.x; snap.ball.y = ball.y; snap.ball.z = ball.z;
       snap.actors.length = views.length;
       views.forEach((v, i) => { snap.actors[i] = Object.assign(snap.actors[i] ?? ({} as ActorView), v); });
@@ -31,7 +33,8 @@ export function createRecorder(maxSeconds: number, fps = 60) {
       for (let i = size; i >= 1; i--) {
         const s = ring[(next - i + capacity) % capacity];
         out.push({ t: s.t, ball: { ...s.ball }, actors: s.actors.map((a) => ({ ...a })),
-          realTime: s.realTime, poster: s.poster && { ...s.poster }, grave: s.grave && { ...s.grave } });
+          realTime: s.realTime, poster: s.poster && { ...s.poster }, grave: s.grave && { ...s.grave },
+          glass: s.glass && { ...s.glass }, glassSweep: s.glassSweep });
       }
       const end = out.at(-1)?.t ?? 0;
       return out.filter((s) => s.t >= end - seconds * 1000);

@@ -43,7 +43,7 @@ describe('Poster-Varianten', () => {
     });
 
   it('würfelt die Variante erst beim tatsächlich gelungenen Poster', () => {
-    const c = { ...posterConfig, posterVariant: 'random' as const }, s = posterShot(c);
+    const c = { ...posterConfig, posterVariant: 'random' as const, glassChance: 0 }, s = posterShot(c);
     let calls = 0;
     const rng = () => { calls++; return .1; };
     step(s, .49, c, rng); expect(calls).toBe(0);

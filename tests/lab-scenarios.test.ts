@@ -5,6 +5,24 @@ import { createLabMenu } from '../src/ui/lab-menu';
 afterEach(() => { localStorage.clear(); document.body.innerHTML = ''; });
 
 describe('Test-Szenarien: Einstellungen', () => {
+  it('validiert forceGlass als Boolean mit Standard false und speichert den Schalter', () => {
+    expect(DEFAULTS.forceGlass).toBe(false);
+    for (const value of [undefined, 'true', null, 1, false, true]) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ forceGlass: value }));
+      expect(loadSettings().forceGlass).toBe(value === true);
+    }
+    const change = vi.fn();
+    createLabMenu(document.body, { ...DEFAULTS, mode: 'play' }, change);
+    const toggle = document.querySelector<HTMLInputElement>('#lab-test-scenarios #lab-forceGlass')!;
+    expect(toggle.type).toBe('checkbox');
+    expect(toggle.checked).toBe(false);
+    expect(toggle.closest('label')!.textContent).toContain('Brett zerbrechen erzwingen');
+    for (const checked of [true, false]) {
+      toggle.checked = checked; toggle.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(loadSettings().forceGlass).toBe(checked);
+      expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ forceGlass: checked }));
+    }
+  });
   it('verwendet random als Poster-Standard und ersetzt ungültige Werte', () => {
     expect(DEFAULTS.posterVariant).toBe('random');
     for (const value of [undefined, 'invalid', null, 1]) {

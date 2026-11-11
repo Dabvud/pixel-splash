@@ -17,6 +17,18 @@ function pixels(buf: Uint8ClampedArray, color?: number[]): { x: number; y: numbe
   return result;
 }
 
+it('zeichnet den braunen Mopp nur bei mop:true, auch beim Laufen', () => {
+  for (const id of ['idle', 'run', 'mop_sweep'] as const) for (const dir of ['front', 'back', 'left', 'right'] as const) {
+    const p = project(moveFrames(id)[0], dir);
+    const original = rasterPose(p, look, dir);
+    expect(rasterPose(p, { ...look, mop: false }, dir)).toEqual(original);
+    const withMop = rasterPose(p, { ...look, mop: true }, dir);
+    expect(pixels(withMop, [155, 105, 55, 255]).length).toBeGreaterThan(5);
+    expect(pixels(original, [155, 105, 55, 255])).toHaveLength(0);
+    expect(pixels(withMop, [155, 160, 165, 255]).length).toBe(6);
+  }
+});
+
 describe('32×64 Figurenraster mit Füßen in Zeile 62', () => {
   it('zeichnet den Kopf oberhalb des Rumpfs und Schuhe in Zeilen 60–63', () => {
     const buf = rasterPose(project(idle, 'back'), look, 'back');

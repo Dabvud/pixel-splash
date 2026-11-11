@@ -21,6 +21,14 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Canvas-Texturfarben', () => {
+  it('blendet nur das Brettglas aus und wieder ein', () => {
+    const { scene, hoop } = createScene();
+    const before = scene.children.map(o => o.visible);
+    hoop.setGlassBroken(true);
+    expect(scene.children.filter((o, i) => o.visible !== before[i])).toHaveLength(1);
+    hoop.setGlassBroken(false);
+    expect(scene.children.map(o => o.visible)).toEqual(before);
+  });
   it('rastert im Lazy-Atlas nur angeforderte Bilder, cached sie und bleibt unter 20 MiB RGBA für zehn Akteure', () => {
     const atlas = buildAtlas(Object.fromEntries(PLAYERS.map(a => [a.id, a])), { lazy: true });
     const context = vi.mocked(HTMLCanvasElement.prototype.getContext).mock.results.at(-1)!.value as CanvasRenderingContext2D;

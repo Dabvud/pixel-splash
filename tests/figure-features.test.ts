@@ -21,12 +21,12 @@ const image = (dir: Dir, features: Partial<Look> = {}, pose = project(idle, dir)
 
 describe('Figuren-Baukasten: bisherige Pixel', () => {
   // Vor der Implementierung aus dem unveränderten Raster berechnet; Reihenfolge:
-  // MOVES, jedes Frame, front/back/left/right. Je Referenz 848 RGBA-Bilder.
+  // Alle bisherigen Moves, jedes Frame, front/back/left/right; der neue Mopp hat eigene Tests.
   it.each(legacy)('bewahrt alle alten Bewegungsbilder für Nummer $look.num mit $look.hair pixelgleich', reference => {
     const original = reference.look as Look;
     const hash = createHash('sha256');
     let frames = 0;
-    for (const move of Object.keys(MOVES) as MoveId[]) for (const pose of moveFrames(move)) for (const dir of dirs) {
+    for (const move of (Object.keys(MOVES) as MoveId[]).filter(id => id !== 'mop_sweep')) for (const pose of moveFrames(move)) for (const dir of dirs) {
       hash.update(rasterPose(project(pose, dir), original, dir));
       frames++;
     }

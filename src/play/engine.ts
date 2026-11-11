@@ -24,6 +24,8 @@ export interface EngineConfig {
   passDelayMax?: number; closeoutRandom?: number; // alte Aufrufe: 0,6 s und kein zusätzlicher Zufall
   finishFoulOverride?: number; // < 0 oder nicht gesetzt: normale Foul-Chance
   forcePoster?: boolean;
+  glassChance?: number;
+  forceGlass?: boolean;
   posterVariant?: 'random' | PosterVariant;
   blockFoulChance?: number;
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
@@ -46,6 +48,8 @@ export interface PlayState {
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
   poster: { victim: string; kind: 'poster' | 'block'; variant: PosterVariant; startedAt: number } | null;
   grave: { x: number; z: number; since: number } | null;
+  glass: { since: number } | null;
+  glassSweep: number;
 }
 export type Command = { kind: 'pass'; to: string; quality?: number } | { kind: 'drive'; lane: -1 | 0 | 1 } | { kind: 'comboStart' }
   | { kind: 'comboRelease'; holdMs: number; angleDeg: number } | { kind: 'finger'; down: boolean } | { kind: 'tap' };
@@ -55,6 +59,7 @@ export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pas
   | { type: 'arrowStart'; kind: ArrowMeter['kind'] } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
   | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
   | { type: 'foul'; andOne: boolean }
+  | { type: 'glass' } | { type: 'glassFixed' }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
 
 interface Pass {
@@ -71,6 +76,7 @@ interface Shot {
   result: ShotResult; kind: ShotKind; fouled: boolean; ft: boolean; elapsed: number; delay: number;
   flight?: Flight; from: Vec2; fromY: number; windup: number; defender?: string; defenderFrom?: Vec2;
   lob: boolean; timedOut: boolean;
+  perfect: boolean; glassChecked?: boolean;
 }
 interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams; foulRoll: number }
 interface ArrowInput { holdMs: number; P: number }
@@ -90,6 +96,7 @@ interface Runtime {
   celebration?: { from: Record<string, Vec2>; elapsed: number };
   /** hold: Sekunden Pfiff/Feier vor der Aufstellung; ref: Zielpunkt des Schiris; mate: abklatschender Mitspieler */
   lineup?: { from: Record<string, Vec2>; elapsed: number; hold?: number; ref?: Vec2; mate?: string; fived?: boolean };
+  glassCleanup?: { stage: 'wait' | 'enter' | 'sweep' | 'leave'; elapsed: number };
 }
 // Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
 const runtimes = new WeakMap<PlayState, Runtime>();
@@ -169,6 +176,7 @@ function activityMove(act: Activity, moving: boolean): MoveId {
 function updatePaths(s: PlayState, previous: number): void {
   const r = rt(s), paths = r.paths;
   for (const a of Object.values(s.actors)) {
+    if (ACTORS[a.id].team === 'crew') continue;
     if (a.move === 'knocked_down') continue;
     if (s.freeThrows || (['receiving', 'driving', 'ballflight', 'combo', 'takeoff'].includes(s.phase) && a.id === s.handler)
       || (s.phase === 'receiving' && a.id === r.reception?.closeout?.id)
@@ -267,6 +275,7 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
     play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, foulScene: cfg.foulScene ?? false, box: {}, lastPasser: null,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null, grave: null,
+    glass: null, glassSweep: 0,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
     segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
@@ -595,14 +604,15 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
     elapsed: windup, delay: combo.kind === 'contact_dunk' && !result.made ? .3
       : finishing || id === 'step_back' || id === 'fadeaway' ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
     from: { ...h.pos }, fromY: h.y, windup, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false,
-    timedOut: r.arrow?.timedOut ?? false };
+    timedOut: r.arrow?.timedOut ?? false,
+    perfect: s.arrowMeter && s.arrowMeter.kind !== 'catchshoot' ? s.arrowMeter.feedback === 'PERFEKT' : Math.abs(result.t) <= 1 };
   phase(s, 'ballflight');
   heldBall(s);
 }
 
 export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => number): EngineEvent[] {
   const events: EngineEvent[] = [], r = rt(s);
-  if (s.phase === 'ended') return events;
+  if (s.phase === 'ended' || r.glassCleanup) return events;
   if (cmd.kind === 'finger') {
     if (!cmd.down && s.fingerDown && s.phase === 'combo' && r.comboWait) {
       const wait = r.comboWait, elapsed = wait.elapsed + r.realT;
@@ -683,7 +693,7 @@ function lineUp(s: PlayState, dtReal: number): void {
   const f = setup.elapsed / .8;
   let i = 0;
   for (const a of Object.values(s.actors)) {
-    if (a.move === 'knocked_down' || a.id === 'ref') continue;
+    if (a.move === 'knocked_down' || a.id === 'ref' || ACTORS[a.id].team === 'crew') continue;
     const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75, z: 1.2 + Math.floor(i / 2) * 0.6 };
     if (a.id !== shooter) i++;
     if (f >= 1 || distance(setup.from[a.id], to) < 1e-6) {
@@ -791,9 +801,19 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
   s.combo = null;
   clearArrow(s, events);
   for (const a of Object.values(s.actors)) {
-    if (a.move === 'knocked_down') continue;
+    if (a.move === 'knocked_down' || ACTORS[a.id].team === 'crew') continue;
     a.y = 0; move(a, ACTORS[a.id].team === 'def' ? 'defend' : 'idle');
   }
+  if (s.glass) {
+    // Ergebnis einmal zählen; Pfiff, Freiwürfe und Ende warten auf die Reinigung.
+    rt(s).glassCleanup = { stage: 'wait', elapsed: 0 };
+    return;
+  }
+  afterShot(s, events);
+}
+
+function afterShot(s: PlayState, events: EngineEvent[]): void {
+  const { result, kind, fouled, ft } = rt(s).shot!;
   if (ft) {
     s.freeThrows!.left--;
     if (s.freeThrows!.left > 0) freeThrow(s, events); else end(s, events);
@@ -806,6 +826,38 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
       else if (s.poster?.kind === 'block' && !result.made) events.push({ type: 'foul', andOne: false });
     }
     else end(s, events);
+  }
+}
+
+const MOP_SIDELINE = { x: 7.2, z: 1 };
+const MOP_SPOT = { x: 0, z: .6 };
+
+function cleanGlass(s: PlayState, dtReal: number, events: EngineEvent[]): void {
+  const r = rt(s), cleanup = r.glassCleanup!;
+  cleanup.elapsed += dtReal;
+  if (cleanup.stage === 'wait') {
+    if (cleanup.elapsed + 1e-9 < .8) return;
+    s.actors.mop = { id: 'mop', pos: { ...MOP_SIDELINE }, y: 0, facing: facingTo(MOP_SIDELINE, MOP_SPOT), move: 'run', moveT: 0 };
+    cleanup.stage = 'enter'; cleanup.elapsed = 0;
+    return;
+  }
+  const mop = s.actors.mop;
+  mop.moveT += dtReal;
+  if (cleanup.stage === 'enter') {
+    if (stepToward(mop, MOP_SPOT, 5 * dtReal)) {
+      cleanup.stage = 'sweep'; cleanup.elapsed = 0;
+      mop.facing = 0; move(mop, 'mop_sweep', true);
+    }
+  } else if (cleanup.stage === 'sweep') {
+    s.glassSweep = Math.min(1, cleanup.elapsed / 2.4);
+    mop.pos.x = .6 * Math.sin(s.glassSweep * Math.PI * 8);
+    if (s.glassSweep === 1) { cleanup.stage = 'leave'; cleanup.elapsed = 0; move(mop, 'run', true); }
+  } else if (stepToward(mop, MOP_SIDELINE, 5 * dtReal)) {
+    delete s.actors.mop;
+    s.glass = null;
+    r.glassCleanup = undefined;
+    events.push({ type: 'glassFixed' });
+    afterShot(s, events);
   }
 }
 
@@ -860,6 +912,15 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[], cfg: Eng
     return;
   }
   const isDunk = shot.kind === 'dunk' || shot.kind === 'contact_dunk';
+  if (isDunk && !shot.glassChecked && t + 1e-9 >= m.rimFrame! / m.fps) {
+    shot.glassChecked = true;
+    const chance = cfg.glassChance ?? .08;
+    if (shot.result.made && (cfg.forceGlass || (shot.perfect && chance > 0 && rng() < chance))) {
+      s.glass = { since: s.realTime };
+      s.glassSweep = 0;
+      events.push({ type: 'glass' });
+    }
+  }
   if (a.move === 'knocked_down') {
     // Die Kontaktbewegung gehört updateImpact, nicht mehr der Wurfanimation.
   } else if (isDunk && !blocked) {
@@ -943,6 +1004,12 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     return;
   }
   s.realTime += dtReal;
+  if (r.glassCleanup) {
+    updateImpact(s, dtReal * cfg.animSpeed);
+    for (const a of Object.values(s.actors)) if (ACTORS[a.id].team !== 'crew') a.moveT += dtReal * cfg.animSpeed;
+    cleanGlass(s, dtReal, events);
+    return;
+  }
   const slow = oldPhase === 'decision' || oldPhase === 'combo' || oldPhase === 'takeoff';
   const dt = dtReal * cfg.animSpeed * (slow ? cfg.slowmo : 1);
   r.phaseT += dt; r.realT += dtReal;

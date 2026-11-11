@@ -15,6 +15,7 @@ export interface Look {
   num: number;
   /** Farbe senkrechter Trikotstreifen (Schiri), jede zweite Pixelspalte */
   stripes?: string;
+  mop?: boolean;
 }
 export type Projected = Record<Joint, { u: number; v: number; depth: number }>;
 
@@ -184,6 +185,14 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
     const c = mid(shMid, p.pelvis, 0.45);
     const x0 = Math.round(X(c.u) - (numberWidth - 1) / 2), y0 = Math.round(Y(c.v) - 2);
     [...number].forEach((d, i) => DIGITS[d].forEach((row, y) => [...row].forEach((b, x) => b === "1" && set(x0 + i * 4 + x, y0 + y, [255, 255, 255]))));
+  }
+
+  if (look.mop === true) {
+    const hands = mid(p.haL, p.haR);
+    const endX = Math.max(2, Math.min(w - 3, X(hands.u + (dir === 'left' ? -.18 : .18))));
+    const head = { u: (endX - w / 2) / s, v: .02 };
+    line(hands, head, 2, [155, 105, 55]);
+    for (let dy = 0; dy < 2; dy++) for (let dx = -1; dx <= 1; dx++) set(X(head.u) + dx, Y(head.v) - dy, [155, 160, 165]);
   }
 
   // 1-px-Umriss
