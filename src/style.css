@@ -61,6 +61,26 @@ body {
   border-radius: 6px;
   pointer-events: none;
 }
+.hud-hot {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 50px);
+  left: max(12px, env(safe-area-inset-left, 0px));
+  padding: 6px 8px;
+  color: #ff7a1a;
+  border: 1px solid #ff7a1a;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.55);
+  font: 9px/1.4 var(--pixel);
+  pointer-events: none;
+  animation: hud-hot-flicker .8s steps(2, end) infinite;
+}
+.hud-hot[hidden] { display: none; }
+@keyframes hud-hot-flicker {
+  50% { opacity: .8; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-hot { animation: none; }
+}
 .hud-banner {
   position: fixed;
   top: 22%;

@@ -9,6 +9,7 @@ export function createHud(root: HTMLElement): {
   markRelease(fill: number, persist?: boolean, zones?: Zones, shownFill?: number): void;
   showResult(r: ShotResult): void;
   setStats(made: number, shots: number): void;
+  setHot(on: boolean): void;
   setPaused(paused: boolean): void;
   dispose(): void;
 } {
@@ -26,6 +27,7 @@ export function createHud(root: HTMLElement): {
   const mark = meter.querySelector<HTMLElement>(".hud-mark")!;
   const arrowEl = meter.querySelector<HTMLElement>(".hud-arrow")!;
   const bankEl = meter.querySelector<HTMLElement>(".hud-bank")!;
+  let hot: HTMLElement | undefined;
   let max = 1.6;
   let paused = false;
   let disposed = false;
@@ -115,6 +117,17 @@ export function createHud(root: HTMLElement): {
     setStats(made, shots) {
       stats.textContent = `Treffer ${made} / ${shots}` + (shots ? ` · ${Math.round((made / shots) * 100)} %` : "");
     },
+    setHot(on) {
+      if (disposed) return;
+      if (!hot) {
+        hot = document.createElement("div");
+        hot.className = "hud-hot";
+        hot.textContent = "🔥 HEISS";
+        hot.hidden = true;
+        stats.after(hot);
+      }
+      setHidden(hot, !on);
+    },
     setPaused(value) {
       if (disposed || value === paused) return;
       paused = value;
@@ -132,6 +145,7 @@ export function createHud(root: HTMLElement): {
       disposed = true;
       timers.forEach(clearTimer);
       stats.remove();
+      hot?.remove();
       banner.remove();
       meter.remove();
     },

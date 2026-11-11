@@ -1,11 +1,13 @@
 import * as THREE from "three";
 import { INFLUENCE, PROFILES, SPOTS, spotDistance, type Settings } from "../settings";
 import { MAX_FILL, bankWindow, effectiveZones, resolveShot, type ShotParams } from "../shot/resolve";
+import { HOT_START, hotGreenZone, nextHot } from "../shot/hot";
 import { buildFlight, type Flight } from "../shot/trajectory";
 import { attachGesture } from "../input/gesture";
 import { createScene } from "../render/scene";
 import { createPixelRenderer } from "../render/pixel";
 import { createPlayer } from "../render/player";
+import { createBallFire } from "../render/fire";
 import { cameraPose } from "../render/camera-pose";
 import { createHud } from "../ui/hud";
 import type { Mode } from "./mode";
@@ -29,12 +31,14 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
   let state: State = { k: "ready" };
   let made = 0;
   let shots = 0;
+  let hot = HOT_START;
   let raf = 0;
   let menuPaused = false, hidden = false, paused = false;
   let activeNow = 0, last = performance.now();
   let dirty = true;
 
   const { scene, ball, updateNet, crowd } = createScene();
+  const fire = createBallFire(scene, ball);
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
   const player = createPlayer(scene);
@@ -43,7 +47,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
   const spot = () => SPOTS.find((s) => s.id === settings.spot)!;
   const params = (): ShotParams => ({
     meterMs: settings.meterMs,
-    greenZone: settings.greenZone,
+    greenZone: hotGreenZone(settings.greenZone, hot.onFire),
     aimDeg: settings.aimDeg,
     rating: PROFILES.find((p) => p.id === settings.profile)!.rating,
     influence: INFLUENCE[settings.influence],
@@ -82,10 +86,14 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
         state = { k: "charging", t0: activeNow };
         player.setPose("shoot");
       } else if (e.type === "release" && state.k === "charging") {
-        const result = resolveShot({ holdMs: e.holdMs, angleDeg: e.angleDeg }, params());
+        const shotParams = params();
+        const result = resolveShot({ holdMs: e.holdMs, angleDeg: e.angleDeg }, shotParams);
+        hot = nextHot(hot, result.made);
+        fire.setActive(hot.onFire);
+        hud.setHot(hot.onFire);
         shots++;
         if (result.made) { made++; crowd?.cheer(result.outcome === "swish" ? .7 : .5); }
-        hud.markRelease(result.fill, false, effectiveZones(params()));
+        hud.markRelease(result.fill, false, effectiveZones(shotParams));
         hud.showResult(result);
         hud.setStats(made, shots);
         state = { k: "flying", t0: activeNow, flight: buildFlight(result.outcome, player.handPos()), fill: result.fill };
@@ -140,7 +148,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     const pose = cameraPose(settings.camera, { x: s.x, y: 0, z: s.z }, progress);
     camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
     camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
-    if (!paused) { updateNet(now); crowd?.update(now); }
+    if (!paused) { updateNet(now); crowd?.update(now); fire.update(activeNow); }
     px.renderer.render(scene, camera);
   }
 
@@ -157,6 +165,10 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     },
     restart() {
       made = shots = 0;
+      hot = HOT_START;
+      fire.setActive(false);
+      hud.setHot(false);
+      dirty = true;
       hud.setStats(0, 0);
     },
     apply(s) {
