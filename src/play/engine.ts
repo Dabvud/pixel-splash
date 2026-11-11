@@ -278,6 +278,12 @@ function miss(s: PlayState, events: EngineEvent[], banner: string): void {
 
 function decisionOptions(s: PlayState): Option[] {
   const options: Option[] = [...(rt(s).segment.options ?? [{ kind: 'shoot' }, { kind: 'drive' }])];
+  // Karriere: Pull-up und Zug zum Korb sind immer möglich – außer beim Einwurf von außerhalb des Feldes
+  const inbounding = s.play.inboundBy === s.handler && rt(s).segment.id === s.play.start;
+  if (rt(s).controlled && !inbounding) {
+    if (!options.some(o => o.kind === 'drive')) options.unshift({ kind: 'drive' });
+    if (!options.some(o => o.kind === 'shoot')) options.unshift({ kind: 'shoot' });
+  }
   for (const a of Object.values(s.actors)) {
     if (ACTORS[a.id].team === 'off' && a.id !== s.handler && !options.some(o => o.kind === 'pass' && o.to === a.id)) {
       options.push({ kind: 'pass', to: a.id });
@@ -815,7 +821,7 @@ function runCommand(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => nu
       phase(s, 'combo'); return events;
     }
     if (s.phase === 'freethrows' && (r.lineup?.hold ?? 0) > 0) return events; // erst Pfiff und Feier abwarten
-    if (s.phase === 'freethrows' || (s.phase === 'decision' && (r.segment.options ?? [{ kind: 'shoot' }]).some(o => o.kind === 'shoot'))) {
+    if (s.phase === 'freethrows' || (s.phase === 'decision' && decisionOptions(s).some(o => o.kind === 'shoot'))) {
       r.comboWait = { phase: s.phase, elapsed: r.realT };
       phase(s, 'combo');
       prepareCombo(s, shotKindAt(s.actors[s.handler].pos), s.freeThrows ? 1 : currentP(s), cfg, rng, events);
@@ -829,7 +835,7 @@ function runCommand(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => nu
       clearArrow(s, events);
       startPass(s, option, Math.max(0, Math.min(1, cmd.quality ?? 1)), cfg, rng, events);
     }
-  } else if (cmd.kind === 'drive' && (r.segment.options ?? [{ kind: 'drive' }]).some(o => o.kind === 'drive')) {
+  } else if (cmd.kind === 'drive' && decisionOptions(s).some(o => o.kind === 'drive')) {
     clearArrow(s, events);
     const h = s.actors[s.handler], to = takeoffPoint(h.pos, cmd.lane);
     r.drive = { from: { ...h.pos }, to, duration: Math.max(1, distance(h.pos, to) / 8), elapsed: 0, lane: cmd.lane };

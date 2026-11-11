@@ -82,3 +82,18 @@ describe('Nur der eigene Spieler wird gesteuert', () => {
     expect(s.phase).toBe('driving');
   });
 });
+
+describe('Karriere: Pull-up und Zug zum Korb immer möglich', () => {
+  it('auch in Spielzügen ohne Wurf-/Zieh-Option im ersten Segment (außer beim Einwurf)', () => {
+    for (const playId of ['handoff', 'floppy', 'horns', 'pickpop'] as const) {
+      const { s, rng } = scene('guard', playId, 3);
+      run(s, rng, () => s.phase === 'decision' && inputOwner(s) === HERO_ID, 30);
+      if (s.phase !== 'decision') continue;
+      command(s, { kind: 'comboStart' }, cfg, rng);
+      expect(s.phase, playId).toBe('combo');
+    }
+    const { s, rng } = scene('guard', 'floppy', 4);
+    run(s, rng, () => s.phase === 'decision' && inputOwner(s) === HERO_ID, 30);
+    if (s.phase === 'decision') { command(s, { kind: 'drive', lane: 0 }, cfg, rng); expect(s.phase).toBe('driving'); }
+  });
+});
