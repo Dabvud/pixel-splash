@@ -76,18 +76,19 @@ describe('Spielzug-Labor als Karriere-Szene', () => {
     expect(cfg).toMatchObject({ controlled: HERO_ID, ratingMeters: true, situationRandom: false });
     expect(document.body.textContent).toContain(spec.subtitle);
   });
-  it('meldet das Ende genau einmal und startet keinen neuen Spielzug', () => {
+  it('meldet das Ende genau einmal und startet keinen neuen Spielzug', async () => {
     const { onEnd } = startScene();
     advance(70); // ohne Eingabe: KI-Timeout / Zeit läuft ab
     expect(state().phase).toBe('ended');
     advance(10);
+    await new Promise(r => setTimeout(r, 0)); // Ende wird nach dem Bild gemeldet
     expect(onEnd).toHaveBeenCalledOnce();
     expect(vi.mocked(createPlayState)).toHaveBeenCalledOnce();
     const r = onEnd.mock.calls[0][0];
     expect(typeof r.won).toBe('boolean');
     expect(r).toMatchObject({ pts: expect.any(Number), ast: expect.any(Number), verdict: expect.any(String) });
   });
-  it('won nur bei GAMEWINNER; Punkte des eigenen Spielers', () => {
+  it('won nur bei GAMEWINNER; Punkte des eigenen Spielers', async () => {
     const { onEnd } = startScene();
     const s = state();
     vi.mocked(step).mockImplementation((st, dt, c, r) => {
@@ -97,6 +98,8 @@ describe('Spielzug-Labor als Karriere-Szene', () => {
     });
     expect(s).toBeDefined();
     advance(80);
+    await new Promise(r => setTimeout(r, 0));
+    expect(onEnd).toHaveBeenCalledOnce();
     if (onEnd.mock.calls.length) {
       const r = onEnd.mock.calls[0][0];
       expect(r.pts).toBe(3); expect(r.ast).toBe(1);

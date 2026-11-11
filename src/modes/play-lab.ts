@@ -397,7 +397,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else if (!sceneDone) {
           sceneDone = true;
           const line = s.box[career.spec.controlled];
-          career.onEnd({ won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0 });
+          const result = { won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0 };
+          // erst nach diesem Bild melden: die Karriere stoppt die Szene und räumt den eigenen Spieler weg
+          setTimeout(() => career.onEnd(result), 0);
         }
       }
       camHold = Math.max(0, camHold - dt);
