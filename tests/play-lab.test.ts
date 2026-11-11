@@ -282,6 +282,8 @@ describe('Spielzug-Labor Integration', () => {
   });
 
   it.each([1, 3])('verarbeitet glassFixed in ended und startet newPlay erst nach Reparatur und zwei Sekunden (Reparatur nach %s s)', repairAfter => {
+    // Keine zufällige Ohnmacht auf der Bank (3 %): die würde newPlay zusätzlich aufhalten
+    vi.spyOn(Math, 'random').mockReturnValue(.99);
     vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; return []; });
     const s = state();
     s.phase = 'ended'; s.glass = { since: s.realTime };
