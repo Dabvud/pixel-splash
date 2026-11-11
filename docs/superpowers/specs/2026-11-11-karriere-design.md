@@ -1,6 +1,6 @@
 # Karriere-Modus – Design (Entwurf zum Durchgehen)
 
-Stand 2026-11-11. Grundlage: Gespräch mit dem Nutzer. Punkte mit **[offen]** brauchen noch eine Entscheidung.
+Stand 2026-11-11. Grundlage: Gespräch mit dem Nutzer. Vom Nutzer freigegeben (2026-11-11).
 
 ## 1. Idee in einem Satz
 
@@ -70,7 +70,7 @@ Mitspieler steuern gibt es **nur** über Playmaking Stufe 3. Chemie belohnt ande
   2. **Stammspieler** – Coach-Call (2 Spielzüge zur Wahl; für Playmaker dann 3 zur Wahl).
   3. **Führungsspieler** – Mitspieler treffen nach deinem Pass häufiger (bessere KI-Wertung).
   4. **Franchise-Gesicht** – eine Szene mehr pro Key Game und bessere Vertragsangebote vom eigenen Team.
-- **Wege, die Stufe zu steigern [offen – Nutzer wollte mehr Möglichkeiten; Vorschläge, beliebig kombinierbar]:**
+- **Wege, die Stufe zu steigern (alle zählen, siehe Festlegungen):**
   - a) Jahre im Team (je Saison +1 Chemie),
   - b) Clutch-Szenen gewinnen (Gamewinner, Closing Game, Game 7),
   - c) Skillpunkte in „Führung“,
@@ -114,9 +114,9 @@ Mitspieler steuern gibt es **nur** über Playmaking Stufe 3. Chemie belohnt ande
 8. Awards, Statistik, Legacy, Hall of Fame, Rangliste.
 9. Auswärtshalle und weitere Key-Game-Würze.
 
-## Offene Fragen
+## Festlegungen (Nutzer hat die Spec mit „ja“ freigegeben; offene Punkte mit Standardwerten entschieden, jederzeit änderbar)
 
-- Welche Wege zur Leader-Stufe (6a–h)?
-- Karrierelänge: fest bis zum natürlichen Ende (36–40) oder frei wählbar?
-- Schwierigkeitsgrad wählbar (Rookie / Pro / Hall of Fame)?
-- Gibt es Verletzungen (z. B. selten eine Saison mit weniger Key Games)?
+- Wege zur Chemie-/Leader-Stufe: alle Vorschläge 6a–h zählen; Gewichtung im Plan.
+- Karrierelänge: natürliches Ende zwischen 36 und 40 (Werte-abhängig), freiwilliger Rücktritt ab 33.
+- Schwierigkeitsgrad beim Erstellen wählbar: Rookie / Pro / Hall of Fame (wirkt auf Gegnerstärke und Meter-Fenster).
+- Verletzungen: selten (ca. 5 % pro Saison), dann nur 3 statt 5 Key Games in dieser Saison; keine Karriere-Enden durch Verletzung.
