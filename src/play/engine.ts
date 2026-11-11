@@ -33,6 +33,8 @@ export interface EngineConfig {
   boardOopChance?: number; forceBoardOop?: boolean;
   /** Karriere: Spielerwerte wirken voll (Abschluss-Meter, Pass-Steals, Dribbling gegen Verteidigung) */
   ratingMeters?: boolean;
+  /** Karriere: nur dieser Akteur nimmt Eingaben an; Mitspieler entscheiden und werfen per KI */
+  controlled?: string;
   posterVariant?: 'random' | PosterVariant;
   blockFoulChance?: number;
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
@@ -95,6 +97,8 @@ interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams
 interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
   ratings?: boolean;
+  /** KI-Zug eines Mitspielers (Karriere): Schlüssel der aktuellen Situation, Startzeit, Ziel-Füllstand, Wurfzeitpunkt */
+  ai?: { key: string; at: number; target?: number; releaseAt?: number; hold?: number };
   impact?: { victim: string; from: Vec2; to: Vec2; elapsed: number; duration: number; variant: PosterVariant };
   segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
   paths: Record<string, Waypoint[]>;
@@ -667,7 +671,67 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
   heldBall(s);
 }
 
+/** Wer gerade Eingaben geben darf: Fänger beim Alley-oop-Pfeil, Schütze bei Freiwürfen, sonst Ballführer */
+export function inputOwner(s: PlayState): string {
+  if (s.arrowMeter?.kind === 'alleyoop' && s.phase === 'passing') return rt(s).pass!.option.to!;
+  return s.freeThrows?.shooter ?? s.handler;
+}
+
 export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => number): EngineEvent[] {
+  if (cfg.controlled && inputOwner(s) !== cfg.controlled) return [];
+  return runCommand(s, cmd, cfg, rng);
+}
+
+/** Ziel-Füllstand der KI: um die Ideallinie gestreut, enger bei hohem Wert (Einheiten der grünen Zone) */
+function aiFill(g: number, rating: number, rng: () => number): number {
+  const spread = 2.2 - 1.6 * Math.max(0, Math.min(1, rating));
+  return 1 + (rng() * 2 - 1) * spread * g;
+}
+
+/** KI-Mitspieler (Karriere): entscheidet nach kurzer Pause, wirft/tippt Meter mit wertabhängiger Streuung */
+function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
+  if (s.phase === 'ended' || inputOwner(s) === cfg.controlled) return;
+  const r = rt(s), owner = inputOwner(s), m = s.arrowMeter;
+  const key = `${s.phase}|${owner}|${m ? m.startTime : ''}|${s.freeThrows?.left ?? ''}`;
+  if (r.ai?.key !== key) r.ai = { key, at: s.realTime };
+  const ai = r.ai, ratings = ratingsOf(ACTORS[owner]);
+  if (m && m.fill === null) {
+    if (s.realTime < m.startTime) return;
+    ai.target ??= aiFill(m.zones.g, m.kind === 'catchshoot' ? ratings.three : ratings.finish, rng);
+    if ((s.realTime - m.startTime) * 1000 / m.meterMs + 1e-9 >= ai.target) tapArrow(s, cfg, rng, events);
+    return;
+  }
+  if (s.phase === 'combo' && s.combo && ai.releaseAt !== undefined) {
+    if (s.realTime + 1e-9 >= ai.releaseAt) events.push(...runCommand(s, { kind: 'comboRelease', holdMs: ai.hold!, angleDeg: 0 }, cfg, rng));
+    return;
+  }
+  if (s.realTime - ai.at < .5) return;
+  const shoot = () => {
+    events.push(...runCommand(s, { kind: 'comboStart' }, cfg, rng));
+    if (!s.combo) return;
+    const kind = s.combo.kind, rating = s.freeThrows ? ratings.mid : kind === 'three' ? ratings.three : kind === 'jump2' ? ratings.mid : ratings.finish;
+    const hold = s.combo.meterMs * aiFill(s.combo.zones.g, rating, rng);
+    r.ai = { key: `${s.phase}|${owner}||${s.freeThrows?.left ?? ''}`, at: s.realTime, releaseAt: s.realTime + hold / 1000, hold };
+  };
+  if (s.phase === 'freethrows') { if ((r.lineup?.hold ?? 0) <= 0) shoot(); return; }
+  if (s.phase !== 'decision' || s.combo) return;
+  const options = decisionOptions(s);
+  const toHero = options.find(o => o.kind === 'pass' && o.to === cfg.controlled);
+  // Szenen drehen sich um den eigenen Spieler: Mitspieler suchen ihn bevorzugt
+  const option = toHero && rng() < .75 ? toHero : bestOption(s, options);
+  if (option.kind === 'pass') events.push(...runCommand(s, { kind: 'pass', to: option.to!, quality: .55 + .45 * ratings.pass }, cfg, rng));
+  else if (option.kind === 'drive') events.push(...runCommand(s, { kind: 'drive', lane: 0 }, cfg, rng));
+  else shoot();
+}
+
+function bestOption(s: PlayState, options: Option[]): Option {
+  const from = s.actors[s.handler].pos;
+  const value = (o: Option): number => o.kind === 'shoot' ? currentP(s)
+    : o.kind === 'drive' ? playPositionValue(s, takeoffPoint(from)) : playPositionValue(s, catchPoint(s, o.to!).pos);
+  return [...options].sort((a, b) => value(b) - value(a))[0];
+}
+
+function runCommand(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => number): EngineEvent[] {
   const events: EngineEvent[] = [], r = rt(s);
   if (s.phase === 'ended') return events;
   if (cmd.kind === 'finger') {
@@ -1237,6 +1301,7 @@ export function step(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () =>
       : s.phase === 'receiving' ? (r.reception!.delay - r.reception!.elapsed) / cfg.animSpeed : Infinity;
     const dt = Math.min(left, 1 / 120, boundary > 1e-10 ? boundary : Infinity);
     tick(s, dt, cfg, rng, events);
+    if (cfg.controlled) aiAct(s, cfg, rng, events);
     left -= dt;
   }
   return events;
