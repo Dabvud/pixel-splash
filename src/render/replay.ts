@@ -1,7 +1,7 @@
 import type { ActorView } from './actors';
 
 export const REPLAY_SPEED = 0.4; // Zeitlupe
-export const REPLAY_SECONDS = 2.6; // so viel Vorlauf vor dem Höhepunkt wird gezeigt
+export const REPLAY_SECONDS = 1.6; // Vorlauf vor dem Höhepunkt: erst kurz vor dem Abschluss einsteigen
 
 export interface Snap { t: number; ball: { x: number; y: number; z: number }; actors: ActorView[] }
 
