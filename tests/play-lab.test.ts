@@ -62,6 +62,14 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('reicht geänderte Test-Szenarien an die Engine durch', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', finishFoulChance: .75, forcePoster: true });
+    advance(1 / 60);
+    expect(vi.mocked(step).mock.calls.at(-1)![2]).toMatchObject({ finishFoulOverride: .75, forcePoster: true });
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr' });
+    advance(1 / 60);
+    expect(vi.mocked(step).mock.calls.at(-1)![2]).toMatchObject({ finishFoulOverride: -1, forcePoster: false });
+  });
   it('wendet den geänderten Fenster-Regler auch im laufenden Modus mit vollen vier Spielsekunden an', () => {
     mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, decisionS: 4 });
     for (let i = 0; i < 200 && state().phase !== 'decision'; i++) advance(1 / 60);

@@ -32,6 +32,8 @@ export interface Settings {
   zoneFloor: number;
   passDelayMax: number;
   closeoutRandom: number;
+  finishFoulChance: number;
+  forcePoster: boolean;
 }
 
 export const SPOTS: readonly Spot[] = [
@@ -56,6 +58,7 @@ export const DEFAULTS: Settings = {
   defenseRandom: true, fouls: 'normal', finishMeterMs: 900, finishGreen: 0.18,
   finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
   passDelayMax: 0.6, closeoutRandom: 1,
+  finishFoulChance: -1, forcePoster: false,
 };
 export const STORAGE_KEY = 'pixel-splash.settings.v1';
 
@@ -98,6 +101,9 @@ export function loadSettings(storage?: Storage | null): Settings {
       zoneFloor: bounded(fields.zoneFloor, 0.5, 0.9, DEFAULTS.zoneFloor),
       passDelayMax: bounded(fields.passDelayMax, 0, 1, DEFAULTS.passDelayMax),
       closeoutRandom: bounded(fields.closeoutRandom, 0, 1, DEFAULTS.closeoutRandom),
+      finishFoulChance: typeof fields.finishFoulChance === 'number' && fields.finishFoulChance < 0
+        ? -1 : bounded(fields.finishFoulChance, 0, 1, DEFAULTS.finishFoulChance),
+      forcePoster: typeof fields.forcePoster === 'boolean' ? fields.forcePoster : DEFAULTS.forcePoster,
     };
   } catch {
     // Gesperrter Speicher darf den Start nicht verhindern.

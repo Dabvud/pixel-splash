@@ -19,6 +19,8 @@ const SELECTS: SelectField[] = [
   { key: "pixelHeight", label: "Pixel-Auflösung", show: "all", options: [220, 320, 420, 540].map((r) => [String(r), `${r} px`]), parse: num },
 ];
 const pct = (v: number) => `${v} %`;
+const FINISH_FOUL_STEPS = [-1, 0, 0.25, 0.5, 0.75, 1];
+const finishFoulLabel = (v: number) => v < 0 ? 'Normal' : pct(v * 100);
 const RANGES: RangeField[] = [
   { key: "meterMs", label: "Anzeigedauer Wurf", show: "all", min: 400, max: 1200, step: 50, scale: 1, fmt: (v) => `${v} ms` },
   { key: "greenZone", label: "Grüne Zone Wurf", show: "all", min: 3, max: 15, step: 1, scale: 100, fmt: (v) => `± ${v} %` },
@@ -58,6 +60,14 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
          <h2 id="lab-title">Labor</h2>
          ${SELECTS.map(select).join("")}
          ${RANGES.map(range).join("")}
+         <section id="lab-test-scenarios" data-show="play" aria-labelledby="lab-test-title">
+           <h3 id="lab-test-title">Test-Szenarien</h3>
+           <label>Foul am Korb <output id="lab-finishFoulChance-out"></output>
+             <input type="range" id="lab-finishFoulChance" min="0" max="5" step="1" aria-describedby="lab-finishFoulChance-steps">
+           </label>
+           <p id="lab-finishFoulChance-steps">${FINISH_FOUL_STEPS.map(finishFoulLabel).join(' / ')}</p>
+           <label>Poster erzwingen <input type="checkbox" role="switch" id="lab-forcePoster"></label>
+         </section>
          <button class="lab-close" value="close">Fertig</button>
        </form>
      </dialog>`,
@@ -82,6 +92,12 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
       el<HTMLInputElement>(f.key).value = String(view(f));
       el(`${f.key}-out`).textContent = f.fmt(view(f));
     }
+    const foulStep = FINISH_FOUL_STEPS.reduce((best, value, i) =>
+      Math.abs(value - cur.finishFoulChance) < Math.abs(FINISH_FOUL_STEPS[best] - cur.finishFoulChance) ? i : best, 0);
+    el<HTMLInputElement>('finishFoulChance').value = String(foulStep);
+    el<HTMLInputElement>('finishFoulChance').setAttribute('aria-valuetext', finishFoulLabel(cur.finishFoulChance));
+    el('finishFoulChance-out').textContent = finishFoulLabel(cur.finishFoulChance);
+    el<HTMLInputElement>('forcePoster').checked = cur.forcePoster;
     dialog.querySelectorAll<HTMLElement>("[data-show]").forEach((l) => (l.hidden = l.dataset.show !== "all" && l.dataset.show !== cur.mode));
   };
 
@@ -89,6 +105,8 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
     const next: Record<string, unknown> = { ...cur };
     for (const f of SELECTS) next[f.key] = (f.parse ?? String)(el<HTMLSelectElement>(f.key).value);
     for (const f of RANGES) next[f.key] = Number(el<HTMLInputElement>(f.key).value) / f.scale;
+    next.finishFoulChance = FINISH_FOUL_STEPS[Number(el<HTMLInputElement>('finishFoulChance').value)];
+    next.forcePoster = el<HTMLInputElement>('forcePoster').checked;
     cur = next as unknown as Settings;
     fill();
     saveSettings(cur);

@@ -21,6 +21,8 @@ export interface EngineConfig {
   /** Spielsekunden vor Wegende, ab denen schon entschieden werden darf (Entscheiden im Laufen) */ decisionLead?: number;
   slowmo: number; decisionS: number; animSpeed: number; foulMult: number; zoneFloor: number; tempoSpread: number;
   passDelayMax?: number; closeoutRandom?: number; // alte Aufrufe: 0,6 s und kein zusätzlicher Zufall
+  finishFoulOverride?: number; // < 0 oder nicht gesetzt: normale Foul-Chance
+  forcePoster?: boolean;
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
   finish: { meterMs: number; greenZone: number; aimDeg: number };
 }
@@ -310,7 +312,9 @@ export function aiChoice(s: PlayState): Option {
 function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number,
   actor = s.handler, pos = s.actors[actor].pos, lobQuality?: number): ComboData {
   const ft = s.freeThrows !== null, finishing = kind !== 'jump2' && kind !== 'three';
-  const foulRoll = ft ? 1 : rng(), fouled = !ft && foulRoll < foulChance(kind, P, cfg.foulMult);
+  const chance = finishing && cfg.finishFoulOverride !== undefined && cfg.finishFoulOverride >= 0
+    ? cfg.finishFoulOverride : foulChance(kind, P, cfg.foulMult);
+  const foulRoll = ft ? 1 : rng(), fouled = !ft && foulRoll < chance;
   const base = finishing ? cfg.finish : cfg.shot;
   const meterMs = ft ? base.meterMs : meterDuration(base.meterMs, P, cfg.tempoSpread, rng);
   const a = ACTORS[actor];
@@ -449,7 +453,9 @@ function catchLob(s: PlayState, rng: () => number, events: EngineEvent[]): void 
 }
 
 function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
-  const P = currentP(s), kind = finishKind(ACTORS[s.handler].athleticism, P, rng);
+  const P = currentP(s), kind = cfg.forcePoster
+    ? defenders(s).some(a => distance(a.pos, s.actors[s.handler].pos) <= 2.5) ? 'contact_dunk' : 'dunk'
+    : finishKind(ACTORS[s.handler].athleticism, P, rng);
   phase(s, 'takeoff');
   rt(s).lob = false;
   events.push({ type: 'takeoff', kind });
@@ -520,8 +526,11 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
   s.ball = { ...r.pass.from };
   events.push({ type: 'pass', from: s.handler, to: catcher.id, steal });
   if (option.lob && !steal) {
-    const P = positionValue(target.pos, defenders(s).map(a => predicted(s, a.id, target.duration)));
-    const kind = finishKind(ACTORS[catcher.id].athleticism, P, rng);
+    const defense = defenders(s).map(a => predicted(s, a.id, target.duration));
+    const P = positionValue(target.pos, defense);
+    const kind = cfg.forcePoster
+      ? defense.some(pos => distance(pos, target.pos) <= 2.5) ? 'contact_dunk' : 'dunk'
+      : finishKind(ACTORS[catcher.id].athleticism, P, rng);
     const data = comboData(s, kind, P, cfg, rng, catcher.id, target.pos, quality);
     const catchTime = s.realTime + target.duration / cfg.animSpeed;
     startArrow(s, 'alleyoop', Math.max(s.realTime, catchTime - data.combo.meterMs / 1000), data, events);

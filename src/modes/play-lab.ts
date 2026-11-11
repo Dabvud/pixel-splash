@@ -68,6 +68,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     decisionS: settings.decisionS,
     animSpeed: settings.animSpeed,
     foulMult: FOUL_MULT[settings.fouls],
+    finishFoulOverride: settings.finishFoulChance,
+    forcePoster: settings.forcePoster,
     zoneFloor: settings.zoneFloor,
     tempoSpread: settings.tempoSpread,
     passDelayMax: settings.passDelayMax,
