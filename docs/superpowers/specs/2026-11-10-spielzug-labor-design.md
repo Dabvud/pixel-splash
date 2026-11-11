@@ -292,3 +292,22 @@ Diese Regeln gehen den Abschnitten oben vor, wo sie sie genauer fassen.
 - Empfänger ohne Folge-Segment erhalten das Standard-Segment mit Werfen, Ziehen und Pässen zu allen anderen Mitspielern. Die übrigen Akteure bleiben an ihrer aktuellen Position oder laufen begonnene Wege mit unverändertem Zeitstand und Versatz zu Ende; niemand springt zurück.
 - Catch-and-Shoot-Pfeil, Passgenauigkeit, Steal-Regel und Closeout gelten unverändert auch für zusätzliche Pässe. Die KI berücksichtigt dieselbe erweiterte Optionsliste; die Übersichtskamera berücksichtigt alle Passziele.
 - Beliebig wiederholtes Weiterpassen bleibt möglich. Die Uhr läuft weiter (beim Einwurf ab dem ersten Fangen) und beendet den Spielzug gegebenenfalls mit „ZEIT ABGELAUFEN“; ein rechtzeitig ausgelöster Wurf wird wie bisher zu Ende ausgewertet.
+
+## Erweiterung: Neue Animationen (2026-11-11, Nutzerwunsch, zunächst rein optisch)
+
+Neue Bewegungen (Skelett-Schlüsselposen in `moves.ts`, je 6–8 Bilder, gleiche Anatomie-Regeln wie bestehende Bewegungen) und ihre automatische Auswahl in der Engine. Regeln (Trefferchancen, Fouls, P, Steals) bleiben unverändert.
+
+| Bewegung | Wann (automatisch) |
+|---|---|
+| `reverse_layup` | Korbleger, wenn die Zugbahn unter dem Korb auf die andere Seite führt (Absprung mit |x| < 0,6 und Bahn kreuzt x = 0) oder Ballführer aus der Ecke (|x| > 5) zieht; Ball von der Gegenseite rückwärts ans Brett |
+| `contact_dunk` (überarbeitet) + `block_jump_hit` (Verteidiger) | Kontakt-Dunk: Verteidiger springt mit, Körperkontakt in der Luft im Bild des Ringkontakts, Verteidiger wird nach hinten weggedrückt, fällt (`knocked_down`); Angreifer hängt am Ring |
+| `crossover`, `behind_back`, `spin_move`, `hesitation` | Während des Ziehens, je ein Move pro Zug, gewählt per rng nach Bahn: Bahn −1/+1 → crossover oder behind_back zur Bahnseite; Bahn 0 → hesitation oder spin_move; Dauer ≤ 0,5 s, danach dribble_run |
+| `euro_step` | Korbleger-Variante bei 0,35 ≤ P < 0,7 (statt `layup`), seitlicher Doppelschritt |
+| `finger_roll` | Korbleger-Variante bei P ≥ 0,7 ohne Dunk |
+| `tomahawk_dunk`, `two_hand_dunk` | Dunk-Varianten, per rng (je ein Drittel mit `dunk`), nur bei freiem Dunk |
+| `step_back`, `fadeaway` | Sprungwurf-Varianten, wenn der nächste Verteidiger < 1,5 m entfernt ist (step_back bei 2er/3er von außen, fadeaway nahe Zone) |
+| `celebrate` | Schütze nach GAMEWINNER bzw. Treffer zum Ausgleich (Arme hoch, Faust); Mitspieler laufen in 1 s zum Schützen |
+| `dejected` | Ballführer/Schütze nach Fehlwurf, Steal oder Zeitablauf (Hände auf die Knie) |
+| Pass-Varianten | Passbahn: Bodenpass (Ball prallt in der Mitte auf, y-Minimum 0,12) bei Abstand < 6 m und Verteidiger nahe der Passlinie (< 1,5 m); Bogenpass (höherer Scheitel) bei Abstand > 9 m; sonst wie bisher. Werfer-Animation `pass_bounce` bzw. `pass_overhead` |
+
+Atlas-Grenze: Die Atlas-Textur darf 4096 px Kantenlänge nicht überschreiten; wenn nötig nur die Akteure des aktuellen Spielzugs rastern oder auf mehrere Texturen verteilen.
