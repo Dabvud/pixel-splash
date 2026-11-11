@@ -8,6 +8,8 @@ import { seededRng } from '../src/career/create';
 import { HERO_ID } from '../src/career/hero';
 import type { PlayScene, SceneResult, SceneSpec } from '../src/career/scene-types';
 import type { CareerState } from '../src/career/state';
+import { TEAMS as ALL_TEAMS } from '../src/career/league';
+const TEAM_NAME = (id: string) => { const t = ALL_TEAMS.find(x => x.id === id)!; return `${t.city} ${t.name}`; };
 
 function memory(): Storage {
   const m = new Map<string, string>();
@@ -70,9 +72,21 @@ describe('Karriere-Ablauf', () => {
     expect(text()).toMatch(/Platz \d+/);
     expect(document.querySelectorAll('.career-table tbody tr')).toHaveLength(15);
     press('Nächste Saison');
+    // Off-Season: Rookie-Vertrag läuft weiter (bzw. seltener Trade) → Skillpunkte verteilen
+    if (text().includes('Trade!')) press('Weiter');
+    expect(text()).toContain('Skillpunkte');
+    expect(loadCareer(st)!.offseason!.points).toBe(3);
+    const three = loadCareer(st)!.player.ratings.three;
+    document.querySelector<HTMLButtonElement>('.skill-plus[data-key="three"]')!.click();
+    expect(loadCareer(st)!.player.ratings.three).toBeCloseTo(three + .02, 6);
+    expect(loadCareer(st)!.offseason!.points).toBe(2);
+    press('Fertig');
     const next = loadCareer(st)!;
+    expect(next.offseason).toBeUndefined();
     expect(next.year).toBe(2); expect(next.player.age).toBe(20); expect(next.history).toHaveLength(1);
+    expect(next.contract!.years).toBe(3);
     expect(text()).toContain('Saison 2');
+    expect(text()).toContain('Vertrag: noch 3 Jahre');
   });
   it('jede Szene steuert den eigenen Spieler; letzte Szene ist die Crunchtime', () => {
     const st = memory();
@@ -154,6 +168,8 @@ describe('Karriere – Play-In und Playoffs', () => {
     expect(rounds).toEqual(['1. Runde', 'Conference-Halbfinale', 'Conference-Finale', 'NBA Finals']);
     expect(text()).toContain('MEISTER!');
     press('Nächste Saison');
+    if (text().includes('Trade!')) press('Weiter');
+    press('Fertig');
     const next = loadCareer(st)!;
     expect(next.history[0].playoff).toBe('champion');
     expect(next.postseason).toBeUndefined();
@@ -190,5 +206,35 @@ describe('Karriere – Play-In und Playoffs', () => {
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
     expect(document.querySelector('.career-screen h2')!.textContent).toBe('Conference-Finale');
+  });
+});
+
+describe('Karriere – Off-Season-Bildschirme', () => {
+  it('Vertragsende: drei Angebote, Unterschreiben wechselt das Team, danach Skillpunkte; Abbruch landet im offenen Schritt', () => {
+    const st = memory(); const c = fresh(st);
+    // schwaches eigenes Team → sicher keine Nachsaison, direkt Off-Season
+    saveCareer({ ...c, contract: { team: c.team, years: 1, salary: 1.5, spPerYear: 3 },
+      strengths: Object.fromEntries(ALL_TEAMS.map(t => [t.id, t.id === c.team ? 25 : 85])) }, st);
+    let mode = startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    for (let g = 0; g < 5; g++) { playGame(); press('Weiter'); }
+    press('Nächste Saison');
+    expect(text()).toContain('Vertragsangebote');
+    expect(document.querySelectorAll('.offer')).toHaveLength(3);
+    // Abbruch und Fortsetzen → wieder die Angebote
+    mode.stop();
+    document.body.innerHTML = '<div id="app"></div>';
+    mode = startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    expect(text()).toContain('Vertragsangebote');
+    const offers = loadCareer(st)!.offseason!.offers!;
+    const target = offers[2];
+    const btn = [...document.querySelectorAll('button')].find(b => b.textContent!.startsWith('Unterschreiben') && b.textContent!.includes(TEAM_NAME(target.team)))!;
+    btn.click();
+    expect(loadCareer(st)!.team).toBe(target.team);
+    expect(text()).toContain('Skillpunkte');
+    press('Fertig');
+    expect(text()).toContain(TEAM_NAME(target.team));
+    mode.stop();
   });
 });

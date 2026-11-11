@@ -2,6 +2,7 @@ import type { Look } from '../figure/raster';
 import { RATING_KEYS, clamp01, type Ratings } from '../play/ratings';
 import { TEAMS } from './league';
 import type { PlayoffResult, Postseason } from './playoffs';
+import type { Contract, Offseason } from './offseason';
 
 export type Position = 'guard' | 'wing' | 'big';
 export type Difficulty = 'rookie' | 'pro' | 'hof';
@@ -19,6 +20,10 @@ export interface CareerState {
   strengths?: Record<string, number>;
   /** laufende Nachsaison (Play-In/Playoffs) nach den Key Games */
   postseason?: Postseason;
+  /** laufender Vertrag (fehlt bei alten Ständen: Rookie-Vertrag) */
+  contract?: Contract;
+  /** offener Off-Season-Schritt (Trade-Meldung, Angebote, Skillpunkte) */
+  offseason?: Offseason;
 }
 
 export const CAREER_KEY = 'pixel-splash.career.v1';

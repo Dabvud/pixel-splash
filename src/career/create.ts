@@ -2,6 +2,7 @@ import type { Look } from '../figure/raster';
 import { RATING_KEYS, type Ratings } from '../play/ratings';
 import { TEAMS } from './league';
 import type { CareerState, Difficulty, Position } from './state';
+import { rookieContract } from './offseason';
 
 export interface CareerInput { name: string; num: number; look: Look; position: Position; difficulty: Difficulty }
 
@@ -43,5 +44,6 @@ export function newCareer(input: CareerInput, seed: number): CareerState {
       ratings: startRatings(input.position, input.difficulty),
     },
     team: team.id, year: 1, keyGames: [], gameIndex: 0, season: [], history: [], injured: false, retired: false,
+    contract: rookieContract(team.id),
   };
 }

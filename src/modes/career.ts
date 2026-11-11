@@ -7,6 +7,8 @@ import { finalDeficit, gameResult, projectLine, scenePlan, sceneSpec, scheduleSe
 import { finishSeason, playoffStatus, projectWins, standings, strengthOf } from '../career/season';
 import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResult } from '../career/playoffs';
 import type { PlayScene, SceneResult } from '../career/scene-types';
+import { acceptOffer, ackTrade, beginOffseason, endOffseason, spend } from '../career/offseason';
+import { RATING_KEYS, type RatingKey } from '../play/ratings';
 import { createCareerScreen } from '../ui/career-create';
 import { startPlayLab } from './play-lab';
 import type { Mode } from './mode';
@@ -14,6 +16,9 @@ import type { Mode } from './mode';
 export interface CareerDeps { storage?: Storage; seed?: number; playScene?: PlayScene }
 
 const TICKER_MS = 2500;
+const RATING_LABEL: Record<RatingKey, string> = { mid: 'Mitteldistanz', three: 'Dreier', finish: 'Korbleger', dunk: 'Dunk', dribble: 'Dribbling',
+  pass: 'Passen', athleticism: 'Athletik', defense: 'Verteidigung', leadership: 'Führung' };
+const money = (m: number) => `${m.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Mio. $`;
 const STATUS = { playoffs: 'Playoffs erreicht!', playin: 'Play-In erreicht – ein Spiel um die Playoffs.', out: 'Keine Playoffs in dieser Saison.' };
 const RESULT_TEXT: Record<PlayoffResult, string> = { none: 'Keine Playoffs', playin: 'Im Play-In ausgeschieden', r1: 'In der 1. Runde ausgeschieden',
   r2: 'Im Conference-Halbfinale ausgeschieden', cf: 'Im Conference-Finale ausgeschieden', finals: 'In den NBA Finals verloren', champion: 'MEISTER!' };
@@ -67,6 +72,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
 
   function hub(c: CareerState): void {
     if (c.retired) return careerEnd(c);
+    if (c.offseason) return offseason(c);
     if (!c.keyGames.length) { c = { ...c, keyGames: scheduleSeason(c, gameRng(c)) }; save(c); }
     if (c.gameIndex >= c.keyGames.length) return c.postseason ? c.postseason.done ? postseasonEnd(c) : playoffHub(c) : seasonEnd(c);
     const game = c.keyGames[c.gameIndex], wins = c.season.filter(g => g.won).length;
@@ -74,6 +80,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       <p>${esc(c.player.name)} · #${c.player.num} · ${c.player.age} Jahre · ${esc(teamName(teamById(c.team)))}</p>
       ${c.injured ? '<p>Verletzt: diese Saison nur 3 Key Games.</p>' : ''}
       <p>Bilanz Key Games: ${wins} – ${c.season.length - wins}</p>
+      ${c.contract ? `<p>Vertrag: noch ${c.contract.years} ${c.contract.years === 1 ? 'Jahr' : 'Jahre'} · ${money(c.contract.salary)}</p>` : ''}
       <div class="career-next"><b>Key Game ${c.gameIndex + 1} / ${c.keyGames.length}</b><br>${esc(game.label)}<br>${opponentLine(game)}</div>`,
       [['Spielen', () => playGame(c, game)], ['Karriere-Statistik', () => stats(c, () => hub(c))]]);
   }
@@ -145,7 +152,32 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   function nextSeason(c: CareerState, ownWins: number): void {
     // gleicher Seed wie die Tabelle am Saisonende → gespeicherter Platz = angezeigter Platz
     const n = finishSeason(c, ownWins, seededRng(((c.seed ^ (c.year * 31337)) >>> 0) + 1));
-    save(n); hub(n);
+    const o = beginOffseason(n, seededRng(((n.seed ^ (n.year * 4243)) >>> 0)));
+    save(o); hub(o);
+  }
+
+  function offseason(c: CareerState): void {
+    const o = c.offseason!;
+    const go = (n: CareerState) => { save(n); hub(n); };
+    if (o.step === 'trade') {
+      return screen(`<h2>Trade!</h2><p>${esc(c.player.name)} wurde zu den ${esc(teamName(teamById(o.tradedTo!)))} getradet. Der Vertrag läuft weiter.</p>`,
+        [['Weiter', () => go(ackTrade(c))]]);
+    }
+    if (o.step === 'offers') {
+      const cards = o.offers!.map(offer => {
+        const t = teamById(offer.team), strength = strengthOf(c, offer.team);
+        return `<div class="offer"><b>${esc(teamName(t))}${offer.team === c.team ? ' (Verlängerung)' : ''}</b>
+          <span class="offer-bar" style="--v:${strength}%" title="Teamstärke ${strength}"></span>
+          <span>${offer.years} ${offer.years === 1 ? 'Jahr' : 'Jahre'} · ${money(offer.salary)} · <em>${offer.spPerYear} Skillpunkte/Jahr</em></span></div>`;
+      }).join('');
+      return screen(`<h2>Vertragsangebote</h2><p>Dein Vertrag ist ausgelaufen. Schwache Teams locken manchmal mit mehr Skillpunkten – dort ist es aber schwerer zu gewinnen.</p><div class="offers">${cards}</div>`,
+        o.offers!.map(offer => [`Unterschreiben: ${teamName(teamById(offer.team))}`, () => go(acceptOffer(c, offer))] as [string, () => void]), 'career-long');
+    }
+    const rows = RATING_KEYS.map(k => `<div class="skill"><span>${RATING_LABEL[k]} <small>${Math.round(c.player.ratings[k] * 100)}</small></span><span class="offer-bar" style="--v:${Math.round(c.player.ratings[k] * 100)}%"></span>
+      <button class="skill-plus" data-key="${k}" aria-label="${RATING_LABEL[k]} verbessern" ${o.points <= 0 || c.player.ratings[k] >= 1 ? 'disabled' : ''}>+</button></div>`).join('');
+    screen(`<h2>Skillpunkte</h2><p>Noch ${o.points} ${o.points === 1 ? 'Punkt' : 'Punkte'} · jeder Punkt +2</p><div class="skills">${rows}</div>`,
+      [['Fertig', () => go(endOffseason(c))]], 'career-long');
+    root.querySelectorAll<HTMLButtonElement>('.skill-plus').forEach(b => b.addEventListener('click', () => go(spend(c, b.dataset.key as RatingKey))));
   }
 
   const postRng = (c: CareerState) => seededRng((c.seed ^ (c.year * 7919 + 5000 + (c.postseason?.faced.length ?? 0) * 104729)) >>> 0);
