@@ -686,7 +686,8 @@ function callFoul(s: PlayState, andOne: boolean, events: EngineEvent[]): void {
   const r = rt(s), shooter = s.actors[s.freeThrows!.shooter], setup = r.lineup!;
   const side = shooter.pos.x >= 0 ? 1 : -1, from = { x: side * 8.2, z: 3 };
   s.actors.ref = { id: 'ref', pos: from, y: 0, facing: facingTo(from, { x: 0, z: 0 }), move: 'run', moveT: 0 };
-  setup.ref = { x: side * 3.6, z: 1.6 };
+  // Direkt neben die Korbstange (z = −1,6): dort ist er aus jeder Abschluss- und Freiwurfkamera zu sehen
+  setup.ref = { x: side * 0.9, z: -1.35 };
   setup.hold = andOne ? 1.8 : 1.1;
   events.push({ type: 'foul', andOne });
   if (!andOne) return;

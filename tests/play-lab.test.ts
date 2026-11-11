@@ -866,3 +866,11 @@ describe('Spielzug-Labor Integration', () => {
     expect(document.querySelector('#stage')).toBeNull();
   });
 });
+
+describe('Replay-Schild und Foul-Texte', () => {
+  it('blendet das Replay-Schild per CSS aus, solange kein Replay läuft', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('src/style.css', 'utf8');
+    expect(css).toMatch(/\.replay-badge\[hidden\]\s*\{\s*display:\s*none/);
+  });
+});

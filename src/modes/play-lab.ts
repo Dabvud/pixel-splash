@@ -94,6 +94,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   const recorder = createRecorder(REPLAY_SECONDS + 1);
   let replay: { clip: Snap[]; start: number; andOne: boolean } | null = null;
   let replayPending: { andOne: boolean } | null = null;
+  let foulJustCalled = false;
   let raf = 0;
   let last = performance.now();
   let lastFrame = 0; // aktive Millisekunden des letzten gerenderten Bildes
@@ -164,6 +165,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function handle(events: EngineEvent[]): void {
+    // Die Engine meldet die Freiwurf-Serie vor dem Pfiff; beides kommt im selben Schritt
+    if (events.some((e) => e.type === "foul")) foulJustCalled = true;
     for (const e of events) {
       if (e.type === "decision") options = e.options;
       else if (e.type === "arrowStart") {
@@ -191,7 +194,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         hud.showResult({ banner: e.banner, hint: e.made ? "" : lastHint(s), made: e.made } as ShotResult);
         comboT0 = null;
       } else if (e.type === "freethrow") {
-        phud.flash(e.left === 1 ? "LETZTER FREIWURF" : `${e.left} FREIWÜRFE`);
+        // Direkt nach dem Pfiff steht die Anzahl schon im Banner – keine dritte Einblendung
+        if (!foulJustCalled) phud.flash(e.left === 1 ? "LETZTER FREIWURF" : `${e.left} FREIWÜRFE`);
+        foulJustCalled = false;
         releasedFill = null;
       } else if (e.type === "foul") {
         // Beim And-one zuerst das Replay, die Einblendung folgt danach

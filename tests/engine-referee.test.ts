@@ -40,8 +40,11 @@ describe('Schiri und And-one', () => {
     expect(Math.hypot(s.actors.ref.pos.x - start.x, s.actors.ref.pos.z - start.z)).toBeGreaterThan(1);
     for (let i = 0; i < 480; i++) step(s, 1 / 240, cfg, rng);
     expect(s.actors.ref.move).toBe('ref_whistle');
-    // Der Schiri steht nicht in der Freiwurf-Aufstellung am Zonenrand und nicht zwischen Linie und Korb
-    expect(Math.abs(s.actors.ref.pos.x)).toBeGreaterThan(3);
+    // Der Schiri pfeift direkt neben der Korbstange (Stange bei z = −1,6), gut sichtbar unter dem Korb
+    expect(Math.abs(s.actors.ref.pos.x)).toBeGreaterThan(0.6);
+    expect(Math.abs(s.actors.ref.pos.x)).toBeLessThan(1.2);
+    expect(s.actors.ref.pos.z).toBeLessThan(-1);
+    expect(s.actors.ref.pos.z).toBeGreaterThan(-1.8);
   });
 
   it('lässt beim And-one den Schützen jubeln, einen Mitspieler abklatschen und die Freiwürfe warten', () => {
