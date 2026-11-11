@@ -12,6 +12,7 @@ import { passTime, stealChance } from './pass';
 import { positionValue } from './position';
 import type { Vec2 } from './position';
 import { ACTORS } from './teams';
+import { finishMeter, ratingsOf } from './ratings';
 import { castPlay, varyHelpTiming } from './situations';
 import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types';
 
@@ -30,6 +31,8 @@ export interface EngineConfig {
   forceGlass?: boolean;
   /** Alley-oop vom Brett bei freier Bahn + Athletik ≥ 0,8: Chance (Standard 0,1) bzw. erzwungen */
   boardOopChance?: number; forceBoardOop?: boolean;
+  /** Karriere: Spielerwerte wirken voll (Abschluss-Meter, Pass-Steals, Dribbling gegen Verteidigung) */
+  ratingMeters?: boolean;
   posterVariant?: 'random' | PosterVariant;
   blockFoulChance?: number;
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
@@ -91,6 +94,7 @@ interface Shot {
 interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams; foulRoll: number }
 interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
+  ratings?: boolean;
   impact?: { victim: string; from: Vec2; to: Vec2; elapsed: number; duration: number; variant: PosterVariant };
   segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
   paths: Record<string, Waypoint[]>;
@@ -119,8 +123,11 @@ const defenders = (s: PlayState) => Object.values(s.actors).filter(a => ACTORS[a
 const impacted = (a: ActorState) => a.move === 'knocked_down' || a.move === 'hang_upside' || a.move === 'legs_up';
 const contactDefenders = (s: PlayState) => defenders(s).filter(a => a.id !== s.foulTrouble);
 export function playPositionValue(s: PlayState, pos: Vec2, ahead = 0): number {
+  const r = rt(s)?.ratings, dribble = r ? ratingsOf(ACTORS[s.handler]).dribble : 0;
   return positionValue(pos, defenders(s).map(a => ({ ...(ahead ? predicted(s, a.id, ahead) : a.pos),
-    weight: a.id === s.foulTrouble ? .5 : 1 })));
+    // Karriere: guter Dribbler gegen schwachen Verteidiger → Verteidiger zählt weniger
+    weight: (a.id === s.foulTrouble ? .5 : 1)
+      * (r ? Math.max(.7, Math.min(1.3, 1 - .4 * (dribble - ratingsOf(ACTORS[a.id]).defense))) : 1) })));
 }
 const currentP = (s: PlayState) => playPositionValue(s, s.actors[s.handler].pos);
 function contactKind(s: PlayState, kind: 'layup' | 'dunk' | 'contact_dunk', pos: Vec2, ahead = 0): typeof kind {
@@ -317,7 +324,7 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
     ghost: null, splinters: null, ouch: null, glass: null, glassSweep: 0,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
-    segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
+    segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {}, ratings: cfg.ratingMeters ?? false });
   for (const id of play.actors) {
     const p = (variant.defPaths[segment.id]?.[id] ?? segment.paths[id])?.[0];
     s.actors[id] = { id, pos: { x: p?.x ?? 0, z: p?.z ?? 0 }, y: 0, facing: 0, move: 'idle', moveT: 0 };
@@ -373,11 +380,11 @@ function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, r
     : finishing && cfg.finishFoulOverride !== undefined && cfg.finishFoulOverride >= 0
       ? cfg.finishFoulOverride : foulChance(kind, P, cfg.foulMult);
   const foulRoll = ft ? 1 : rng(), fouled = !ft && foulRoll < chance;
-  const base = finishing ? cfg.finish : cfg.shot;
+  const a = ACTORS[actor], ratings = ratingsOf(a);
+  const base = finishing ? cfg.ratingMeters && !ft ? { ...cfg.finish, ...finishMeter(cfg.finish, ratings.finish) } : cfg.finish : cfg.shot;
   const meterMs = ft ? base.meterMs : meterDuration(base.meterMs, P, cfg.tempoSpread, rng);
-  const a = ACTORS[actor];
   const params = { ...base, meterMs, influence: cfg.shot.influence,
-    rating: finishing ? a.athleticism : a.shot,
+    rating: finishing ? ratings.finish : kind === 'three' ? ratings.three : ratings.mid,
     distance: ft ? 4.2 : finishing ? 4.6 : distance(pos, { x: 0, z: 0 }),
     bankAngleDeg: kind === 'dunk' || kind === 'contact_dunk' ? undefined
       : ft ? 0 : Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI,
@@ -514,7 +521,7 @@ function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: Eng
   const P = currentP(s), pos = s.actors[s.handler].pos;
   const kind = contactKind(s, cfg.forcePoster
     ? contactDefenders(s).some(a => distance(a.pos, pos) <= 2.5) ? 'contact_dunk' : 'dunk'
-    : finishKind(ACTORS[s.handler].athleticism, P, rng), pos);
+    : finishKind(ratingsOf(ACTORS[s.handler]).dunk, P, rng), pos);
   phase(s, 'takeoff');
   rt(s).lob = false;
   events.push({ type: 'takeoff', kind });
@@ -554,7 +561,8 @@ function catchOffset(a: ActorState, quality: number): Vec3 {
 function startPass(s: PlayState, option: Option, quality: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
   const r = rt(s), catcher = s.actors[option.to!], target = catchPoint(s, catcher.id), h = s.actors[s.handler];
   // Steals nur bei abgefangenen Pässen: einmal beim Abspiel nach Passweg und Genauigkeit würfeln.
-  const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos), quality);
+  const passFactor = cfg.ratingMeters ? Math.max(.5, Math.min(1.3, 1.3 - .6 * ratingsOf(ACTORS[h.id]).pass)) : 1;
+  const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos), quality) * passFactor;
   r.comboMove = undefined; r.drive = undefined;
   const dx = target.pos.x - h.pos.x, dz = target.pos.z - h.pos.z, len2 = dx * dx + dz * dz;
   const laneDistance = (a: ActorState) => {
@@ -589,9 +597,9 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
     const P = playPositionValue(s, target.pos, target.duration);
     const kind = contactKind(s, cfg.forcePoster
       ? defense.some(pos => distance(pos, target.pos) <= 2.5) ? 'contact_dunk' : 'dunk'
-      : finishKind(ACTORS[catcher.id].athleticism, P, rng), target.pos, target.duration);
+      : finishKind(ratingsOf(ACTORS[catcher.id]).dunk, P, rng), target.pos, target.duration);
     // Nur bei freier Bahn (Dunk ohne Kontakt) und hohem Dunk-Wert; gewürfelt nur dann
-    if (kind === 'dunk' && ACTORS[catcher.id].athleticism >= .8
+    if (kind === 'dunk' && ratingsOf(ACTORS[catcher.id]).dunk >= .8
       && (cfg.forceBoardOop || rng() < (cfg.boardOopChance ?? .1))) {
       r.pass.board = { x: target.pos.x * .3, y: 3.6, z: -.36 };
       events.push({ type: 'boardOop' });
