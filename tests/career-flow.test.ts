@@ -259,3 +259,38 @@ describe('Karriere – Spezialisierung im Skillpunkte-Bildschirm', () => {
     expect(loadCareer(st)!.player).toMatchObject({ spec: 'shooting', specLevel: 0 });
   });
 });
+
+describe('Karriere – Spezialisierung in den Szenen', () => {
+  it('Green Light: nach 2 eigenen Treffern brennt es in der nächsten Szene, ein Fehlwurf löscht', () => {
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, player: { ...c.player, spec: 'shooting', specLevel: 3 } }, st);
+    outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 2, ast: 0, heroShots: 1, heroMakes: 1 });
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    playGame(); press('Weiter');
+    expect(loadCareer(st)!.hot).toBeGreaterThanOrEqual(2);
+    expect(specs[0].perks).toMatchObject({ threeGreen: 1.3, deepRange: true, greenLight: true, onFire: false });
+    press('Spielen');
+    expect(text()).toContain('Green Light');
+    vi.advanceTimersByTime(3000);
+    expect(specs.at(-1)!.perks!.onFire).toBe(true);
+    outcome = () => ({ won: false, verdict: 'VERLOREN', pts: 0, ast: 0, heroShots: 1, heroMakes: 0 });
+    vi.advanceTimersByTime(20);
+    for (let k = 0; k < 3 && !/Sieg|Niederlage/.test(text()); k++) { vi.advanceTimersByTime(3000); vi.advanceTimersByTime(20); }
+    expect(loadCareer(st)!.hot).toBe(0);
+  });
+  it('Coach-Call: zwei Spielzüge zur Wahl, der gewählte wird gespielt', () => {
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, player: { ...c.player, spec: 'playmaking', specLevel: 2 } }, st);
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    press('Spielen');
+    expect(text()).toContain('Coach-Call');
+    const choices = [...document.querySelectorAll<HTMLButtonElement>('.career-actions button')];
+    expect(choices).toHaveLength(2);
+    expect(choices[0].textContent).not.toBe(choices[1].textContent);
+    choices[1].click();
+    expect(specs.at(-1)!.play.name).toBe(choices[1].textContent);
+    expect(specs.at(-1)!.perks).toMatchObject({ passSteal: .6, coachCall: true });
+  });
+});

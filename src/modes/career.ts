@@ -9,7 +9,8 @@ import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResul
 import type { PlayScene, SceneResult } from '../career/scene-types';
 import { acceptOffer, ackTrade, beginOffseason, endOffseason, spend } from '../career/offseason';
 import { RATING_KEYS, type RatingKey } from '../play/ratings';
-import { SPECS, STAGE_COST, buyStage, chooseSpec, type SpecId } from '../career/spec';
+import { SPECS, STAGE_COST, buyStage, chooseSpec, perksOf, updateHot, type SpecId } from '../career/spec';
+import type { SceneSpec } from '../career/scene-types';
 import { createCareerScreen } from '../ui/career-create';
 import { startPlayLab } from './play-lab';
 import type { Mode } from './mode';
@@ -94,24 +95,36 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       const i = results.length;
       if (i >= total) return finish(results, rng);
       const deficit = i === total - 1 ? finalDeficit(results.map(r => r.won)) : 1 + Math.floor(rng() * 4);
-      const spec = sceneSpec(c, game, i, total, deficit, rng);
-      const go = (): void => {
+      const perks = perksOf(c.player), hot = updateHot(c.hot ?? 0, results);
+      const withPerks = (sp: SceneSpec): SceneSpec => ({ ...sp, perks: { ...perks, onFire: Boolean(perks.greenLight) && hot >= 2 } });
+      const spec = withPerks(sceneSpec(c, game, i, total, deficit, rng));
+      // Coach-Call: zweiter Spielzug zur Wahl (gleiche Lage, anderer Spielzug)
+      let alt: SceneSpec | undefined;
+      for (let k = 0; perks.coachCall && k < 6 && (!alt || alt.play.id === spec.play.id); k++) alt = withPerks({ ...sceneSpec(c, game, i, total, deficit, rng), title: spec.title, clockS: spec.clockS, deficit });
+      if (alt?.play.id === spec.play.id) alt = undefined;
+      const go = (chosen: SceneSpec = spec): void => {
         clearTimeout(timer);
         root.innerHTML = '';
         undress = dressTeams(own, opp);
         registerHero(c.player, own);
-        scene = playScene(app, current, spec, r => {
+        scene = playScene(app, current, chosen, r => {
           endScene();
           results.push(r);
           next();
         });
         scene.setPaused?.(paused);
       };
+      const fireNote = spec.perks?.onFire ? '<p class="ticker-fire">🔥 Green Light – du brennst!</p>' : '';
+      if (alt) {
+        screen(`<p class="ticker-label">${esc(spec.subtitle)}</p><h2>${esc(spec.title)}</h2>${fireNote}<p>Szene ${i + 1} / ${total} · Coach-Call: wähle den Spielzug</p>`,
+          [[spec.play.name, () => go(spec)], [alt.play.name, () => go(alt!)]]);
+        return;
+      }
       root.innerHTML = `<div class="career-screen career-ticker" role="button" tabindex="0">
-        <p class="ticker-label">${esc(spec.subtitle)}</p><h2>${esc(spec.title)}</h2>
+        <p class="ticker-label">${esc(spec.subtitle)}</p><h2>${esc(spec.title)}</h2>${fireNote}
         <p>Szene ${i + 1} / ${total} · Tippen zum Starten</p></div>`;
-      root.querySelector('.career-ticker')!.addEventListener('click', go);
-      timer = setTimeout(go, TICKER_MS);
+      root.querySelector('.career-ticker')!.addEventListener('click', () => go());
+      timer = setTimeout(() => go(), TICKER_MS);
     };
     next();
   }
@@ -125,7 +138,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     const won = gameResult(results, rng), line = projectLine(c.player.ratings, results, rng);
     const ownPts = 96 + Math.floor(rng() * 22), margin = 1 + Math.floor(rng() * 12);
     const oppPts = won ? ownPts - margin : ownPts + margin;
-    const after: CareerState = { ...c, gameIndex: c.gameIndex + 1,
+    const after: CareerState = { ...c, gameIndex: c.gameIndex + 1, hot: updateHot(c.hot ?? 0, results),
       season: [...c.season, { opponent: game.opponent, label: game.label, home: game.home, won, ...line }] };
     save(after);
     screen(`<h2>${won ? 'Sieg' : 'Niederlage'}</h2><p>${ownPts} : ${oppPts} ${opponentLine(game)}</p>
@@ -199,7 +212,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   }
   function finishPlayoff(c: CareerState, game: KeyGame, results: SceneResult[], rng: () => number): void {
     const p = c.postseason!, won = gameResult(results, rng), line = projectLine(c.player.ratings, results, rng);
-    const next = advance(p, won, c, rng), after: CareerState = { ...c, postseason: next };
+    const next = advance(p, won, c, rng), after: CareerState = { ...c, postseason: next, hot: updateHot(c.hot ?? 0, results) };
     save(after);
     const title = !won ? p.round === 'playin' ? 'Play-In verloren' : 'Ausgeschieden'
       : next.done ? 'MEISTER!' : p.round === 'playin' ? 'Play-In gewonnen' : 'Serie gewonnen';

@@ -1,4 +1,6 @@
 import type { CareerPlayer, CareerState } from './state';
+import type { Perks } from '../play/engine';
+export type { Perks };
 
 export type SpecId = 'playmaking' | 'shooting' | 'finishing';
 export const SPECS: Record<SpecId, { name: string; stages: [string, string, string] }> = {
@@ -9,13 +11,7 @@ export const SPECS: Record<SpecId, { name: string; stages: [string, string, stri
 /** gleiche Kosten für alle Spezialisierungen – Stärke wird über Spieltests abgestimmt */
 export const STAGE_COST = [4, 6, 10];
 
-/** Wirkungen für den eigenen Spieler in den Szenen (nur Karriere) */
-export interface Perks {
-  passSteal?: number; coachCall?: boolean; floorGeneral?: boolean;
-  threeGreen?: number; deepRange?: boolean; greenLight?: boolean;
-  finishMeter?: number; contactBoost?: number; posterizer?: boolean;
-}
-
+/** Wirkungen für den eigenen Spieler in den Szenen (nur Karriere), Typ aus der Engine */
 export function perksOf(p: CareerPlayer): Perks {
   const lv = p.spec ? p.specLevel ?? 0 : 0;
   if (p.spec === 'playmaking') return { ...(lv >= 1 ? { passSteal: .6 } : {}), ...(lv >= 2 ? { coachCall: true } : {}), ...(lv >= 3 ? { floorGeneral: true } : {}) };
@@ -35,4 +31,14 @@ export function buyStage(state: CareerState): CareerState {
 export function chooseSpec(state: CareerState, spec: SpecId): CareerState {
   if (state.player.spec) return state;
   return { ...state, player: { ...state.player, spec, specLevel: 0 } };
+}
+
+/** Green Light: Treffer in Folge über Szenen hinweg; ein Fehlwurf setzt zurück */
+export function updateHot(hot: number, results: { heroShots?: number; heroMakes?: number }[]): number {
+  for (const r of results) {
+    const shots = r.heroShots ?? 0, makes = r.heroMakes ?? 0;
+    if (!shots) continue;
+    hot = makes < shots ? 0 : hot + makes;
+  }
+  return hot;
 }

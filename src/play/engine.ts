@@ -18,6 +18,11 @@ import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types
 
 export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'receiving' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
 export type PosterVariant = 'classic' | 'flyout' | 'grave' | 'crowd' | 'net' | 'ghost' | 'stuck' | 'jumbotron';
+export interface Perks {
+  passSteal?: number; coachCall?: boolean; floorGeneral?: boolean;
+  threeGreen?: number; deepRange?: boolean; greenLight?: boolean;
+  finishMeter?: number; contactBoost?: number; posterizer?: boolean;
+}
 export interface EngineConfig {
   situationRandom?: boolean; // Ohne Opt-in bleibt auch die bisherige RNG-Folge erhalten.
   /** Bei Fouls: Schiri läuft ein und pfeift, beim And-one Feier + Abklatschen vor den Freiwürfen */ foulScene?: boolean;
@@ -35,6 +40,8 @@ export interface EngineConfig {
   ratingMeters?: boolean;
   /** Karriere: nur dieser Akteur nimmt Eingaben an; Mitspieler entscheiden und werfen per KI */
   controlled?: string;
+  /** Karriere-Spezialisierung: wirkt nur für `controlled` (onFire = Green Light aktiv) */
+  perks?: Perks & { onFire?: boolean };
   posterVariant?: 'random' | PosterVariant;
   blockFoulChance?: number;
   shot: { meterMs: number; greenZone: number; aimDeg: number; influence: number };
@@ -56,7 +63,7 @@ export interface PlayState {
   combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
-  poster: { victim: string; kind: 'poster' | 'block'; variant: PosterVariant; startedAt: number } | null;
+  poster: { victim: string; kind: 'poster' | 'block' | 'ankle'; variant: PosterVariant; startedAt: number } | null;
   grave: { x: number; z: number; since: number } | null;
   ghost: { x: number; z: number; since: number } | null;
   splinters: { x: number; z: number; since: number } | null;
@@ -72,7 +79,7 @@ export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pas
   | { type: 'arrowStart'; kind: ArrowMeter['kind'] } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
   | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
   | { type: 'foul'; andOne: boolean }
-  | { type: 'glass' } | { type: 'glassFixed' } | { type: 'boardOop' }
+  | { type: 'glass' } | { type: 'glassFixed' } | { type: 'boardOop' } | { type: 'ankle' }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
 
 interface Pass {
@@ -97,6 +104,9 @@ interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams
 interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
   ratings?: boolean;
+  perks?: Perks & { onFire?: boolean }; controlled?: string;
+  /** Floor General: dieser Mitspieler wird nach dem Pass des eigenen Spielers mitgesteuert */
+  borrowed?: string;
   /** KI-Zug eines Mitspielers (Karriere): Schlüssel der aktuellen Situation, Startzeit, Ziel-Füllstand, Wurfzeitpunkt */
   ai?: { key: string; at: number; target?: number; releaseAt?: number; hold?: number };
   impact?: { victim: string; from: Vec2; to: Vec2; elapsed: number; duration: number; variant: PosterVariant };
@@ -125,10 +135,17 @@ const mix = (a: number, b: number, f: number) => a + (b - a) * f;
 const rt = (s: PlayState) => runtimes.get(s)!;
 const defenders = (s: PlayState) => Object.values(s.actors).filter(a => ACTORS[a.id].team === 'def');
 const impacted = (a: ActorState) => a.move === 'knocked_down' || a.move === 'hang_upside' || a.move === 'legs_up';
-const contactDefenders = (s: PlayState) => defenders(s).filter(a => a.id !== s.foulTrouble);
+const contactDefenders = (s: PlayState) => defenders(s).filter(a => a.id !== s.foulTrouble && !impacted(a));
+/** Perks gelten nur für den eigenen Spieler */
+const perksFor = (s: PlayState, id: string) => { const r = rt(s); return r?.controlled === id ? r.perks ?? {} : {}; };
+/** Korbabschluss 2: aus manchem Korbleger wird ein Kontakt-Dunk (Würfel nur mit aktivem Perk) */
+function boostKind(s: PlayState, id: string, kind: 'layup' | 'dunk' | 'contact_dunk', P: number, rng: () => number): typeof kind {
+  const boost = perksFor(s, id).contactBoost;
+  return boost && kind === 'layup' && P < .6 && ratingsOf(ACTORS[id]).dunk >= .6 && rng() < .3 * (boost - 1) / .5 ? 'contact_dunk' : kind;
+}
 export function playPositionValue(s: PlayState, pos: Vec2, ahead = 0): number {
   const r = rt(s)?.ratings, dribble = r ? ratingsOf(ACTORS[s.handler]).dribble : 0;
-  return positionValue(pos, defenders(s).map(a => ({ ...(ahead ? predicted(s, a.id, ahead) : a.pos),
+  return positionValue(pos, defenders(s).filter(a => !impacted(a)).map(a => ({ ...(ahead ? predicted(s, a.id, ahead) : a.pos),
     // Karriere: guter Dribbler gegen schwachen Verteidiger → Verteidiger zählt weniger
     weight: (a.id === s.foulTrouble ? .5 : 1)
       * (r ? Math.max(.7, Math.min(1.3, 1 - .4 * (dribble - ratingsOf(ACTORS[a.id]).defense))) : 1) })));
@@ -328,7 +345,8 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
     ghost: null, splinters: null, ouch: null, glass: null, glassSweep: 0,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
-    segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {}, ratings: cfg.ratingMeters ?? false });
+    segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {}, ratings: cfg.ratingMeters ?? false,
+    perks: cfg.perks, controlled: cfg.controlled });
   for (const id of play.actors) {
     const p = (variant.defPaths[segment.id]?.[id] ?? segment.paths[id])?.[0];
     s.actors[id] = { id, pos: { x: p?.x ?? 0, z: p?.z ?? 0 }, y: 0, facing: 0, move: 'idle', moveT: 0 };
@@ -382,14 +400,19 @@ function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, r
   const nearest = s.foulTrouble && defenders(s).sort((a, b) => distance(at(a), pos) - distance(at(b), pos))[0];
   const chance = nearest && nearest.id === s.foulTrouble ? 0
     : finishing && cfg.finishFoulOverride !== undefined && cfg.finishFoulOverride >= 0
-      ? cfg.finishFoulOverride : foulChance(kind, P, cfg.foulMult);
+      ? cfg.finishFoulOverride : foulChance(kind, P, cfg.foulMult) * (finishing ? perksFor(s, actor).contactBoost ?? 1 : 1);
   const foulRoll = ft ? 1 : rng(), fouled = !ft && foulRoll < chance;
   const a = ACTORS[actor], ratings = ratingsOf(a);
-  const base = finishing ? cfg.ratingMeters && !ft ? { ...cfg.finish, ...finishMeter(cfg.finish, ratings.finish) } : cfg.finish : cfg.shot;
+  const perks = perksFor(s, actor);
+  const rated = finishing ? cfg.ratingMeters && !ft ? { ...cfg.finish, ...finishMeter(cfg.finish, ratings.finish) } : cfg.finish : cfg.shot;
+  const base = { ...rated,
+    meterMs: rated.meterMs * (finishing && !ft ? perks.finishMeter ?? 1 : 1),
+    greenZone: rated.greenZone * (kind === 'three' && !ft ? perks.threeGreen ?? 1 : 1) };
   const meterMs = ft ? base.meterMs : meterDuration(base.meterMs, P, cfg.tempoSpread, rng);
   const params = { ...base, meterMs, influence: cfg.shot.influence,
     rating: finishing ? ratings.finish : kind === 'three' ? ratings.three : ratings.mid,
-    distance: ft ? 4.2 : finishing ? 4.6 : distance(pos, { x: 0, z: 0 }),
+    // Deep Range: weite Dreier ohne Entfernungsabzug
+    distance: ft ? 4.2 : finishing ? 4.6 : kind === 'three' && perks.deepRange ? Math.min(4.6, distance(pos, { x: 0, z: 0 })) : distance(pos, { x: 0, z: 0 }),
     bankAngleDeg: kind === 'dunk' || kind === 'contact_dunk' ? undefined
       : ft ? 0 : Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI,
     zoneFactor: ft ? 1 : zoneFactor(P, cfg.zoneFloor, fouled, kind === 'contact_dunk')
@@ -525,7 +548,7 @@ function takeoff(s: PlayState, cfg: EngineConfig, rng: () => number, events: Eng
   const P = currentP(s), pos = s.actors[s.handler].pos;
   const kind = contactKind(s, cfg.forcePoster
     ? contactDefenders(s).some(a => distance(a.pos, pos) <= 2.5) ? 'contact_dunk' : 'dunk'
-    : finishKind(ratingsOf(ACTORS[s.handler]).dunk, P, rng), pos);
+    : boostKind(s, s.handler, finishKind(ratingsOf(ACTORS[s.handler]).dunk, P, rng), P, rng), pos);
   phase(s, 'takeoff');
   rt(s).lob = false;
   events.push({ type: 'takeoff', kind });
@@ -566,7 +589,10 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
   const r = rt(s), catcher = s.actors[option.to!], target = catchPoint(s, catcher.id), h = s.actors[s.handler];
   // Steals nur bei abgefangenen Pässen: einmal beim Abspiel nach Passweg und Genauigkeit würfeln.
   const passFactor = cfg.ratingMeters ? Math.max(.5, Math.min(1.3, 1.3 - .6 * ratingsOf(ACTORS[h.id]).pass)) : 1;
-  const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos), quality) * passFactor;
+  const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos), quality) * passFactor * (perksFor(s, h.id).passSteal ?? 1);
+  // Floor General: nach eigenem Pass wird der Fänger mitgesteuert; passt der Mitspieler weiter, endet das
+  const fr = rt(s);
+  fr.borrowed = !steal && fr.perks?.floorGeneral && h.id === fr.controlled ? catcher.id : undefined;
   r.comboMove = undefined; r.drive = undefined;
   const dx = target.pos.x - h.pos.x, dz = target.pos.z - h.pos.z, len2 = dx * dx + dz * dz;
   const laneDistance = (a: ActorState) => {
@@ -601,7 +627,7 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
     const P = playPositionValue(s, target.pos, target.duration);
     const kind = contactKind(s, cfg.forcePoster
       ? defense.some(pos => distance(pos, target.pos) <= 2.5) ? 'contact_dunk' : 'dunk'
-      : finishKind(ratingsOf(ACTORS[catcher.id]).dunk, P, rng), target.pos, target.duration);
+      : boostKind(s, catcher.id, finishKind(ratingsOf(ACTORS[catcher.id]).dunk, P, rng), P, rng), target.pos, target.duration);
     // Nur bei freier Bahn (Dunk ohne Kontakt) und hohem Dunk-Wert; gewürfelt nur dann
     if (kind === 'dunk' && ratingsOf(ACTORS[catcher.id]).dunk >= .8
       && (cfg.forceBoardOop || rng() < (cfg.boardOopChance ?? .1))) {
@@ -647,7 +673,13 @@ function receptionReady(s: PlayState, cfg: EngineConfig, rng: () => number, even
 }
 
 function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rng: () => number): void {
-  const r = rt(s), combo = s.combo!, result = resolveShot(input, r.params!, rng), h = s.actors[s.handler];
+  const r = rt(s), combo = s.combo!, h = s.actors[s.handler];
+  let result = resolveShot(input, r.params!, rng);
+  const perks = perksFor(s, h.id);
+  // Green Light: brennend ist jeder Wurf im grünen Timing-Fenster sicher drin
+  if (perks.greenLight && perks.onFire && !result.made && Math.abs(result.t) <= 1) {
+    result = { ...resolveShot({ holdMs: r.params!.meterMs, angleDeg: 0 }, r.params!, rng), fill: result.fill, t: result.t };
+  }
   const finishing = combo.kind !== 'jump2' && combo.kind !== 'three';
   const id: MoveId = finishing && r.comboMove ? r.comboMove : shotMove(s, combo.kind, combo.P, rng);
   // Bereits gezeigtes Ausholen nicht wiederholen: Animation läuft an der aktuellen Stelle weiter
@@ -655,7 +687,9 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
   move(h, id, true);
   h.moveT = windup;
   const nearest = !s.freeThrows && contactDefenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
-  const defender = nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
+  // Posterizer: ein verfehlter Kontakt-Dunk wird nie geblockt (normaler Fehlwurf ohne Verteidigerkontakt)
+  const noBlock = perks.posterizer && combo.kind === 'contact_dunk' && !result.made;
+  const defender = !noBlock && nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
   if (defender) {
     move(defender, combo.kind === 'contact_dunk' ? 'block_jump_hit'
       : combo.fouled ? 'contact' : 'block_jump', true);
@@ -677,8 +711,14 @@ export function inputOwner(s: PlayState): string {
   return s.freeThrows?.shooter ?? s.handler;
 }
 
+/** Karriere: darf der Nutzer gerade eingeben? (eigener Spieler oder per Floor General mitgesteuerter Fänger) */
+export function isControlled(s: PlayState): boolean {
+  const r = rt(s), owner = inputOwner(s);
+  return !r.controlled || owner === r.controlled || (r.borrowed !== undefined && owner === r.borrowed);
+}
+
 export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => number): EngineEvent[] {
-  if (cfg.controlled && inputOwner(s) !== cfg.controlled) return [];
+  if (cfg.controlled && !isControlled(s)) return [];
   return runCommand(s, cmd, cfg, rng);
 }
 
@@ -690,7 +730,7 @@ function aiFill(g: number, rating: number, rng: () => number): number {
 
 /** KI-Mitspieler (Karriere): entscheidet nach kurzer Pause, wirft/tippt Meter mit wertabhängiger Streuung */
 function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
-  if (s.phase === 'ended' || inputOwner(s) === cfg.controlled) return;
+  if (s.phase === 'ended' || isControlled(s)) return;
   const r = rt(s), owner = inputOwner(s), m = s.arrowMeter;
   const key = `${s.phase}|${owner}|${m ? m.startTime : ''}|${s.freeThrows?.left ?? ''}`;
   if (r.ai?.key !== key) r.ai = { key, at: s.realTime };
@@ -801,6 +841,15 @@ function runCommand(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => nu
     if (cmd.lane) h.moveSide = cmd.lane === -1 ? 1 : -1;
     h.facing = facingTo(h.pos, to);
     heldBall(s);
+    // Posterizer: Ankle Breaker – der nächste Verteidiger fällt mit 20 % um
+    if (perksFor(s, h.id).posterizer && rng() < .2) {
+      const d = contactDefenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
+      if (d && distance(d.pos, h.pos) < 3) {
+        d.y = 0; move(d, 'knocked_down', true);
+        s.poster = { victim: d.id, kind: 'ankle', variant: 'classic', startedAt: s.realTime };
+        events.push({ type: 'ankle' });
+      }
+    }
   }
   return events;
 }

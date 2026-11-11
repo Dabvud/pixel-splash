@@ -17,7 +17,8 @@ import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
 import type { SceneResult, SceneSpec } from "../career/scene-types";
-import { command, createPlayState, inputOwner, lastHint, playPositionValue, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
+import { createBallFire } from "../render/fire";
+import { command, createPlayState, isControlled, lastHint, playPositionValue, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
 import { addPlay, boxRows, emptyGame } from "../stats/statline";
@@ -57,6 +58,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
   let settings = initial;
   const { scene, ball, updateNet, crowd, hoop } = createScene();
   const grave = createGrave(scene);
+  const fire = createBallFire(scene, ball);
   const posterEffects = createPosterEffects(scene);
   const shards = createGlassShards(scene);
   const bench = createBenchState(() => Math.random());
@@ -97,10 +99,12 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
     closeoutRandom: settings.closeoutRandom,
     shot: { meterMs: settings.meterMs, greenZone: settings.greenZone, aimDeg: settings.aimDeg, influence: INFLUENCE[settings.influence] },
     finish: { meterMs: settings.finishMeterMs, greenZone: settings.finishGreen, aimDeg: settings.finishAim },
-    ...(career ? { controlled: career.spec.controlled, ratingMeters: true, situationRandom: false } : {}),
+    ...(career ? { controlled: career.spec.controlled, ratingMeters: true, situationRandom: false, perks: career.spec.perks } : {}),
   });
   // Karriere: Meter und Entscheidungs-Marker nur, wenn der eigene Spieler am Zug ist
-  const mine = () => !career || inputOwner(s) === career.spec.controlled;
+  const mine = () => !career || isControlled(s);
+  // Karriere: eigene Wurfversuche für Green Light zählen (ohne Freiwürfe)
+  let heroShots = 0, heroMakes = 0;
 
   let rng: () => number = Math.random;
   let s!: PlayState;
@@ -150,6 +154,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
   }
 
   function newPlay(): void {
+    fire.setActive(Boolean(career?.spec.perks?.onFire)); // Green Light: der Ball brennt schon zu Szenenbeginn
     replayPending = null;
     bench.reset(); bench.forceFaint = settings.forceFaint; benchPoints = 0;
     recorder.reset();
@@ -239,6 +244,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else if (e.kind === "dunk") phud.flash("DUNK!");
       } else if (e.type === "combo") {
         if (e.fouled) phud.flash("KONTAKT!");
+      } else if (e.type === "ankle") {
+        phud.flash("ANKLE BREAKER!");
+        crowd?.cheer(0.9);
       } else if (e.type === "boardOop") {
         phud.flash("VOM BRETT!");
         crowd?.cheer(0.7);
@@ -251,6 +259,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         hoop.setGlassBroken(false);
         shards.reset();
       } else if (e.type === "result") {
+        if (career && s.handler === career.spec.controlled && !s.freeThrows) { heroShots++; if (e.made) heroMakes++; }
         if (e.made) crowd?.cheer(s.poster?.variant === "crowd" ? 1 : /DUNK|POSTER/.test(e.banner) ? .9 : .6);
         if (e.made && e.banner.includes("POSTER")) replayPending ??= { andOne: false };
         if (s.glass && e.made && /POSTER|AND-ONE/.test(e.banner)) {
@@ -400,7 +409,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else if (!sceneDone) {
           sceneDone = true;
           const line = s.box[career.spec.controlled];
-          const result = { won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0 };
+          const result = { won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0, heroShots, heroMakes };
           // erst nach diesem Bild melden: die Karriere stoppt die Szene und räumt den eigenen Spieler weg
           setTimeout(() => career.onEnd(result), 0);
         }
@@ -605,7 +614,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
     } else if (mine() && s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL, false, s.combo.bankWindow);
     else hud.setMeter(null, noZones, MAX_FILL);
 
-    if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); }
+    if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); fire.update(activeNow); }
     px.renderer.render(scene, camera);
     // Spielzeit statt Echtzeit: Zeitlupen im Spiel werden im Replay zu gleichmäßiger Zeitlupe
     if (!menuOpen) recorder.push(s.gameT * 1000 + (endedAt === null ? 0 : (activeNow - endedAt) * settings.animSpeed), views, s.ball, s);

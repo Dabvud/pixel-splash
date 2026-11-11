@@ -678,3 +678,4 @@ body {
 .spec-box li.done { color: var(--good); }
 .spec-box .menu-btn { min-height: 44px; font-size: 11px; }
 .spec-box .menu-btn:disabled { opacity: .4; }
+.ticker-fire { font: 12px/1.6 var(--pixel) !important; color: #ff7a1a !important; }

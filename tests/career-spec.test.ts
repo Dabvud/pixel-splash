@@ -55,3 +55,12 @@ describe('Spezialisierungen', () => {
     expect(chooseSpec(career('shooting'), 'playmaking').player.spec).toBe('shooting'); // nur einmal wählbar
   });
 });
+
+describe('Green-Light-Serie', () => {
+  it('zählt Treffer über Szenen, Fehlwurf setzt zurück, Szenen ohne Wurf zählen nicht', async () => {
+    const { updateHot } = await import('../src/career/spec');
+    expect(updateHot(0, [{ heroShots: 1, heroMakes: 1 }, { heroShots: 0, heroMakes: 0 }, { heroShots: 1, heroMakes: 1 }])).toBe(2);
+    expect(updateHot(3, [{ heroShots: 2, heroMakes: 1 }])).toBe(0);
+    expect(updateHot(1, [{}])).toBe(1);
+  });
+});
