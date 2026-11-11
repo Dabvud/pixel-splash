@@ -1,4 +1,5 @@
 import { PROFILES, SPOTS, saveSettings, type Settings } from "../settings";
+import { formatVersion } from "../version";
 
 type Key = keyof Settings;
 type Show = "all" | "shot" | "play";
@@ -59,6 +60,15 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
        </form>
      </dialog>`,
   );
+  const versionText = formatVersion(__APP_VERSION__, __COMMIT_HASH__, new Date(__BUILD_DATE__));
+  const cornerVersion = document.createElement("div");
+  cornerVersion.className = "build-version app-version";
+  cornerVersion.textContent = versionText;
+  root.append(cornerVersion);
+  const pauseVersion = document.createElement("div");
+  pauseVersion.className = "build-version";
+  pauseVersion.textContent = versionText;
+  root.querySelector("#pause-title")!.after(pauseVersion);
   const dialog = root.querySelector<HTMLDialogElement>("#lab")!;
   const el = <T extends HTMLElement>(id: string) => root.querySelector<T>(`#lab-${id}`)!;
   let cur = { ...s };

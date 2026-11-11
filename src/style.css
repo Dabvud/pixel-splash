@@ -35,6 +35,22 @@ body {
   touch-action: none;
 }
 
+.build-version {
+  pointer-events: none;
+  font: 10px/12px var(--body);
+  color: var(--muted);
+  opacity: 0.6;
+}
+.app-version {
+  position: fixed;
+  z-index: 1;
+  left: calc(env(safe-area-inset-left, 0px) + 8px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
+  /* The decision meter begins 18px above the safe area. Keep this line below it. */
+  max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 16px);
+  white-space: nowrap;
+}
+
 .hud-stats {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 12px);
