@@ -8,6 +8,8 @@ export function createHud(root: HTMLElement): {
   markRelease(fill: number, persist?: boolean, zones?: Zones): void;
   showResult(r: ShotResult): void;
   setStats(made: number, shots: number): void;
+  setPaused(paused: boolean): void;
+  dispose(): void;
 } {
   root.insertAdjacentHTML(
     "beforeend",
@@ -24,9 +26,34 @@ export function createHud(root: HTMLElement): {
   const arrowEl = meter.querySelector<HTMLElement>(".hud-arrow")!;
   const bankEl = meter.querySelector<HTMLElement>(".hud-bank")!;
   let max = 1.6;
-  let bannerTimer = 0;
-  let markTimer = 0;
+  let paused = false;
+  let disposed = false;
+  type DisplayTimer = { element: HTMLElement; id: number | null; remaining: number | null; deadline: number };
+  const timers: DisplayTimer[] = [banner, mark].map(element => ({ element, id: null, remaining: null, deadline: 0 }));
+  const [bannerTimer, markTimer] = timers;
   const pct = (v: number) => `${(Math.min(v, max) / max) * 100}%`;
+
+  function clearTimer(timer: DisplayTimer): void {
+    if (timer.id !== null) window.clearTimeout(timer.id);
+    timer.id = null;
+    timer.remaining = null;
+  }
+
+  function resumeTimer(timer: DisplayTimer): void {
+    if (paused || disposed || timer.remaining === null) return;
+    timer.deadline = performance.now() + timer.remaining;
+    timer.id = window.setTimeout(() => {
+      timer.id = null;
+      timer.remaining = null;
+      timer.element.hidden = true;
+    }, timer.remaining);
+  }
+
+  function startTimer(timer: DisplayTimer, ms: number): void {
+    clearTimer(timer);
+    timer.remaining = ms;
+    resumeTimer(timer);
+  }
 
   return {
     setMeter(fill, zones, fillMax, arrow = false, bank = null) {
@@ -36,7 +63,7 @@ export function createHud(root: HTMLElement): {
         mark.hidden = true;
         mark.classList.remove("good");
         arrowEl.classList.remove("released", "good");
-        clearTimeout(markTimer);
+        clearTimer(markTimer);
         return;
       }
       max = fillMax;
@@ -52,25 +79,46 @@ export function createHud(root: HTMLElement): {
       }
     },
     markRelease(fill, persist = false, zones) {
+      if (disposed) return;
       const good = zones !== undefined && Math.abs(fill - 1) <= zones.g + 1e-9;
       mark.classList.toggle("good", good);
       arrowEl.classList.toggle("good", good);
       arrowEl.classList.add("released");
       mark.style.bottom = pct(fill);
       mark.hidden = false;
-      clearTimeout(markTimer);
-      if (!persist) markTimer = window.setTimeout(() => (mark.hidden = true), MARK_MS);
+      clearTimer(markTimer);
+      if (!persist) startTimer(markTimer, MARK_MS);
     },
     showResult(r) {
+      if (disposed) return;
       banner.querySelector(".hud-title")!.textContent = r.banner;
       banner.querySelector(".hud-hint")!.textContent = r.hint;
       banner.classList.toggle("made", r.made);
       banner.hidden = false;
-      clearTimeout(bannerTimer);
-      bannerTimer = window.setTimeout(() => (banner.hidden = true), BANNER_MS);
+      startTimer(bannerTimer, BANNER_MS);
     },
     setStats(made, shots) {
       stats.textContent = `Treffer ${made} / ${shots}` + (shots ? ` · ${Math.round((made / shots) * 100)} %` : "");
+    },
+    setPaused(value) {
+      if (disposed || value === paused) return;
+      paused = value;
+      const now = performance.now();
+      for (const timer of timers) {
+        if (paused) {
+          if (timer.id === null) continue;
+          timer.remaining = Math.max(0, timer.deadline - now);
+          window.clearTimeout(timer.id);
+          timer.id = null;
+        } else resumeTimer(timer);
+      }
+    },
+    dispose() {
+      disposed = true;
+      timers.forEach(clearTimer);
+      stats.remove();
+      banner.remove();
+      meter.remove();
     },
   };
 }

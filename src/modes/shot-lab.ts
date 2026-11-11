@@ -119,6 +119,9 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
   raf = requestAnimationFrame(frame);
 
   return {
+    setPaused(paused) {
+      hud.setPaused(paused);
+    },
     restart() {
       made = shots = 0;
       hud.setStats(0, 0);
@@ -133,6 +136,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
       cancelAnimationFrame(raf);
       removeEventListener("resize", resize);
       detach();
+      hud.dispose();
       px.renderer.dispose();
       root.remove();
     },

@@ -32,6 +32,7 @@ export function createPlayHud(root: HTMLElement): {
   setPoster(x: number, y: number, visible: boolean, elapsed?: number): void;
   setDecision(frac: number | null): void;
   flash(text: string): void;
+  setPaused(paused: boolean): void;
   dispose(): void;
 } {
   const el = document.createElement("div");
@@ -57,7 +58,21 @@ export function createPlayHud(root: HTMLElement): {
   const stars = [...poster.querySelectorAll<HTMLElement>('span')];
   const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue');
   const markerNodes: { el: HTMLDivElement; icon: HTMLElement; label: HTMLElement }[] = [];
-  let flashTimer = 0;
+  let flashTimer: number | null = null;
+  let flashRemaining: number | null = null;
+  let flashDeadline = 0;
+  let paused = false;
+  let disposed = false;
+
+  function resumeFlash(): void {
+    if (paused || disposed || flashRemaining === null) return;
+    flashDeadline = performance.now() + flashRemaining;
+    flashTimer = window.setTimeout(() => {
+      flashTimer = null;
+      flashRemaining = null;
+      fl.hidden = true;
+    }, flashRemaining);
+  }
 
   return {
     setSituation(top, name = "") {
@@ -133,13 +148,29 @@ export function createPlayHud(root: HTMLElement): {
       if (frac !== null) (dec.firstElementChild as HTMLElement).style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
     },
     flash(text) {
+      if (disposed) return;
       fl.textContent = text;
       fl.hidden = false;
-      clearTimeout(flashTimer);
-      flashTimer = window.setTimeout(() => (fl.hidden = true), 900);
+      if (flashTimer !== null) window.clearTimeout(flashTimer);
+      flashTimer = null;
+      flashRemaining = 900;
+      resumeFlash();
+    },
+    setPaused(value) {
+      if (disposed || value === paused) return;
+      paused = value;
+      if (paused) {
+        if (flashTimer === null) return;
+        flashRemaining = Math.max(0, flashDeadline - performance.now());
+        window.clearTimeout(flashTimer);
+        flashTimer = null;
+      } else resumeFlash();
     },
     dispose() {
-      clearTimeout(flashTimer);
+      disposed = true;
+      if (flashTimer !== null) window.clearTimeout(flashTimer);
+      flashTimer = null;
+      flashRemaining = null;
       el.remove();
     },
   };
