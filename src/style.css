@@ -679,3 +679,10 @@ body {
 .spec-box .menu-btn { min-height: 44px; font-size: 11px; }
 .spec-box .menu-btn:disabled { opacity: .4; }
 .ticker-fire { font: 12px/1.6 var(--pixel) !important; color: #ff7a1a !important; }
+.trophies { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(420px, 100%); }
+.trophy { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--panel); border: 2px solid #8a6a1f; border-radius: 8px; }
+.trophy span { font-size: 20px; }
+.trophy b { font: 10px/1.5 var(--pixel); color: #f2c42b; font-weight: normal; }
+.career-tier { font: 14px/1.6 var(--pixel) !important; color: var(--accent) !important; }
+.career-tier.hof { color: #f2c42b !important; }
+.career-table small { color: var(--muted); }

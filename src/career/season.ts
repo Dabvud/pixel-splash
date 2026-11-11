@@ -1,6 +1,7 @@
 import { TEAMS, evolveStrength, teamById } from './league';
 import { scheduleSeason } from './keygame';
 import type { CareerState, Difficulty } from './state';
+import { seasonAwards } from './legacy';
 
 const DIFF: Record<Difficulty, number> = { rookie: .05, pro: 0, hof: -.05 };
 
@@ -35,7 +36,8 @@ const RETIRE: Record<number, number> = { 36: .2, 37: .35, 38: .55, 39: .75 };
 export function finishSeason(state: CareerState, ownWins: number, rng: () => number): CareerState {
   const rank = standings(state, ownWins, rng).findIndex(r => r.team === state.team) + 1;
   const record = { year: state.year, team: state.team, age: state.player.age, wins: ownWins, losses: 82 - ownWins, rank, games: state.season,
-    playoff: state.postseason?.result ?? 'none' as const };
+    playoff: state.postseason?.result ?? 'none' as const,
+    awards: seasonAwards(state, rank, state.postseason?.result ?? 'none') };
   const strengths = Object.fromEntries(TEAMS.map(t => [t.id, evolveStrength({ ...t, strength: strengthOf(state, t.id) }, rng)]));
   const age = state.player.age + 1;
   const retired = age >= 40 || rng() < (RETIRE[age] ?? 0);

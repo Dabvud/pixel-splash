@@ -11,6 +11,7 @@ import { acceptOffer, ackTrade, beginOffseason, endOffseason, spend } from '../c
 import { RATING_KEYS, type RatingKey } from '../play/ratings';
 import { SPECS, STAGE_COST, buyStage, chooseSpec, perksOf, updateHot, type SpecId } from '../career/spec';
 import type { SceneSpec } from '../career/scene-types';
+import { AWARDS, addToRanking, awardPoints, legacyOf, loadRanking, tierOf, type AwardId } from '../career/legacy';
 import { createCareerScreen } from '../ui/career-create';
 import { startPlayLab } from './play-lab';
 import type { Mode } from './mode';
@@ -54,9 +55,9 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
 
   function start(): void {
     const saved = loadCareer(deps.storage);
-    if (!saved) { screen('<h2>Karriere</h2>', [['Neue Karriere', create]]); return; }
+    if (!saved) { screen('<h2>Karriere</h2>', [['Neue Karriere', create], ['Rangliste', () => ranking(start)]]); return; }
     screen(`<h2>Karriere</h2><p>${esc(saved.player.name)} · ${saved.player.age} Jahre · Saison ${saved.year}</p>`,
-      [['Fortsetzen', () => hub(saved)], ['Neue Karriere', confirmNew]]);
+      [['Fortsetzen', () => hub(saved)], ['Neue Karriere', confirmNew], ['Rangliste', () => ranking(start)]]);
   }
   function confirmNew(): void {
     screen('<h2>Alte Karriere löschen?</h2><p>Der bisherige Spielstand geht verloren.</p>',
@@ -167,7 +168,12 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     // gleicher Seed wie die Tabelle am Saisonende → gespeicherter Platz = angezeigter Platz
     const n = finishSeason(c, ownWins, seededRng(((c.seed ^ (c.year * 31337)) >>> 0) + 1));
     const o = beginOffseason(n, seededRng(((n.seed ^ (n.year * 4243)) >>> 0)));
-    save(o); hub(o);
+    save(o);
+    const awards = n.history.at(-1)?.awards ?? [];
+    if (!awards.length || o.retired) return hub(o);
+    const sp = awardPoints(awards);
+    screen(`<h2>Auszeichnungen ${c.year}</h2><div class="trophies">${awards.map(a => trophy(a)).join('')}</div>
+      ${sp ? `<p>+${sp} Skillpunkte für die Off-Season</p>` : ''}`, [['Weiter', () => hub(o)]]);
   }
 
   function offseason(c: CareerState): void {
@@ -227,11 +233,33 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   }
 
   function stats(c: CareerState, back: () => void): void {
-    screen(`<h2>Karriere-Statistik</h2>${historyTable(c)}`, [['Zurück', back]], 'career-long');
+    const legacy = legacyOf(c.history);
+    screen(`<h2>Karriere-Statistik</h2><p>Legacy ${Math.round(legacy)} · ${tierOf(legacy).tier}</p>${cabinet(c)}${historyTable(c)}`, [['Zurück', back]], 'career-long');
   }
   function careerEnd(c: CareerState): void {
-    screen(`<h2>Karriere beendet</h2><p>${esc(c.player.name)} · ${c.history.length} Saisons</p>${historyTable(c)}`,
-      [['Neue Karriere', confirmNew]], 'career-long');
+    const legacy = Math.round(legacyOf(c.history)), { tier, hof } = tierOf(legacy);
+    if (!c.ranked) {
+      addToRanking({ id: `${c.seed}-${c.player.name}`, name: c.player.name, position: c.player.position, seasons: c.history.length,
+        rings: count(c, 'ring'), mvps: count(c, 'mvp'), legacy, tier, date: new Date().toISOString().slice(0, 10) }, deps.storage);
+      c = { ...c, ranked: true };
+      save(c);
+    }
+    screen(`<h2>Karriere beendet</h2><p>${esc(c.player.name)} · ${c.history.length} Saisons · Legacy ${legacy}</p>
+      <p class="career-tier${hof ? ' hof' : ''}">${tier}${hof ? '<br>In die Hall of Fame aufgenommen!' : ''}</p>${cabinet(c)}${historyTable(c)}`,
+      [['Rangliste', () => ranking(() => careerEnd(c))], ['Neue Karriere', confirmNew]], 'career-long');
+  }
+  function ranking(back: () => void): void {
+    const list = loadRanking(deps.storage);
+    const POS: Record<string, string> = { guard: 'G', wing: 'F', big: 'C' };
+    screen(`<h2>Rangliste</h2>${list.length ? `<table class="career-table"><thead><tr><th>#</th><th>Name</th><th>Pos</th><th>Saisons</th><th>Ringe</th><th>MVP</th><th>Legacy</th></tr></thead><tbody>${
+      list.map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e.name)}<br><small>${esc(e.tier)}</small></td><td>${POS[e.position] ?? ''}</td><td>${e.seasons}</td><td>${e.rings}</td><td>${e.mvps}</td><td>${e.legacy}</td></tr>`).join('')}</tbody></table>`
+      : '<p>Noch keine abgeschlossene Karriere.</p>'}`, [['Zurück', back]], 'career-long');
+  }
+  const count = (c: CareerState, a: AwardId) => c.history.reduce((n, h) => n + ((h.awards ?? []).includes(a) ? 1 : 0), 0);
+  const trophy = (a: AwardId, n = 1) => `<div class="trophy"><span>${AWARDS[a].icon}</span><b>${n > 1 ? `${n}× ` : ''}${AWARDS[a].name}</b></div>`;
+  function cabinet(c: CareerState): string {
+    const won = (Object.keys(AWARDS) as AwardId[]).filter(a => count(c, a) > 0);
+    return `<div class="trophies">${won.length ? won.map(a => trophy(a, count(c, a))).join('') : '<p>Noch keine Auszeichnungen – die Vitrine wartet.</p>'}</div>`;
   }
   function historyTable(c: CareerState): string {
     const avg = (g: { pts: number }[]) => g.length ? (g.reduce((s, x) => s + x.pts, 0) / g.length).toFixed(1) : '–';

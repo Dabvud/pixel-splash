@@ -8,6 +8,7 @@ import { seededRng } from '../src/career/create';
 import { HERO_ID } from '../src/career/hero';
 import type { PlayScene, SceneResult, SceneSpec } from '../src/career/scene-types';
 import type { CareerState } from '../src/career/state';
+import { awardPoints } from '../src/career/legacy';
 import { TEAMS as ALL_TEAMS } from '../src/career/league';
 const TEAM_NAME = (id: string) => { const t = ALL_TEAMS.find(x => x.id === id)!; return `${t.city} ${t.name}`; };
 
@@ -22,6 +23,8 @@ const look = { heightM: 1.9, build: 'normal' as const, skin: '#b77b53', hair: 's
 const visible = () => [...document.querySelectorAll<HTMLButtonElement>('button')].filter(b => !b.closest('[hidden]'));
 const press = (t: string) => { const b = visible().find(x => x.textContent === t); if (!b) throw new Error(`Knopf fehlt: ${t} – ${document.body.textContent}`); b.click(); };
 const text = () => document.body.textContent ?? '';
+/** Auszeichnungs-Seite nach der Saison überspringen (falls es Awards gab) */
+const skipAwards = () => { if (text().includes('Auszeichnungen')) press('Weiter'); };
 
 let specs: SceneSpec[];
 let outcome: (i: number) => SceneResult;
@@ -71,15 +74,16 @@ describe('Karriere-Ablauf', () => {
     expect(text()).toContain('Saisonende');
     expect(text()).toMatch(/Platz \d+/);
     expect(document.querySelectorAll('.career-table tbody tr')).toHaveLength(15);
-    press('Nächste Saison');
+    press('Nächste Saison'); skipAwards();
     // Off-Season: Rookie-Vertrag läuft weiter (bzw. seltener Trade) → Skillpunkte verteilen
     if (text().includes('Trade!')) press('Weiter');
     expect(text()).toContain('Skillpunkte');
-    expect(loadCareer(st)!.offseason!.points).toBe(3);
+    const bonus = awardPoints(loadCareer(st)!.history[0].awards ?? []);
+    expect(loadCareer(st)!.offseason!.points).toBe(3 + bonus);
     const three = loadCareer(st)!.player.ratings.three;
     document.querySelector<HTMLButtonElement>('.skill-plus[data-key="three"]')!.click();
     expect(loadCareer(st)!.player.ratings.three).toBeCloseTo(three + .02, 6);
-    expect(loadCareer(st)!.offseason!.points).toBe(2);
+    expect(loadCareer(st)!.offseason!.points).toBe(2 + bonus);
     press('Fertig');
     const next = loadCareer(st)!;
     expect(next.offseason).toBeUndefined();
@@ -167,7 +171,7 @@ describe('Karriere – Play-In und Playoffs', () => {
     }
     expect(rounds).toEqual(['1. Runde', 'Conference-Halbfinale', 'Conference-Finale', 'NBA Finals']);
     expect(text()).toContain('MEISTER!');
-    press('Nächste Saison');
+    press('Nächste Saison'); skipAwards();
     if (text().includes('Trade!')) press('Weiter');
     press('Fertig');
     const next = loadCareer(st)!;
@@ -218,7 +222,7 @@ describe('Karriere – Off-Season-Bildschirme', () => {
     let mode = startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
     for (let g = 0; g < 5; g++) { playGame(); press('Weiter'); }
-    press('Nächste Saison');
+    press('Nächste Saison'); skipAwards();
     expect(text()).toContain('Vertragsangebote');
     expect(document.querySelectorAll('.offer')).toHaveLength(3);
     // Abbruch und Fortsetzen → wieder die Angebote
@@ -292,5 +296,44 @@ describe('Karriere – Spezialisierung in den Szenen', () => {
     choices[1].click();
     expect(specs.at(-1)!.play.name).toBe(choices[1].textContent);
     expect(specs.at(-1)!.perks).toMatchObject({ passSteal: .6, coachCall: true });
+  });
+});
+
+describe('Karriere – Auszeichnungen, Hall of Fame, Rangliste', () => {
+  it('Auszeichnungen nach der Saison, Vitrine in der Statistik', () => {
+    const st = memory(); const c = fresh(st);
+    // schwaches Team → keine Nachsaison, direkt Saisonende
+    saveCareer({ ...c, strengths: Object.fromEntries(ALL_TEAMS.map(t => [t.id, t.id === c.team ? 25 : 85])) }, st);
+    outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 8, ast: 2 });
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    for (let g = 0; g < 5; g++) { playGame(); press('Weiter'); }
+    press('Nächste Saison');
+    expect(text()).toContain('Auszeichnungen 1');
+    expect(document.querySelectorAll('.trophy').length).toBeGreaterThan(0);
+  });
+  it('Karriereende: Einstufung, Hall of Fame, Rangliste genau einmal', () => {
+    const st = memory(); const c = fresh(st);
+    const season = (y: number) => ({ year: y, team: c.team, age: 19 + y, wins: 60, losses: 22, rank: 1, playoff: 'champion' as const,
+      awards: ['ring', 'fmvp', 'mvp', 'allnba', 'allstar'] as const, games: [{ opponent: 'bos', label: 'x', home: true, won: true, pts: 30, ast: 6, reb: 5 }] });
+    saveCareer({ ...c, retired: true, history: [1, 2, 3].map(y => ({ ...season(y), awards: [...season(y).awards] })) }, st);
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    expect(text()).toContain('Hall of Fame');
+    expect(text()).toContain('3× Meisterschaft');
+    press('Rangliste');
+    expect(document.querySelectorAll('.career-table tbody tr')).toHaveLength(1);
+    // erneut öffnen → kein zweiter Eintrag
+    document.body.innerHTML = '<div id="app"></div>';
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    press('Rangliste');
+    expect(document.querySelectorAll('.career-table tbody tr')).toHaveLength(1);
+  });
+  it('Rangliste vom Startbildschirm, leer mit Hinweis', () => {
+    const st = memory();
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Rangliste');
+    expect(text()).toContain('Noch keine abgeschlossene Karriere');
   });
 });

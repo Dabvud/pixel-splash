@@ -4,6 +4,7 @@ import { TEAMS } from './league';
 import type { PlayoffResult, Postseason } from './playoffs';
 import type { Contract, Offseason } from './offseason';
 import type { SpecId } from './spec';
+import type { AwardId } from './legacy';
 
 export type Position = 'guard' | 'wing' | 'big';
 export type Difficulty = 'rookie' | 'pro' | 'hof';
@@ -14,7 +15,7 @@ export interface CareerPlayer {
 }
 export interface KeyGame { opponent: string; label: string; home: boolean }
 export interface GameRecord { opponent: string; label: string; home: boolean; won: boolean; pts: number; ast: number; reb: number }
-export interface SeasonRecord { year: number; team: string; age: number; wins: number; losses: number; rank: number; games: GameRecord[]; playoff?: PlayoffResult }
+export interface SeasonRecord { year: number; team: string; age: number; wins: number; losses: number; rank: number; games: GameRecord[]; playoff?: PlayoffResult; awards?: AwardId[] }
 export interface CareerState {
   version: 1; seed: number; difficulty: Difficulty; player: CareerPlayer; team: string; year: number;
   keyGames: KeyGame[]; gameIndex: number;
@@ -31,6 +32,8 @@ export interface CareerState {
   offseason?: Offseason;
   /** Green Light: eigene Treffer in Folge über Szenen/Spiele hinweg */
   hot?: number;
+  /** Karriere bereits in die Rangliste eingetragen */
+  ranked?: boolean;
 }
 
 export const CAREER_KEY = 'pixel-splash.career.v1';

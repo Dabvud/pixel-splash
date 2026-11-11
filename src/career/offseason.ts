@@ -4,6 +4,7 @@ import { TEAMS } from './league';
 import { scheduleSeason } from './keygame';
 import { strengthOf } from './season';
 import type { CareerState } from './state';
+import { awardPoints } from './legacy';
 
 export interface Contract { team: string; years: number; salary: number; spPerYear: number }
 export interface Offseason { step: 'offers' | 'trade' | 'skills'; offers?: Contract[]; tradedTo?: string; points: number }
@@ -53,7 +54,8 @@ export function beginOffseason(state: CareerState, rng: () => number): CareerSta
   const old = state.contract ?? rookieContract(state.team);
   const contract = { ...old, years: old.years - 1 };
   const s: CareerState = { ...state, contract, player: { ...state.player, ratings: ageRatings(state.player.ratings, state.player.age) } };
-  const points = (state.offseason?.points ?? 0) + old.spPerYear;
+  // Vertrag + Award-Bonus der gerade beendeten Saison
+  const points = (state.offseason?.points ?? 0) + old.spPerYear + awardPoints(state.history.at(-1)?.awards ?? []);
   if (contract.years <= 0) return { ...s, offseason: { step: 'offers', offers: makeOffers(s, rng), points } };
   if (rng() < .05) {
     const others = TEAMS.filter(t => t.id !== state.team), to = others[Math.floor(rng() * others.length)].id;
