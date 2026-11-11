@@ -238,3 +238,24 @@ describe('Karriere – Off-Season-Bildschirme', () => {
     mode.stop();
   });
 });
+
+describe('Karriere – Spezialisierung im Skillpunkte-Bildschirm', () => {
+  it('Stufe kaufen und alte Stände wählen nach', () => {
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, player: { ...c.player, spec: 'finishing', specLevel: 0 }, offseason: { step: 'skills', points: 5 } }, st);
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    expect(text()).toContain('Korbabschluss · Stufe 0 / 3');
+    document.querySelector<HTMLButtonElement>('.spec-buy')!.click();
+    expect(loadCareer(st)!.player.specLevel).toBe(1);
+    expect(loadCareer(st)!.offseason!.points).toBe(1);
+    expect(document.querySelector<HTMLButtonElement>('.spec-buy')!.disabled).toBe(true);
+    const { spec: _s, specLevel: _l, ...old } = loadCareer(st)!.player;
+    saveCareer({ ...loadCareer(st)!, player: old as CareerState['player'] }, st);
+    document.body.innerHTML = '<div id="app"></div>';
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    press('Werfen');
+    expect(loadCareer(st)!.player).toMatchObject({ spec: 'shooting', specLevel: 0 });
+  });
+});

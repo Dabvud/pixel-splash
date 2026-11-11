@@ -9,6 +9,7 @@ import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResul
 import type { PlayScene, SceneResult } from '../career/scene-types';
 import { acceptOffer, ackTrade, beginOffseason, endOffseason, spend } from '../career/offseason';
 import { RATING_KEYS, type RatingKey } from '../play/ratings';
+import { SPECS, STAGE_COST, buyStage, chooseSpec, type SpecId } from '../career/spec';
 import { createCareerScreen } from '../ui/career-create';
 import { startPlayLab } from './play-lab';
 import type { Mode } from './mode';
@@ -175,9 +176,18 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     }
     const rows = RATING_KEYS.map(k => `<div class="skill"><span>${RATING_LABEL[k]} <small>${Math.round(c.player.ratings[k] * 100)}</small></span><span class="offer-bar" style="--v:${Math.round(c.player.ratings[k] * 100)}%"></span>
       <button class="skill-plus" data-key="${k}" aria-label="${RATING_LABEL[k]} verbessern" ${o.points <= 0 || c.player.ratings[k] >= 1 ? 'disabled' : ''}>+</button></div>`).join('');
-    screen(`<h2>Skillpunkte</h2><p>Noch ${o.points} ${o.points === 1 ? 'Punkt' : 'Punkte'} · jeder Punkt +2</p><div class="skills">${rows}</div>`,
+    const p = c.player, lv = p.specLevel ?? 0;
+    const specBox = !p.spec
+      ? `<div class="spec-box"><b>Spezialisierung wählen (einmalig)</b>${(Object.keys(SPECS) as SpecId[]).map(id =>
+        `<button class="spec-choose menu-btn" data-spec="${id}">${SPECS[id].name}</button>`).join('')}</div>`
+      : `<div class="spec-box"><b>${SPECS[p.spec].name} · Stufe ${lv} / 3</b><ol>${SPECS[p.spec].stages.map((t, i) =>
+        `<li class="${i < lv ? 'done' : ''}">${esc(t)}</li>`).join('')}</ol>${lv < 3
+        ? `<button class="spec-buy menu-btn" ${o.points < STAGE_COST[lv] ? 'disabled' : ''}>Stufe ${lv + 1} freischalten (${STAGE_COST[lv]} Punkte)</button>` : ''}</div>`;
+    screen(`<h2>Skillpunkte</h2><p>Noch ${o.points} ${o.points === 1 ? 'Punkt' : 'Punkte'} · jeder Punkt +2</p>${specBox}<div class="skills">${rows}</div>`,
       [['Fertig', () => go(endOffseason(c))]], 'career-long');
     root.querySelectorAll<HTMLButtonElement>('.skill-plus').forEach(b => b.addEventListener('click', () => go(spend(c, b.dataset.key as RatingKey))));
+    root.querySelector('.spec-buy')?.addEventListener('click', () => go(buyStage(c)));
+    root.querySelectorAll<HTMLButtonElement>('.spec-choose').forEach(b => b.addEventListener('click', () => go(chooseSpec(c, b.dataset.spec as SpecId))));
   }
 
   const postRng = (c: CareerState) => seededRng((c.seed ^ (c.year * 7919 + 5000 + (c.postseason?.faced.length ?? 0) * 104729)) >>> 0);

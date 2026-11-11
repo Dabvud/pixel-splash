@@ -3,10 +3,15 @@ import { RATING_KEYS, clamp01, type Ratings } from '../play/ratings';
 import { TEAMS } from './league';
 import type { PlayoffResult, Postseason } from './playoffs';
 import type { Contract, Offseason } from './offseason';
+import type { SpecId } from './spec';
 
 export type Position = 'guard' | 'wing' | 'big';
 export type Difficulty = 'rookie' | 'pro' | 'hof';
-export interface CareerPlayer { name: string; num: number; look: Look; position: Position; ratings: Ratings; age: number }
+export interface CareerPlayer {
+  name: string; num: number; look: Look; position: Position; ratings: Ratings; age: number;
+  /** Spezialisierung (beim Erstellen gewählt) und freigeschaltete Stufe 0–3 */
+  spec?: SpecId; specLevel?: number;
+}
 export interface KeyGame { opponent: string; label: string; home: boolean }
 export interface GameRecord { opponent: string; label: string; home: boolean; won: boolean; pts: number; ast: number; reb: number }
 export interface SeasonRecord { year: number; team: string; age: number; wins: number; losses: number; rank: number; games: GameRecord[]; playoff?: PlayoffResult }
@@ -24,6 +29,8 @@ export interface CareerState {
   contract?: Contract;
   /** offener Off-Season-Schritt (Trade-Meldung, Angebote, Skillpunkte) */
   offseason?: Offseason;
+  /** Green Light: eigene Treffer in Folge über Szenen/Spiele hinweg */
+  hot?: number;
 }
 
 export const CAREER_KEY = 'pixel-splash.career.v1';

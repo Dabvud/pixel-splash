@@ -2,9 +2,10 @@ import type { Look } from '../figure/raster';
 import { RATING_KEYS, type Ratings } from '../play/ratings';
 import { TEAMS } from './league';
 import type { CareerState, Difficulty, Position } from './state';
+import type { SpecId } from './spec';
 import { rookieContract } from './offseason';
 
-export interface CareerInput { name: string; num: number; look: Look; position: Position; difficulty: Difficulty }
+export interface CareerInput { name: string; num: number; look: Look; position: Position; difficulty: Difficulty; spec?: SpecId }
 
 // Schwerpunkte je Position; werden auf die Summe der Schwierigkeit skaliert
 const PROFILE: Record<Position, Ratings> = {
@@ -42,6 +43,7 @@ export function newCareer(input: CareerInput, seed: number): CareerState {
       name: input.name, num: input.num, position: input.position, age: 19,
       look: { ...input.look, jersey: team.jersey, shorts: team.shorts, num: input.num },
       ratings: startRatings(input.position, input.difficulty),
+      ...(input.spec ? { spec: input.spec, specLevel: 0 } : {}),
     },
     team: team.id, year: 1, keyGames: [], gameIndex: 0, season: [], history: [], injured: false, retired: false,
     contract: rookieContract(team.id),

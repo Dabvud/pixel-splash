@@ -3,6 +3,7 @@ import { moveFrames } from '../figure/moves';
 import { project } from '../figure/skeleton';
 import type { CareerInput } from '../career/create';
 import type { Difficulty, Position } from '../career/state';
+import type { SpecId } from '../career/spec';
 
 const HEIGHT: Record<Position, [number, number]> = { guard: [1.85, 1.96], wing: [1.96, 2.03], big: [2.05, 2.13] };
 const SKINS = ['#f1c9a5', '#d5a078', '#b77b53', '#8d5a3b', '#70452f', '#4a2c1e'];
@@ -27,6 +28,7 @@ export function createCareerScreen(root: HTMLElement, onDone: (input: CareerInpu
       <label>Ärmel <select id="cc-sleeve">${opts([['none', 'Keiner'], ['left', 'Links'], ['right', 'Rechts']])}</select></label>
       <label>Schuhe <select id="cc-shoes">${colorOpts([['#f4eee0', 'Weiß'], ['#222226', 'Schwarz'], ['#f0b52b', 'Gold'], ['#ef7054', 'Koralle']])}</select></label>
       <label>Socken <select id="cc-socks">${opts([['low', 'Kurz'], ['high', 'Hoch']])}</select></label>
+      <label>Spezialisierung <select id="cc-spec">${opts([['playmaking', 'Playmaking'], ['shooting', 'Werfen'], ['finishing', 'Korbabschluss']])}</select></label>
       <label>Schwierigkeit <select id="cc-difficulty">${opts([['rookie', 'Rookie'], ['pro', 'Pro'], ['hof', 'Hall of Fame']])}</select></label>
     </form>
     <div class="career-actions"><button class="menu-btn" id="cc-go">Los geht's</button></div>
@@ -65,6 +67,7 @@ export function createCareerScreen(root: HTMLElement, onDone: (input: CareerInpu
   });
   $('go').addEventListener('click', () => onDone({
     name: val('name').trim() || 'Rookie', num: number(), look: look(), position: position(), difficulty: val('difficulty') as Difficulty,
+    spec: val('spec') as SpecId,
   }));
   fitHeight();
   preview();
