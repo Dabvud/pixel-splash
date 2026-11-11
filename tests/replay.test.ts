@@ -4,6 +4,18 @@ import { createRecorder, replayAt, REPLAY_SPEED } from '../src/render/replay';
 const view = (id: string, x: number) => ({ id, x, y: 0, z: 0, facing: 0, move: 'idle' as const, moveT: 0, visible: true });
 
 describe('Instant-Replay-Aufzeichnung', () => {
+  it('kopiert Seele, Splitter und OUCH unabhängig und entfernt sie in späteren Snaps', () => {
+    const rec = createRecorder(4);
+    const effects = { realTime: 1, poster: null, grave: null, ghost: { x: 1, z: 2, since: 1 },
+      splinters: { x: 3, z: 4, since: 1 }, ouch: { since: 1 } };
+    rec.push(1000, [], { x: 0, y: 0, z: 0 }, effects);
+    const clip = rec.clip(4);
+    effects.ghost.x = 99; effects.splinters.z = 99; effects.ouch.since = 99;
+    expect(clip[0].ghost).toEqual({ x: 1, z: 2, since: 1 });
+    expect(clip[0].splinters).toEqual({ x: 3, z: 4, since: 1 }); expect(clip[0].ouch).toEqual({ since: 1 });
+    rec.push(2000, [], { x: 0, y: 0, z: 0 });
+    expect(rec.clip(4).at(-1)).toMatchObject({ ghost: null, splinters: null, ouch: null });
+  });
   it('kopiert den Glaszustand ab Ringkontakt und den Wischfortschritt unabhängig', () => {
     const rec = createRecorder(4);
     const effects = { realTime: 1, poster: null, grave: null, glass: null, glassSweep: 0 } as Pick<import('../src/play/engine').PlayState, 'realTime' | 'poster' | 'grave' | 'glass' | 'glassSweep'>;

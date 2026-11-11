@@ -3,14 +3,15 @@ import { FOUL_MULT, INFLUENCE, type Settings } from "../settings";
 import { MAX_FILL, type ShotResult } from "../shot/resolve";
 import { attachGesture, type GestureEvent } from "../input/gesture";
 import { createScene } from "../render/scene";
+import { createPosterEffects } from "../render/poster-effects";
 import { createGrave } from "../render/grave";
 import { createGlassShards } from "../render/glass";
 import { BENCH_MOVES, DOC_MOVES, benchHighlightTeam, createBenchState } from "../render/bench";
 import { createBenchSeats, createBenchStretcher } from "../render/bench-view";
 import { createPixelRenderer } from "../render/pixel";
-import { benchCameraPose, finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
+import { benchCameraPose, finishCameraPose, overviewPose, playCameraPose, replayCameraPose } from "../render/camera-pose";
 import { createActors, spriteJointWorld, type ActorView } from "../render/actors";
-import { createRecorder, replayAt, REPLAY_SECONDS, type Snap } from "../render/replay";
+import { createRecorder, replayAt, posterReplayReady, REPLAY_SECONDS, type Snap } from "../render/replay";
 import { buildAtlas } from "../figure/atlas";
 import { ACTORS, BENCH_RED, BENCH_BLUE, DOC, MEDIC2 } from "../play/teams";
 import { PLAYS } from "../play/plays";
@@ -54,6 +55,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let settings = initial;
   const { scene, ball, updateNet, crowd, hoop } = createScene();
   const grave = createGrave(scene);
+  const posterEffects = createPosterEffects(scene);
   const shards = createGlassShards(scene);
   const bench = createBenchState(() => Math.random());
   const benchSeats = createBenchSeats(scene);
@@ -62,6 +64,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let benchPoints = 0;
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
+  px.renderer.localClippingEnabled = true;
   let atlas: ReturnType<typeof buildAtlas>;
   let actors: ReturnType<typeof createActors>;
   let actorIds = "";
@@ -107,7 +110,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let lastHandler = "";
   let finishCam: ReturnType<typeof finishCameraPose> | null = null;
   // Instant Replay nach Poster-Dunk bzw. And-one: Aufzeichnung der letzten Sekunden, Wiedergabe in Zeitlupe
-  const recorder = createRecorder(REPLAY_SECONDS + 1);
+  const recorder = createRecorder(6);
   let replay: { clip: Snap[]; start: number; andOne: boolean } | null = null;
   let replayPending: { andOne: boolean } | null = null;
   let blockReplayQueued = false;
@@ -135,6 +138,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function newPlay(): void {
+    replayPending = null;
     bench.reset(); bench.forceFaint = settings.forceFaint; benchPoints = 0;
     recorder.reset();
     blockReplayQueued = false;
@@ -169,6 +173,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     phud.setFinishFeedback(null);
     phud.setPoster(0, 0, false);
     grave.sync(null);
+    posterEffects.sync(null, 0);
     phud.setSituation(`4. VIERTEL · ${formatPlayClock(s.clock, false)} · −${s.deficit}`, s.play.name);
     phud.setScoreboard(s.clock, s.deficit, s.points);
     showStats();
@@ -225,7 +230,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
         hoop.setGlassBroken(false);
         shards.reset();
       } else if (e.type === "result") {
-        if (e.made) crowd?.cheer(/DUNK|POSTER/.test(e.banner) ? .9 : .6);
+        if (e.made) crowd?.cheer(s.poster?.variant === "crowd" ? 1 : /DUNK|POSTER/.test(e.banner) ? .9 : .6);
         if (e.made && e.banner.includes("POSTER")) replayPending ??= { andOne: false };
         if (s.glass && e.made && /POSTER|AND-ONE/.test(e.banner)) {
           replayPending ??= { andOne: e.banner.includes("AND-ONE") };
@@ -279,7 +284,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function onGesture(e: GestureEvent): void {
-    if (menuOpen || replay) return;
+    if (menuOpen || replay || replayPending) return;
     const now = performance.now();
     const inputAt = e.type === "hold" ? Math.min(now, e.startedAt ?? now) : now;
     advanceTo(inputAt);
@@ -369,7 +374,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       handle(step(s, dt, c, rng));
       bench.update(s.realTime);
       // Reinigung und Abtransport müssen vor dem Zurücksetzen fertig sein.
-      if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !s.glass && !bench.faint) newPlay();
+      if (endedAt !== null && (activeNow - endedAt) / 1000 >= NEXT_PLAY_S && !s.glass && !bench.faint && !replayPending) newPlay();
       camHold = Math.max(0, camHold - dt);
       if (s.handler !== lastHandler) {
         lastHandler = s.handler;
@@ -380,7 +385,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function startReplay(andOne: boolean): void {
-    replay = { clip: recorder.clip(REPLAY_SECONDS), start: performance.now(), andOne };
+    replay = { clip: recorder.clip(s.poster && ["crowd", "net", "ghost", "stuck", "jumbotron"].includes(s.poster.variant) ? 5 : REPLAY_SECONDS), start: performance.now(), andOne };
     replayPending = null;
     replayBadge.hidden = false;
     endTouch();
@@ -394,6 +399,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     replayBadge.hidden = true;
     stage.removeEventListener("pointerdown", skipReplay);
     recorder.reset();
+    if (endedAt !== null) endedAt = activeNow;
     // Die Spielzeit stand während des Replays still
     last = performance.now();
     lastFrame = activeNow;
@@ -405,9 +411,15 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const snap = replay && replayAt(replay.clip, now - replay.start);
     if (!replay || !snap) { skipReplay(); return; }
     // Kamera kreist langsam um den Korb
-    const angle = 0.9 + (now - replay.start) / 1000 * 0.22;
-    camera.position.set(Math.sin(angle) * 6.5, 3.6, Math.cos(angle) * 6.5);
-    camera.lookAt(0, 2.4, 0);
+    const variant = replay.clip.find(snap => snap.poster)?.poster?.variant;
+    const pose = replayCameraPose(variant, (now - replay.start) / 1000, camera.aspect);
+    camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
+    camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
+    if (variant === 'crowd' || variant === 'jumbotron') {
+      camera.fov = 60;
+      camera.far = Math.max(100, camera.position.length() + 40);
+      camera.updateProjectionMatrix();
+    }
     camera.updateMatrixWorld(true);
     const yaw = Math.atan2(-camera.position.x, camera.position.z);
     benchActors.sync(benchViews, yaw);
@@ -417,11 +429,12 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     // Auch im Replay beginnen die Sterne erst nach dem Aufprall.
     const poster = snap.poster, elapsed = poster ? snap.realTime - poster.startedAt : -1;
     const down = poster ? snap.actors.find((a) => a.id === poster.victim) : undefined;
-    if (poster?.variant !== 'grave' && down && down.visible && down.move === "knocked_down" && elapsed >= 0 && elapsed < 1.5) {
+    if (poster && ['classic', 'flyout', 'crowd', 'jumbotron'].includes(poster.variant) && down && down.visible && down.move === "knocked_down" && elapsed >= 0 && elapsed < 1.5) {
       const p = spriteJointWorld(down, "head", ACTORS[down.id].heightM, yaw), q = screen(p.x, p.y + .25, p.z, posterPoint);
       phud.setPoster(q.x, q.y, true, elapsed);
     } else phud.setPoster(0, 0, false);
     grave.sync(snap.grave, snap.realTime);
+    posterEffects.sync(snap, snap.realTime);
     hoop.setGlassBroken(Boolean(snap.glass));
     shards.update(snap.realTime * 1000);
     shards.sweep(snap.glass ? snap.glassSweep ?? 0 : 1);
@@ -495,6 +508,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     benchStretcher.sync(bench.stretcher);
     actors.sync(views, yaw);
     grave.sync(s.grave, s.realTime);
+    posterEffects.sync(s, s.realTime);
     hoop.setGlassBroken(s.glass !== null);
     shards.update(s.realTime * 1000);
     shards.sweep(s.glass ? s.glassSweep : 1);
@@ -530,7 +544,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     // Auch die Endreaktionen nutzen die pausierbare Engine-Echtzeit.
     const posterElapsed = poster ? s.realTime - poster.startedAt : 0;
     const victim = poster ? views.find(v => v.id === poster.victim) : undefined;
-    if (poster && poster.variant !== 'grave' && posterElapsed >= 0 && posterElapsed < 1.5 && victim?.visible && victim.move === 'knocked_down') {
+    if (poster && ['classic', 'flyout', 'crowd', 'jumbotron'].includes(poster.variant) && posterElapsed >= 0 && posterElapsed < 1.5 && victim?.visible && victim.move === 'knocked_down') {
       // Sterne am Kopf, wie er im Pixel-Sprite gezeichnet ist (liegend weicht er stark von der 3D-Pose ab)
       const d = victim;
       const p = spriteJointWorld(d, "head", ACTORS[d.id].heightM, yaw), projected = screen(p.x, p.y + .25, p.z, posterPoint);
@@ -550,8 +564,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); }
     px.renderer.render(scene, camera);
     // Spielzeit statt Echtzeit: Zeitlupen im Spiel werden im Replay zu gleichmäßiger Zeitlupe
-    if (!menuOpen) recorder.push(s.gameT * 1000, views, s.ball, s);
-    if (replayPending && !menuOpen) startReplay(replayPending.andOne);
+    if (!menuOpen) recorder.push(s.gameT * 1000 + (endedAt === null ? 0 : (activeNow - endedAt) * settings.animSpeed), views, s.ball, s);
+    if (replayPending && !menuOpen && posterReplayReady(s)) startReplay(replayPending.andOne);
   }
 
   function syncPause(): void {
@@ -618,6 +632,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       benchActors.dispose(); benchSeats.dispose(); benchStretcher.dispose();
       (benchAtlas.textures ?? [benchAtlas.texture]).forEach(texture => texture.dispose());
       grave.dispose();
+      posterEffects.dispose();
       (atlas.textures ?? [atlas.texture]).forEach(texture => texture.dispose());
       hud.dispose();
       phud.dispose();

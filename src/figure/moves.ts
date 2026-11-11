@@ -5,7 +5,7 @@ export type MoveId = 'idle'|'run'|'dribble'|'dribble_run'|'pass'|'catch'|'jumpsh
   | 'reverse_layup'|'block_jump_hit'|'crossover'|'behind_back'|'spin_move'|'hesitation'
   | 'euro_step'|'finger_roll'|'tomahawk_dunk'|'two_hand_dunk'|'step_back'|'fadeaway'
   | 'celebrate'|'dejected'|'pass_bounce'|'pass_overhead'
-  | 'ref_whistle'|'flex'|'high_five'|'mop_sweep'|'sit'|'bench_cheer'|'carry';
+  | 'ref_whistle'|'flex'|'high_five'|'mop_sweep'|'sit'|'bench_cheer'|'carry'|'hang_upside'|'legs_up';
 export interface MoveDef { frames: number; fps: number; loop: boolean; keys: Pose[]; ballHand: 'haL' | 'haR' | null; rimFrame?: number }
 
 type Limb = [upperPitch: number, lowerPitch: number, upperSpread?: number, lowerSpread?: number];
@@ -155,7 +155,19 @@ function knockedDownKeys(): Pose[] {
   });
 }
 
+function upsideKeys(kicking: boolean): Pose[] {
+  return Array.from({ length: 8 }, (_, i) => {
+    const wave = Math.sin(i * Math.PI / 4);
+    const p = pose({ arms: [[175 + wave * 3, 180, -8, -5], [175 - wave * 3, 180, 8, 5]],
+      legs: kicking ? [[wave * 18, wave * 18 - 20], [-wave * 18, -wave * 18 - 20]] : [[0, 0], [0, 0]] });
+    // Die Drehung erhält die Anatomie und lässt Atlas-Platz für die baumelnden Hände.
+    return Object.fromEntries(Object.entries(p).map(([joint, v]) => [joint, { x: v.x, y: 1.15 - v.y, z: -v.z || 0 }])) as Pose;
+  });
+}
+
 export const MOVES: Record<MoveId, MoveDef> = {
+  hang_upside: { frames: 8, fps: 10, loop: true, ballHand: null, keys: upsideKeys(false) },
+  legs_up: { frames: 8, fps: 10, loop: true, ballHand: null, keys: upsideKeys(true) },
   carry: { frames: 8, fps: 10, loop: true, ballHand: null, keys: [
     [[14, -3], [-12, -26]], [[0, -12], [0, -12]],
     [[-12, -26], [14, -3]], [[0, -12], [0, -12]],

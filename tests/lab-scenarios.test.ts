@@ -53,9 +53,9 @@ describe('Test-Szenarien: Einstellungen', () => {
     createLabMenu(document.body, { ...DEFAULTS, mode: 'play' }, change);
     const select = document.querySelector<HTMLSelectElement>('#lab-test-scenarios #lab-posterVariant')!;
     expect(select.closest('label')!.textContent).toContain('Poster-Variante');
-    expect([...select.options].map(o => o.text)).toEqual(['Zufall', 'Klassisch', 'Abflug', 'Grabstein']);
+    expect([...select.options].map(o => o.text)).toEqual(['Zufall', 'Klassisch', 'Abflug', 'Grabstein', 'Ins Publikum', 'Im Netz', 'Geist', 'Steckt im Boden', 'Anzeigetafel']);
     expect(select.value).toBe('random');
-    for (const value of ['classic', 'flyout', 'grave', 'random']) {
+    for (const value of ['classic', 'flyout', 'grave', 'crowd', 'net', 'ghost', 'stuck', 'jumbotron', 'random']) {
       select.value = value; select.dispatchEvent(new Event('input', { bubbles: true }));
       expect(loadSettings().posterVariant).toBe(value);
       expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ posterVariant: value }));

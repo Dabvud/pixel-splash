@@ -72,6 +72,9 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
            <label>Poster-Variante <select id="lab-posterVariant">
              <option value="random">Zufall</option><option value="classic">Klassisch</option>
              <option value="flyout">Abflug</option><option value="grave">Grabstein</option>
+             <option value="crowd">Ins Publikum</option><option value="net">Im Netz</option>
+             <option value="ghost">Geist</option><option value="stuck">Steckt im Boden</option>
+             <option value="jumbotron">Anzeigetafel</option>
            </select></label>
          </section>
          <button class="lab-close" value="close">Fertig</button>

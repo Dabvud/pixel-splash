@@ -1,7 +1,20 @@
 import { RIM } from '../shot/trajectory';
 import type { Vec3 } from '../shot/trajectory';
+import type { PosterVariant } from '../play/engine';
 
 export interface Pose { pos: Vec3; look: Vec3 }
+
+export function replayCameraPose(variant: PosterVariant | undefined, elapsed: number, aspect: number): Pose {
+  const angle = .9 + elapsed * .22;
+  if (variant === 'jumbotron' || variant === 'crowd') {
+    const radius = Math.max(32, 32 / aspect);
+    // Von der Feldseite bleibt die vordere Würfelfläche während des ganzen Replays sichtbar.
+    const orbit = .6 + .25 * Math.sin(elapsed * .22);
+    return { pos: { x: Math.sin(orbit) * radius, y: variant === 'jumbotron' ? 18 : 12, z: 5 - Math.cos(orbit) * radius },
+      look: { x: 0, y: variant === 'jumbotron' ? 7 : 2, z: 5 } };
+  }
+  return { pos: { x: Math.sin(angle) * 6.5, y: 3.6, z: Math.cos(angle) * 6.5 }, look: { x: 0, y: 2.4, z: 0 } };
+}
 
 export function benchCameraPose(benchPos: { x: number; z: number }, aspect: number): Pose {
   const side = Math.sign(benchPos.x) || 1;

@@ -11,7 +11,7 @@ const counts: Record<MoveId, number> = {
   reverse_layup: 8, block_jump_hit: 8, crossover: 8, behind_back: 8, spin_move: 8,
   hesitation: 8, euro_step: 8, finger_roll: 8, tomahawk_dunk: 8, two_hand_dunk: 8,
   step_back: 8, fadeaway: 8, celebrate: 8, dejected: 8, pass_bounce: 8, pass_overhead: 8,
-  ref_whistle: 8, flex: 8, high_five: 8, mop_sweep: 8, sit: 2, bench_cheer: 8, carry: 8,
+  ref_whistle: 8, flex: 8, high_five: 8, mop_sweep: 8, sit: 2, bench_cheer: 8, carry: 8, hang_upside: 8, legs_up: 8,
 };
 const additions = Object.keys(counts).slice(14);
 const ids = Object.keys(counts) as MoveId[];
@@ -22,6 +22,23 @@ const bones: [Joint, Joint][] = [
 const distance = (p: Pose, a: Joint, b: Joint) => Math.hypot(
   p[a].x - p[b].x, p[a].y - p[b].y, p[a].z - p[b].z,
 );
+
+it.each(['hang_upside', 'legs_up'] as const)('%s hängt kopfüber und bewegt sich im Loop', id => {
+  expect(MOVES[id]).toMatchObject({ loop: true, ballHand: null });
+  const frames = moveFrames(id);
+  for (const p of frames) {
+    expect(p.head.y).toBeLessThan(p.pelvis.y);
+    expect(p.head.y).toBeLessThan(Math.min(p.ftL.y, p.ftR.y));
+    if (id === 'hang_upside') {
+      expect(p.haL.y).toBeLessThan(p.shL.y); expect(p.haR.y).toBeLessThan(p.shR.y);
+      expect(p.ftL.y).toBeCloseTo(1.15); expect(p.ftR.y).toBeCloseTo(1.15);
+    } else {
+      expect(p.head.y - .65).toBeLessThan(0); expect(p.shL.y - .65).toBeLessThan(0);
+      expect(Math.min(p.ftL.y, p.ftR.y) - .65).toBeGreaterThan(.3);
+    }
+  }
+  expect(frames[0]).not.toEqual(frames[2]);
+});
 
 describe('Bewegungen', () => {
   it('enthält genau die Bewegungen der Spec', () => {
@@ -34,7 +51,7 @@ describe('Bewegungen', () => {
     expect(move.fps).toBe(id === 'sit' ? 3 : ['crossover', 'behind_back', 'spin_move', 'hesitation'].includes(id) ? 20 : id === 'run' || id === 'dribble_run' ? 12 : 10);
     expect(move.keys.length).toBeGreaterThanOrEqual(2);
     expect(move.keys.length).toBeLessThanOrEqual(additions.includes(id) ? 8 : 4);
-    expect(move.loop).toBe(['idle', 'run', 'dribble', 'dribble_run', 'defend', 'mop_sweep', 'sit', 'bench_cheer', 'carry'].includes(id));
+    expect(move.loop).toBe(['idle', 'run', 'dribble', 'dribble_run', 'defend', 'mop_sweep', 'sit', 'bench_cheer', 'carry', 'hang_upside', 'legs_up'].includes(id));
     expect(moveFrames(id)).toEqual(framesFromKeys(move.keys, move.frames, move.loop));
     expect(moveFrames(id)).toHaveLength(counts[id]);
     expect(moveFrames(id)[0]).toEqual(move.keys[0]);
@@ -51,7 +68,7 @@ describe('Bewegungen', () => {
     }
   });
 
-  it.each(ids.filter(id => id !== 'knocked_down'))('%s hat den Kopf oben, mit Ausnahme der angehobenen Hände beim Abschluss oder Block', (id) => {
+  it.each(ids.filter(id => !['knocked_down', 'hang_upside', 'legs_up'].includes(id)))('%s hat den Kopf oben, mit Ausnahme der angehobenen Hände beim Abschluss oder Block', (id) => {
     // Korbleger und Kontakt-Dunk verlangen laut Spec ebenfalls Arme über dem Kopf.
     const overhead = ['jumpshot', 'layup', 'dunk', 'contact_dunk', 'block_jump', 'reverse_layup', 'block_jump_hit', 'euro_step', 'finger_roll', 'tomahawk_dunk', 'two_hand_dunk', 'step_back', 'fadeaway', 'celebrate', 'pass_overhead', 'ref_whistle', 'flex', 'high_five', 'bench_cheer'].includes(id);
     const hands: Joint[] = ['haL', 'haR'];

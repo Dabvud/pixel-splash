@@ -111,7 +111,7 @@ export function loadSettings(storage?: Storage | null): Settings {
       forcePoster: typeof fields.forcePoster === 'boolean' ? fields.forcePoster : DEFAULTS.forcePoster,
       forceGlass: typeof fields.forceGlass === 'boolean' ? fields.forceGlass : DEFAULTS.forceGlass,
       forceFaint: typeof fields.forceFaint === 'boolean' ? fields.forceFaint : DEFAULTS.forceFaint,
-      posterVariant: choice(fields.posterVariant, ['random', 'classic', 'flyout', 'grave'], DEFAULTS.posterVariant),
+      posterVariant: choice(fields.posterVariant, ['random', 'classic', 'flyout', 'grave', 'crowd', 'net', 'ghost', 'stuck', 'jumbotron'], DEFAULTS.posterVariant),
     };
   } catch {
     // Gesperrter Speicher darf den Start nicht verhindern.

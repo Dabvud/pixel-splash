@@ -15,7 +15,7 @@ import { ACTORS } from './teams';
 import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types';
 
 export type Phase = 'intro' | 'running' | 'decision' | 'passing' | 'receiving' | 'driving' | 'takeoff' | 'combo' | 'ballflight' | 'freethrows' | 'ended';
-export type PosterVariant = 'classic' | 'flyout' | 'grave';
+export type PosterVariant = 'classic' | 'flyout' | 'grave' | 'crowd' | 'net' | 'ghost' | 'stuck' | 'jumbotron';
 export interface EngineConfig {
   /** Bei Fouls: Schiri läuft ein und pfeift, beim And-one Feier + Abklatschen vor den Freiwürfen */ foulScene?: boolean;
   /** Korbleger/Dunk nach dem Ziehen per Pfeil-Meter (ein Tipp) statt Halten + Wischen */ finishArrow?: boolean;
@@ -48,6 +48,9 @@ export interface PlayState {
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
   poster: { victim: string; kind: 'poster' | 'block'; variant: PosterVariant; startedAt: number } | null;
   grave: { x: number; z: number; since: number } | null;
+  ghost: { x: number; z: number; since: number } | null;
+  splinters: { x: number; z: number; since: number } | null;
+  ouch: { since: number } | null;
   glass: { since: number } | null;
   glassSweep: number;
 }
@@ -106,6 +109,7 @@ const distance = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 const mix = (a: number, b: number, f: number) => a + (b - a) * f;
 const rt = (s: PlayState) => runtimes.get(s)!;
 const defenders = (s: PlayState) => Object.values(s.actors).filter(a => ACTORS[a.id].team === 'def');
+const impacted = (a: ActorState) => a.move === 'knocked_down' || a.move === 'hang_upside' || a.move === 'legs_up';
 const currentP = (s: PlayState) => positionValue(s.actors[s.handler].pos, defenders(s).map(a => a.pos));
 
 function point(path: Waypoint[], time: number): Waypoint {
@@ -177,7 +181,7 @@ function updatePaths(s: PlayState, previous: number): void {
   const r = rt(s), paths = r.paths;
   for (const a of Object.values(s.actors)) {
     if (ACTORS[a.id].team === 'crew') continue;
-    if (a.move === 'knocked_down') continue;
+    if (impacted(a)) continue;
     if (s.freeThrows || (['receiving', 'driving', 'ballflight', 'combo', 'takeoff'].includes(s.phase) && a.id === s.handler)
       || (s.phase === 'receiving' && a.id === r.reception?.closeout?.id)
       || (s.phase === 'ballflight' && a.id === r.shot?.defender)) continue;
@@ -207,12 +211,12 @@ function end(s: PlayState, events: EngineEvent[], banner?: string): void {
   s.fingerDown = false;
   s.verdict = verdict(s.points, s.deficit);
   const h = s.actors[s.handler];
-  if (h.move === 'knocked_down') {
+  if (impacted(h)) {
     // Der Block bleibt auch im Ergebnisbild sichtbar.
   } else if (s.verdict === 'GAMEWINNER' || s.verdict === 'OVERTIME') {
     move(h, 'celebrate', true);
     rt(s).celebration = { elapsed: 0, from: {} };
-    for (const a of Object.values(s.actors)) if (a.id !== h.id && ACTORS[a.id].team === 'off' && a.move !== 'knocked_down') {
+    for (const a of Object.values(s.actors)) if (a.id !== h.id && ACTORS[a.id].team === 'off' && !impacted(a)) {
       rt(s).celebration!.from[a.id] = { ...a.pos };
       move(a, 'run', true); a.facing = facingTo(a.pos, h.pos);
     }
@@ -275,7 +279,7 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
     play, variant: variant.id, deficit, phase: 'intro', gameT: 0, clock: play.clockS, handler: segment.handler,
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, foulScene: cfg.foulScene ?? false, box: {}, lastPasser: null,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null, grave: null,
-    glass: null, glassSweep: 0,
+    ghost: null, splinters: null, ouch: null, glass: null, glassSweep: 0,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
     segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
@@ -695,8 +699,9 @@ function lineUp(s: PlayState, dtReal: number): void {
   const f = setup.elapsed / .8;
   let i = 0;
   for (const a of Object.values(s.actors)) {
-    // Auch Poster-Opfer müssen den Wischbereich für die Freiwürfe räumen.
-    if ((a.move === 'knocked_down' && !setup.avoidGlass) || a.id === 'ref' || ACTORS[a.id].team === 'crew') continue;
+    // Neue Varianten bleiben auch während der Glasreparatur an ihrem Platz.
+    const fixedPoster = s.poster?.victim === a.id && ['crowd', 'net', 'ghost', 'stuck', 'jumbotron'].includes(s.poster.variant);
+    if (fixedPoster || (a.move === 'knocked_down' && !setup.avoidGlass) || a.id === 'ref' || ACTORS[a.id].team === 'crew') continue;
     const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75,
       z: setup.avoidGlass ? 4.2 + Math.floor(i / 2) * .9 : 1.2 + Math.floor(i / 2) * .6 };
     if (a.id !== shooter) i++;
@@ -807,7 +812,7 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
   s.combo = null;
   clearArrow(s, events);
   for (const a of Object.values(s.actors)) {
-    if (a.move === 'knocked_down' || ACTORS[a.id].team === 'crew') continue;
+    if (impacted(a) || ACTORS[a.id].team === 'crew') continue;
     a.y = 0; move(a, ACTORS[a.id].team === 'def' ? 'defend' : 'idle');
   }
   if (s.glass) {
@@ -868,34 +873,65 @@ function startImpact(s: PlayState, shot: Shot, cfg: EngineConfig, rng: () => num
   const blocked = !shot.result.made, h = s.actors[s.handler], victim = blocked ? h : s.actors[shot.defender!];
   const choice = cfg.posterVariant ?? 'random';
   const roll = !blocked && choice === 'random' ? rng() : 0;
-  const variant: PosterVariant = blocked ? 'classic' : choice === 'random' ? roll < .5 ? 'classic' : roll < .75 ? 'flyout' : 'grave' : choice;
+  const variant: PosterVariant = blocked ? 'classic' : choice === 'random' ? roll < .3 ? 'classic' : roll < .4 ? 'flyout' : roll < .5 ? 'grave'
+    : roll < .6 ? 'crowd' : roll < .7 ? 'net' : roll < .8 ? 'ghost' : roll < .9 ? 'stuck' : 'jumbotron' : choice;
   if (blocked) shot.fouled = rng() < (cfg.blockFoulChance ?? .15);
   victim.y = 0;
-  move(victim, 'knocked_down', true);
+  move(victim, variant === 'stuck' ? 'legs_up' : 'knocked_down', true);
   s.poster = { victim: victim.id, kind: blocked ? 'block' : 'poster', variant,
-    startedAt: variant === 'flyout' ? Infinity : s.realTime };
+    startedAt: ['flyout', 'crowd', 'net', 'jumbotron'].includes(variant) ? Infinity : s.realTime };
   const from = { ...victim.pos }, sign = blocked ? -1 : 1;
   // Hinter Grundlinie und Ständer, mit Abstand zur rückwärtigen Bande.
   const to = variant === 'flyout' ? { x: (from.x >= 0 ? 1 : -1) * .8, z: -2.4 }
-    : variant === 'grave' ? { ...from }
+    // z = 1,5 wäre der Treppenaufgang zwischen den Zuschauerblöcken.
+    : variant === 'crowd' ? { x: (from.x >= 0 ? 1 : -1) * 15.775, z: 2.4 }
+    : variant === 'net' ? { x: 0, z: 0 }
+    : variant === 'jumbotron' ? { x: (from.x >= 0 ? 1 : -1) * .8, z: -2.4 }
+    : ['grave', 'ghost', 'stuck'].includes(variant) ? { ...from }
       : { x: from.x + sign * .9 * Math.sin(h.facing), z: from.z - sign * .9 * Math.cos(h.facing) };
   rt(s).impact = { victim: victim.id, from, to, elapsed: 0,
-    duration: variant === 'flyout' ? .9 : variant === 'grave' ? .5 : .3, variant };
-  if (variant === 'grave') s.grave = { ...from, since: s.realTime };
+    duration: variant === 'flyout' ? .9 : variant === 'crowd' || variant === 'net' ? 1
+      : variant === 'jumbotron' ? 2.3 : variant === 'grave' || variant === 'ghost' ? .5 : .3, variant };
+  if (variant === 'grave' || variant === 'ghost') s.grave = { ...from, since: s.realTime };
 }
 
 function updateImpact(s: PlayState, dt: number): void {
   const impact = rt(s).impact;
   if (!impact) return;
   const a = s.actors[impact.victim];
-  impact.elapsed = Math.min(impact.duration, impact.elapsed + dt);
-  const f = impact.elapsed / impact.duration;
+  impact.elapsed += dt;
+  const f = Math.min(1, impact.elapsed / impact.duration), variant = impact.variant, height = ACTORS[a.id].heightM;
   a.pos = { x: mix(impact.from.x, impact.to.x, f), z: mix(impact.from.z, impact.to.z, f) };
-  a.y = impact.variant === 'flyout' ? 4 * 2.8 * f * (1 - f)
-    : impact.variant === 'grave' ? -ACTORS[a.id].heightM * f : 0;
+  if (variant === 'jumbotron') {
+    const hit = { x: 0, z: 10.65 }, up = Math.min(1, impact.elapsed / 1.3);
+    if (impact.elapsed + 1e-9 < 1.3) {
+      a.pos = { x: mix(impact.from.x, hit.x, up), z: mix(impact.from.z, hit.z, up) };
+      a.y = 13.1 * (1 - (1 - up) ** 2);
+    } else {
+      s.ouch ??= { since: s.realTime };
+      const fall = Math.max(0, Math.min(1, impact.elapsed - 1.3));
+      a.pos = { x: mix(hit.x, impact.to.x, fall), z: mix(hit.z, impact.to.z, fall) };
+      a.y = 13.1 * (1 - fall * fall);
+    }
+  } else {
+    a.y = variant === 'flyout' ? 4 * 2.8 * f * (1 - f)
+      : variant === 'crowd' ? 4 * 3.4 * f * (1 - f) + .7 * f
+      : variant === 'net' ? (2.8 - 1.15 * height) * f + 4 * .8 * f * (1 - f)
+      : variant === 'grave' || variant === 'ghost' ? -height * f
+      : variant === 'stuck' ? -.65 * height * f : 0;
+  }
   if (f === 1) {
-    if (impact.variant === 'flyout') s.poster!.startedAt = s.realTime;
-    rt(s).impact = undefined;
+    a.pos = { ...impact.to };
+    if (s.poster!.startedAt === Infinity) s.poster!.startedAt = s.realTime;
+    if (variant === 'ghost') s.ghost ??= { ...impact.to, since: s.realTime };
+    if (variant === 'stuck') {
+      move(a, 'legs_up');
+      s.splinters ??= { ...impact.to, since: s.realTime };
+    }
+    if (variant === 'net') {
+      move(a, 'hang_upside');
+      a.pos.x = .08 * Math.sin((impact.elapsed - impact.duration) * 3);
+    } else rt(s).impact = undefined;
   }
 }
 
@@ -905,10 +941,10 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[], cfg: Eng
   const t = shot.elapsed;
   const blocked = shot.kind === 'contact_dunk' && !shot.result.made && shot.defender !== undefined;
   if (t >= Math.max(1.1, shot.delay + .2) && shot.flight) {
-    if (a.move !== 'knocked_down') { a.y = 0; move(a, 'idle'); }
+    if (!impacted(a)) { a.y = 0; move(a, 'idle'); }
     if (shot.defender) {
       const d = s.actors[shot.defender];
-      if (d.move !== 'knocked_down') { d.y = 0; move(d, 'defend'); }
+      if (!impacted(d)) { d.y = 0; move(d, 'defend'); }
     }
     s.ball = shot.flight.at(t - shot.delay);
     if (t >= shot.delay + shot.flight.duration) finishShot(s, events);
@@ -924,7 +960,7 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[], cfg: Eng
       events.push({ type: 'glass' });
     }
   }
-  if (a.move === 'knocked_down') {
+  if (impacted(a)) {
     // Die Kontaktbewegung gehört updateImpact, nicht mehr der Wurfanimation.
   } else if (isDunk && !blocked) {
     const contactT = m.rimFrame! / m.fps;
@@ -952,14 +988,14 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[], cfg: Eng
     }
     a.y = Math.max(0, Math.sin(Math.PI * Math.min(1, t / 1.1))) * (shot.kind === 'layup' ? .35 : .25);
   }
-  if (shot.fouled && a.move !== 'knocked_down') a.pos.x += .12 * Math.sin(Math.PI * Math.min(1, t / 1.1));
+  if (shot.fouled && !impacted(a)) a.pos.x += .12 * Math.sin(Math.PI * Math.min(1, t / 1.1));
   if (shot.defender) {
     const d = s.actors[shot.defender];
     if (blocked) d.moveT = Math.min(t, shot.delay);
     const posterContact = shot.kind === 'contact_dunk' && shot.result.made;
-    if (d.move !== 'knocked_down') d.y = shot.fouled && !blocked && !posterContact ? 0
+    if (!impacted(d)) d.y = shot.fouled && !blocked && !posterContact ? 0
       : .3 * Math.max(0, Math.sin(Math.PI * Math.min(1, (blocked ? Math.min(t, shot.delay) : t) / .8)));
-    if (posterContact && shot.defenderFrom && d.move !== 'knocked_down') {
+    if (posterContact && shot.defenderFrom && !impacted(d)) {
       const from = shot.defenderFrom, contactT = MOVES.contact_dunk.rimFrame! / MOVES.contact_dunk.fps;
       const push = Math.max(0, Math.min(1, (t - contactT) / .3));
       const co = Math.cos(a.facing), si = Math.sin(a.facing);
@@ -968,7 +1004,7 @@ function shotAnimation(s: PlayState, dt: number, events: EngineEvent[], cfg: Eng
       const contact = { x: a.pos.x + .35 * si, z: a.pos.z - .35 * co };
       d.pos = { x: mix(from.x, contact.x, meet) + .9 * si * push,
         z: mix(from.z, contact.z, meet) - .9 * co * push };
-    } else if (shot.fouled && !blocked && d.move !== 'knocked_down' && shot.defenderFrom) {
+    } else if (shot.fouled && !blocked && !impacted(d) && shot.defenderFrom) {
       const from = shot.defenderFrom, len = distance(from, shot.from) || 1, p = Math.min(1, t / .4) * .15;
       d.pos = { x: from.x + (shot.from.x - from.x) / len * p, z: from.z + (shot.from.z - from.z) / len * p };
     }

@@ -21,12 +21,12 @@ const image = (dir: Dir, features: Partial<Look> = {}, pose = project(idle, dir)
 
 describe('Figuren-Baukasten: bisherige Pixel', () => {
   // Vor der Implementierung aus dem unveränderten Raster berechnet; Reihenfolge:
-  // Alle bisherigen Moves bleiben im Hash; neue Mopp-/Bank-Moves haben eigene Tests.
+  // Neue Mopp-, Bank- und Poster-Moves haben eigene Tests.
   it.each(legacy)('bewahrt alle alten Bewegungsbilder für Nummer $look.num mit $look.hair pixelgleich', reference => {
     const original = reference.look as Look;
     const hash = createHash('sha256');
     let frames = 0;
-    for (const move of (Object.keys(MOVES) as MoveId[]).filter(id => !['mop_sweep', 'sit', 'bench_cheer', 'carry'].includes(id))) for (const pose of moveFrames(move)) for (const dir of dirs) {
+    for (const move of (Object.keys(MOVES) as MoveId[]).filter(id => !['mop_sweep', 'sit', 'bench_cheer', 'carry', 'hang_upside', 'legs_up'].includes(id))) for (const pose of moveFrames(move)) for (const dir of dirs) {
       hash.update(rasterPose(project(pose, dir), original, dir));
       frames++;
     }

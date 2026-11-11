@@ -64,6 +64,42 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it.each(['classic', 'flyout', 'crowd', 'jumbotron', 'net', 'grave', 'ghost', 'stuck'] as const)('zeigt Sterne passend zur Variante %s', variant => {
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    const s = state(), d = s.actors.b1;
+    d.move = variant === 'net' ? 'hang_upside' : variant === 'stuck' ? 'legs_up' : 'knocked_down';
+    s.poster = { victim: d.id, kind: 'poster', variant, startedAt: s.realTime };
+    advance(1 / 60);
+    expect(document.querySelector<HTMLElement>('.phud-poster')!.hidden).toBe(!['classic', 'flyout', 'crowd', 'jumbotron'].includes(variant));
+  });
+
+  it('lässt das Publikum bei crowd mit voller Stärke jubeln', () => {
+    const s = state();
+    s.poster = { victim: 'b1', kind: 'poster', variant: 'crowd', startedAt: s.realTime };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: true, banner: 'POSTER!' }]);
+    advance(1 / 60);
+    expect(sceneSpies.cheer).toHaveBeenCalledWith(1);
+  });
+
+  it('zeichnet die ganze Seele bis zum Replay auf und verwirft wartende Replays beim Neustart', () => {
+    vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; s.gameT += dt; return []; });
+    const s = state();
+    s.poster = { victim: 'b1', kind: 'poster', variant: 'ghost', startedAt: s.realTime };
+    s.ghost = { x: 0, z: 1, since: s.realTime };
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: true, banner: 'POSTER!' }]);
+    advance(1);
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(true);
+    advance(1.6);
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(false);
+    document.querySelector('#stage')!.dispatchEvent(new Event('pointerdown'));
+    s.ghost.since = s.realTime;
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', made: true, banner: 'POSTER!' }]);
+    advance(.1); mode.restart!(); advance(.1);
+    expect(document.querySelector<HTMLElement>('.replay-badge')!.hidden).toBe(true);
+    const scene = sceneSpies.render.mock.calls.at(-1)![0] as import('three').Scene;
+    expect(scene.getObjectByName('poster-ghost')!.visible).toBe(false);
+  });
+
   const benchViews = () => sceneSpies.sync.mock.calls.map(c => c[0] as import('../src/render/actors').ActorView[])
     .filter(v => v.some(a => a.id === BENCH_RED[0].id)).at(-1)!;
 

@@ -31,6 +31,7 @@ export function spriteJointWorld(v: ActorView, joint: Joint, heightM: number, ca
 }
 
 export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): { sync(views: ActorView[], cameraYaw: number): void; dispose(): void } {
+  const floorClip = [new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)];
   const sprites = new Map<string, { sprite: THREE.Sprite; shadow: THREE.Mesh; tex: THREE.Texture; sourceVersion: number }>();
   for (const id of ids) {
     const tex = (atlas.textureFor?.(id) ?? atlas.texture).clone();
@@ -53,6 +54,9 @@ export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): {
         const s = sprites.get(v.id);
         if (!s) continue;
         s.sprite.visible = s.shadow.visible = v.visible;
+        // Billboards können unter dem Parkett hervorragen; Beine am Boden abschneiden.
+        s.sprite.material.clippingPlanes = v.move === 'legs_up' ? floorClip : null;
+        if (v.move === 'legs_up' || v.move === 'hang_upside') s.shadow.visible = false;
         s.sprite.position.set(v.x, v.y, v.z);
         let dir = spriteDir(v.facing, cameraYaw);
         const mirrored = v.moveSide === -1;
