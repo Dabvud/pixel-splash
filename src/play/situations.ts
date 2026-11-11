@@ -27,10 +27,11 @@ export const PLAY_ROLES: Record<PlayId, Record<string, PlayerRole>> = {
   hammer: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
 };
 
-export function castPlay(play: Play, rng: () => number): Play {
-  const ids: Record<string, string> = {};
+/** fixed: feste Zuordnung (z. B. Slot → eigener Karriere-Spieler), wird nicht gewürfelt */
+export function castPlay(play: Play, rng: () => number, fixed: Record<string, string> = {}): Play {
+  const ids: Record<string, string> = { ...fixed };
   for (const team of [RED, BLUE]) for (const role of ['guard', 'wing', 'big'] as const) {
-    const slots = play.actors.filter(id => ACTORS[id].team === team[0].team
+    const slots = play.actors.filter(id => !(id in fixed) && ACTORS[id].team === team[0].team
       && (PLAY_ROLES[play.id][id] ?? ACTORS[id].role) === role);
     const pool = team.filter(a => a.role === role).map(a => a.id);
     for (const id of slots) {
