@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import type { Dir } from "../figure/skeleton";
-import { MOVES, type MoveId } from "../figure/moves";
+import { project, type Dir, type Joint } from "../figure/skeleton";
+import { MOVES, moveFrames, type MoveId } from "../figure/moves";
 import { CELL_H, CELL_W, FEET_ROW, PX_PER_M } from "../figure/raster";
 import type { Atlas } from "../figure/atlas";
 
@@ -17,6 +17,17 @@ export function frameAt(move: MoveId, moveT: number): number {
   const m = MOVES[move];
   const f = Math.floor((Math.max(0, moveT) + 1e-10) * m.fps);
   return m.loop ? f % m.frames : Math.min(f, m.frames - 1);
+}
+
+/** Weltposition eines Gelenks so, wie es im Pixel-Sprite gezeichnet ist (Billboard zur Kamera, inkl. Spiegelung).
+ * Für Einblendungen am Kopf: die 3D-Pose weicht bei liegenden Figuren deutlich vom Sprite-Bild ab. */
+export function spriteJointWorld(v: ActorView, joint: Joint, heightM: number, cameraYaw: number): { x: number; y: number; z: number } {
+  let dir = spriteDir(v.facing, cameraYaw);
+  const mirrored = v.moveSide === -1, side = dir === 'left' || dir === 'right';
+  if (mirrored && side) dir = dir === 'left' ? 'right' : 'left';
+  const p = project(moveFrames(v.move)[frameAt(v.move, v.moveT)], dir)[joint];
+  const u = (mirrored && side ? -p.u : p.u) * heightM;
+  return { x: v.x + Math.cos(cameraYaw) * u, y: v.y + p.v * heightM, z: v.z + Math.sin(cameraYaw) * u };
 }
 
 export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): { sync(views: ActorView[], cameraYaw: number): void; dispose(): void } {

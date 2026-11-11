@@ -13,8 +13,8 @@ import { ACTORS, RED, BLUE } from '../src/play/teams';
 const PLAYERS = [...RED, ...BLUE];
 import { PLAYS } from '../src/play/plays';
 import { finishCameraPose, playCameraPose } from '../src/render/camera-pose';
-import { MOVES, moveFrames } from '../src/figure/moves';
-import { frameAt } from '../src/render/actors';
+import { MOVES } from '../src/figure/moves';
+import { frameAt , spriteJointWorld } from '../src/render/actors';
 import { buildAtlas } from '../src/figure/atlas';
 
 const sceneSpies = vi.hoisted(() => ({ update: vi.fn(), cheer: vi.fn(), net: vi.fn(), render: vi.fn(), sync: vi.fn() }));
@@ -162,11 +162,12 @@ describe('Spielzug-Labor Integration', () => {
     vi.mocked(step).mockImplementation((s, dt) => { s.realTime += dt; return []; });
     advance(1 / 60);
     const stars = document.querySelector<HTMLElement>('.phud-poster')!;
-    const f = Math.min(MOVES.knocked_down.frames - 1, Math.floor(d.moveT * MOVES.knocked_down.fps));
-    const head = moveFrames('knocked_down')[f].head, size = ACTORS[d.id].heightM;
-    const v = new Vector3(d.pos.x + size * (head.x * Math.cos(d.facing) + head.z * Math.sin(d.facing)),
-      size * head.y + .25, d.pos.z + size * (head.x * Math.sin(d.facing) - head.z * Math.cos(d.facing)))
-      .project(look.mock.contexts.at(-1) as PerspectiveCamera);
+    // Kopf so, wie er im Pixel-Sprite liegt (Billboard zur Kamera), nicht die 3D-Pose
+    const cam = look.mock.contexts.at(-1) as PerspectiveCamera, fwd = cam.getWorldDirection(new Vector3());
+    const yaw = Math.atan2(fwd.x, -fwd.z);
+    const hp = spriteJointWorld({ id: d.id, x: d.pos.x, y: d.y, z: d.pos.z, facing: d.facing, move: d.move, moveT: d.moveT, visible: true, moveSide: d.moveSide },
+      'head', ACTORS[d.id].heightM, yaw);
+    const v = new Vector3(hp.x, hp.y + .25, hp.z).project(cam);
     const sign = v.z > 1 ? -1 : 1;
     expect(stars.hidden).toBe(false);
     expect(stars.style.transform).toBe(`translate(${(v.x * sign + 1) / 2 * 800}px, ${(1 - v.y * sign) / 2 * 600}px)`);

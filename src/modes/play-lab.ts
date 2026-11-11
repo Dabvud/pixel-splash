@@ -5,13 +5,13 @@ import { attachGesture, type GestureEvent } from "../input/gesture";
 import { createScene } from "../render/scene";
 import { createPixelRenderer } from "../render/pixel";
 import { finishCameraPose, overviewPose, playCameraPose } from "../render/camera-pose";
-import { createActors, type ActorView } from "../render/actors";
+import { createActors, spriteJointWorld, type ActorView } from "../render/actors";
 import { createRecorder, replayAt, REPLAY_SECONDS, type Snap } from "../render/replay";
 import { buildAtlas } from "../figure/atlas";
 import { ACTORS } from "../play/teams";
 import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
-import { actorHead, command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
+import { command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
 import { positionValue } from "../play/position";
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
@@ -369,6 +369,12 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     const yaw = Math.atan2(-camera.position.x, camera.position.z);
     actors.sync(snap.actors, yaw);
     ball.position.set(snap.ball.x, snap.ball.y, snap.ball.z);
+    // Sterne im Replay erst ab dem Moment, in dem der Verteidiger auch in der Szene liegt
+    const down = s.poster ? snap.actors.find((a) => a.id === s.poster!.defender) : undefined;
+    if (down && down.visible && down.move === "knocked_down" && down.moveT < 1.5) {
+      const p = spriteJointWorld(down, "head", ACTORS[down.id].heightM, yaw), q = screen(p.x, p.y + .25, p.z, posterPoint);
+      phud.setPoster(q.x, q.y, true, down.moveT);
+    } else phud.setPoster(0, 0, false);
     updateNet(snap.t);
     crowd?.update(now);
     px.renderer.render(scene, camera);
@@ -462,7 +468,9 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     // Auch die Endreaktionen nutzen die pausierbare Engine-Echtzeit.
     const posterElapsed = poster ? s.realTime - poster.startedAt : 0;
     if (poster && posterElapsed < 1.5) {
-      const p = actorHead(s.actors[poster.defender]), projected = screen(p.x, p.y + .25, p.z, posterPoint);
+      // Sterne am Kopf, wie er im Pixel-Sprite gezeichnet ist (liegend weicht er stark von der 3D-Pose ab)
+      const d = views.find((v) => v.id === poster.defender)!;
+      const p = spriteJointWorld(d, "head", ACTORS[d.id].heightM, yaw), projected = screen(p.x, p.y + .25, p.z, posterPoint);
       phud.setPoster(projected.x, projected.y, true, posterElapsed);
     } else phud.setPoster(0, 0, false);
 
