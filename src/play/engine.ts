@@ -281,6 +281,8 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
       : Math.max(play.id === 'inbound' ? 1.5 : play.id === 'fastbreak' ? 4 : 3, play.clockS * .5);
     const max = overtime ? 12 : Math.min(24, play.clockS * 2.5);
     clock = mix(min, max, rng());
+    // Der 0,8-s-Einwurf erlaubt absichtlich nur einen Abschluss in der Luft.
+    if (play.id === 'lob08') clock = play.clockS;
     const maxDeficit = overtime || clock < 5 ? 3 : 6;
     situationDeficit = 1 + Math.min(maxDeficit - 1, Math.floor(rng() * maxDeficit));
     play = castPlay(play, rng);

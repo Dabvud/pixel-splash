@@ -2,7 +2,8 @@ import type { Vec2 } from './position';
 import type { Look } from '../figure/raster';
 
 export type PlayId = 'pnr' | 'fastbreak' | 'kickout' | 'inbound'
-  | 'iso' | 'handoff' | 'backdoor' | 'giveandgo' | 'twoonone' | 'threeontwo' | 'pickpop' | 'hammer';
+  | 'iso' | 'handoff' | 'backdoor' | 'giveandgo' | 'twoonone' | 'threeontwo' | 'pickpop' | 'hammer'
+  | 'floppy' | 'pindown' | 'horns' | 'spain' | 'doubledrag' | 'stagger' | 'elevator' | 'flare' | 'slob' | 'lob08' | 'shortroll';
 export type PlayerRole = 'guard' | 'wing' | 'big';
 export interface ActorDef extends Look {
   id: string; team: 'off' | 'def' | 'ref' | 'crew'; shot: number; athleticism: number;

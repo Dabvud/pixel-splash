@@ -13,6 +13,17 @@ export const PLAY_ROLES: Record<PlayId, Record<string, PlayerRole>> = {
   twoonone: { r3: 'guard', r23: 'wing' },
   threeontwo: { r3: 'guard', r11: 'guard', r23: 'wing' },
   pickpop: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  floppy: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  pindown: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  horns: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  spain: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  doubledrag: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  stagger: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  elevator: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  flare: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  slob: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  lob08: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
+  shortroll: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
   hammer: { r3: 'guard', r11: 'guard', r23: 'wing', r32: 'wing', r50: 'big' },
 };
 

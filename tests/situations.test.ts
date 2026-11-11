@@ -32,7 +32,8 @@ describe('Situationen: Paket 1', () => {
       expect(s).toEqual(explicit);
       expect(s.play).toBe(play);
       expect(s.clock).toBe(play.clockS);
-      expect(s.deficit).toBe(typeof play.deficit === 'number' ? play.deficit : 1 + Math.floor(roll * 3));
+      const d = play.deficit;
+      expect(s.deficit).toBe(typeof d === 'number' ? d : d[0] + Math.min(d[1] - d[0], Math.floor(roll * (d[1] - d[0] + 1))));
       expect(Object.keys(s.actors)).toEqual(play.actors);
       expect(s.overtime).toBe(false);
       expect(s.foulTrouble).toBeNull();
@@ -47,8 +48,12 @@ describe('Situationen: Paket 1', () => {
       const lo = s.overtime ? (play.id === 'fastbreak' ? 4 : 3)
         : Math.max(play.id === 'inbound' ? 1.5 : play.id === 'fastbreak' ? 4 : 3, play.clockS * .5);
       const hi = s.overtime ? 12 : Math.min(24, play.clockS * 2.5);
-      expect(s.clock).toBeGreaterThanOrEqual(lo);
-      expect(s.clock).toBeLessThanOrEqual(hi);
+      // lob08: der 0,8-s-Einwurf hat absichtlich eine feste Uhr
+      if (play.id === 'lob08') expect(s.clock).toBe(play.clockS);
+      else {
+        expect(s.clock).toBeGreaterThanOrEqual(lo);
+        expect(s.clock).toBeLessThanOrEqual(hi);
+      }
       expect(Number.isInteger(s.deficit)).toBe(true);
       expect(s.deficit).toBeGreaterThanOrEqual(1);
       expect(s.deficit).toBeLessThanOrEqual(s.overtime || s.clock < 5 ? 3 : 6);
