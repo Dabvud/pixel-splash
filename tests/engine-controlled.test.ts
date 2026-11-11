@@ -85,15 +85,19 @@ describe('Nur der eigene Spieler wird gesteuert', () => {
 
 describe('Karriere: Pull-up und Zug zum Korb immer möglich', () => {
   it('auch in Spielzügen ohne Wurf-/Zieh-Option im ersten Segment (außer beim Einwurf)', () => {
-    for (const playId of ['handoff', 'floppy', 'horns', 'pickpop'] as const) {
-      const { s, rng } = scene('guard', playId, 3);
+    let tried = 0;
+    for (const playId of ['handoff', 'floppy', 'horns', 'pickpop'] as const) for (let seed = 1; seed <= 4; seed++) {
+      const { s, rng } = scene('guard', playId, seed);
       run(s, rng, () => s.phase === 'decision' && inputOwner(s) === HERO_ID, 30);
-      if (s.phase !== 'decision') continue;
+      // Nach einem Fang läuft das Catch-and-Shoot-Pfeil-Meter (Tippen statt Halten)
+      if (s.phase !== 'decision' || s.arrowMeter) continue;
       command(s, { kind: 'comboStart' }, cfg, rng);
       expect(s.phase, playId).toBe('combo');
+      tried++;
     }
+    expect(tried).toBeGreaterThan(3);
     const { s, rng } = scene('guard', 'floppy', 4);
     run(s, rng, () => s.phase === 'decision' && inputOwner(s) === HERO_ID, 30);
-    if (s.phase === 'decision') { command(s, { kind: 'drive', lane: 0 }, cfg, rng); expect(s.phase).toBe('driving'); }
+    if (s.phase === 'decision' && !s.arrowMeter) { command(s, { kind: 'drive', lane: 0 }, cfg, rng); expect(s.phase).toBe('driving'); }
   });
 });
