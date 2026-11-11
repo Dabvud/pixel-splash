@@ -15,23 +15,25 @@ import { MOVES, moveFrames } from '../src/figure/moves';
 import { frameAt } from '../src/render/actors';
 import { buildAtlas } from '../src/figure/atlas';
 
+const sceneSpies = vi.hoisted(() => ({ update: vi.fn(), cheer: vi.fn(), net: vi.fn(), render: vi.fn(), sync: vi.fn() }));
 vi.mock('../src/render/scene', async () => {
   const THREE = await import('three');
-  return { createScene: () => ({ scene: new THREE.Scene(), ball: new THREE.Object3D(), updateNet: () => {} }) };
+  return { createScene: () => ({ scene: new THREE.Scene(), ball: new THREE.Object3D(), updateNet: sceneSpies.net,
+    crowd: { update: sceneSpies.update, cheer: sceneSpies.cheer } }) };
 });
-vi.mock('../src/render/pixel', () => ({ createPixelRenderer: () => ({ renderer: { render: vi.fn(), dispose: vi.fn() }, resize: vi.fn() }) }));
+vi.mock('../src/render/pixel', () => ({ createPixelRenderer: () => ({ renderer: { render: sceneSpies.render, dispose: vi.fn() }, resize: vi.fn() }) }));
 vi.mock('../src/figure/atlas', async () => {
   const THREE = await import('three');
   return { buildAtlas: vi.fn(() => ({ texture: new THREE.Texture(), uv: () => [0, 0, 1, 1] })) };
 });
 vi.mock('../src/render/actors', async importOriginal => ({
   ...await importOriginal<typeof import('../src/render/actors')>(),
-  createActors: () => ({ sync: vi.fn(), dispose: vi.fn() }),
+  createActors: () => ({ sync: sceneSpies.sync, dispose: vi.fn() }),
 }));
 vi.mock('../src/input/gesture', () => ({ attachGesture: vi.fn(() => vi.fn()) }));
 vi.mock('../src/play/engine', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/play/engine')>();
-  return { ...actual, createPlayState: vi.fn(actual.createPlayState), step: vi.fn(actual.step) };
+  return { ...actual, command: vi.fn(actual.command), createPlayState: vi.fn(actual.createPlayState), step: vi.fn(actual.step) };
 });
 // restoreAllMocks leert getMockImplementation(); die Originalfunktionen bleiben hier verfügbar.
 const actualEngine = await vi.importActual<typeof import('../src/play/engine')>('../src/play/engine');
@@ -45,6 +47,9 @@ function gesture(e: GestureEvent): void { vi.mocked(attachGesture).mock.calls.at
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(step).mockReset().mockImplementation(actualEngine.step);
+  vi.mocked(command).mockReset().mockImplementation(actualEngine.command);
+  vi.mocked(createPlayState).mockReset().mockImplementation(actualEngine.createPlayState);
   now = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => now);
   vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => { frame = callback; return 1; }));
@@ -55,6 +60,79 @@ beforeEach(() => {
 afterEach(() => { mode.stop(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('Spielzug-Labor Integration', () => {
+  it('wendet den geänderten Fenster-Regler auch im laufenden Modus mit vollen vier Spielsekunden an', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false, decisionS: 4 });
+    for (let i = 0; i < 200 && state().phase !== 'decision'; i++) advance(1 / 60);
+    const s = state(), start = s.gameT;
+    vi.mocked(step).mockClear();
+    let selected = false;
+    for (let i = 0; i < 1200 && !selected; i++) {
+      advance(1 / 60);
+      selected = (vi.mocked(step).mock.results.at(-1)!.value as ReturnType<typeof step>)
+        .some(e => e.type === 'decision' && e.options.length === 1);
+    }
+    expect(selected).toBe(true);
+    expect(s.gameT - start).toBeCloseTo(4, 1);
+    expect(vi.mocked(step).mock.calls[0][2]).toMatchObject({ decisionLead: 4, decisionS: 4 });
+  });
+  it('simuliert Hintergrundzeit und große Zeitsprünge nicht nach, kurze Aussetzer schon', () => {
+    advance(2.3);
+    const s = state(), before = s.realTime;
+    now += 300_000; frame(now);
+    expect(s.realTime).toBe(before);
+    now += 150; frame(now);
+    expect(s.realTime - before).toBeCloseTo(.15, 8);
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    const atHide = s.realTime;
+    advance(2);
+    expect(s.realTime).toBe(atHide);
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    advance(.1);
+    expect(s.realTime - atHide).toBeCloseTo(.1, 8);
+  });
+  it('pausiert Banner, Kontaktmeldung, Netz und Publikum und entsorgt HUD-Timer', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.mocked(step).mockReturnValueOnce([{ type: 'combo', fouled: true, contact: false },
+      { type: 'result', made: false, banner: 'FEHLWURF' }]);
+    advance(1 / 60); mode.setPaused!(true); advance(1 / 60);
+    const netAt = sceneSpies.net.mock.calls.at(-1)![0], count = sceneSpies.update.mock.calls.length;
+    advance(5); vi.advanceTimersByTime(5000);
+    expect(document.querySelector<HTMLElement>('#hud-banner')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.phud-flash')!.hidden).toBe(false);
+    expect(sceneSpies.update).toHaveBeenCalledTimes(count);
+    mode.setPaused!(false); advance(.1);
+    expect(sceneSpies.net.mock.calls.at(-1)![0] - netAt).toBeCloseTo(100, 6);
+    expect(sceneSpies.update.mock.calls.at(-1)![0]).toBe(sceneSpies.net.mock.calls.at(-1)![0]);
+    mode.stop(); expect(vi.getTimerCount()).toBe(0);
+  });
+  it('verwendet ActorView-Puffer wieder und rendert eine unveränderte Pause nicht erneut', () => {
+    advance(1 / 60);
+    const views = sceneSpies.sync.mock.calls.at(-1)![0], first = views[0];
+    advance(1 / 60);
+    expect(sceneSpies.sync.mock.calls.at(-1)![0]).toBe(views);
+    expect(views[0]).toBe(first);
+    mode.setPaused!(true); advance(1 / 60);
+    const renders = sceneSpies.render.mock.calls.length;
+    const observer = new MutationObserver(() => {});
+    observer.observe(document.querySelector('.play-lab')!, { subtree: true, attributes: true, childList: true, characterData: true });
+    advance(1);
+    expect(sceneSpies.render).toHaveBeenCalledTimes(renders);
+    expect(observer.takeRecords()).toEqual([]); observer.disconnect();
+  });
+  it.each([['TREFFER', .6], ['DUNK!', .9], ['POSTER!', .9]] as const)('jubelt bei %s mit Stärke %s und bei GAMEWINNER mit 1', (banner, strength) => {
+    vi.mocked(step).mockReturnValueOnce([{ type: 'result', banner, made: true }]);
+    advance(1 / 60); expect(sceneSpies.cheer).toHaveBeenLastCalledWith(strength);
+    vi.mocked(step).mockReturnValueOnce([{ type: 'end', verdict: 'GAMEWINNER' }]);
+    advance(1 / 60); expect(sceneSpies.cheer).toHaveBeenLastCalledWith(1);
+  });
+  it('baut beim Fast Break nur die beteiligten Akteure bedarfsgesteuert auf', () => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'fastbreak', defenseRandom: false });
+    const call = vi.mocked(buildAtlas).mock.calls.at(-1)!;
+    expect(Object.keys(call[0]).sort()).toEqual([...PLAYS.fastbreak.actors].sort());
+    expect(call[1]).toEqual({ lazy: true });
+  });
   it('übergibt alle Baukasten-Merkmale der zehn Teamspieler an den Atlas', () => {
     const looks = vi.mocked(buildAtlas).mock.calls[0][0];
     expect(Object.keys(looks)).toHaveLength(10);
@@ -122,6 +200,7 @@ describe('Spielzug-Labor Integration', () => {
     expect(mark.hidden).toBe(false);
     for (let i = 0; i < 400 && s.phase !== 'ended'; i++) {
       if (s.phase === 'freethrows') {
+        advance(.8); // Aufstellung vor der Wurf-Kombi
         gesture({ type: 'start' }); gesture({ type: 'hold' });
         now += s.combo!.meterMs;
         gesture({ type: 'release', holdMs: s.combo!.meterMs + 200, angleDeg: 0 });
@@ -236,6 +315,7 @@ describe('Spielzug-Labor Integration', () => {
     expect(red()).toBe('101');
     for (const points of [4, 5]) {
       s.points = points;
+      mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false }); // pausiertes Bild gezielt invalidieren
       advance(1 / 60);
       expect(red()).toBe(String(98 + points));
       expect(document.querySelector('.phud-game-clock')!.textContent).toBe('0.0');
@@ -298,18 +378,42 @@ describe('Spielzug-Labor Integration', () => {
     for (let i = 0; i < 300 && s.phase !== 'ended'; i++) advance(1 / 60);
     expect(s.points).toBe(2);
   });
-  it('wartet bei 80 px Richtung Mitspieler bis zum Loslassen und nutzt den Gesamtvektor', () => {
+  it('startet bei durchgehender Geste Richtung Mitspieler den Zug zum Korb', () => {
     advance(2.3);
     const s = state(), vector = swipeTo('r50');
     gesture({ type: 'start' });
     gesture({ type: 'drag', ...vector });
-    expect(s.phase).toBe('decision');
+    expect(s.phase).toBe('driving');
     expect(s.fingerDown).toBe(true);
     gesture({ type: 'flick', dx: vector.dx * 1.5, dy: vector.dy * 1.5, holdMs: 100 });
-    expect(s.phase).toBe('passing');
+    expect(s.phase).toBe('driving');
     expect(s.arrowMeter).toBeNull();
-    for (let i = 0; i < 120 && s.handler !== 'r50'; i++) advance(1 / 60);
-    expect(s.handler).toBe('r50');
+    expect(s.handler).toBe('r3');
+  });
+  it.each([true, false])('Flick nach oben passt nur bei Mitspieler in Korbrichtung (vorhanden=%s)', present => {
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', camera: 'low', defenseRandom: false });
+    advance(2.3);
+    const s = state();
+    s.actors[s.handler].pos = { x: 0, z: 7 };
+    s.actors.r50.pos = present ? { x: 0, z: 0 } : { x: 6, z: 8 };
+    vi.mocked(step).mockReturnValue([{ type: 'decision', options: [{ kind: 'drive' }, { kind: 'pass', to: 'r50' }] }]);
+    swipeTo('rim');
+    gesture({ type: 'start' }); gesture({ type: 'flick', dx: 0, dy: -80, holdMs: 80 });
+    expect(s.phase).toBe(present ? 'passing' : 'decision');
+    if (present) expect(vi.mocked(command).mock.calls.some(([, c]) => c.kind === 'pass' && c.to === 'r50' && c.quality === 1)).toBe(true);
+  });
+  it('berechnet Passqualität aus dem Loslassvektor des Flicks', () => {
+    advance(2.3);
+    const s = state();
+    vi.mocked(step).mockReturnValue([{ type: 'decision', options: [{ kind: 'pass', to: 'r50' }] }]);
+    const v = swipeTo('r50');
+    const angle = 25 * Math.PI / 180;
+    gesture({ type: 'start' });
+    gesture({ type: 'flick', dx: v.dx * Math.cos(angle) - v.dy * Math.sin(angle),
+      dy: v.dx * Math.sin(angle) + v.dy * Math.cos(angle), holdMs: 80 });
+    const pass = vi.mocked(command).mock.calls.map(([, c]) => c).reverse().find(c => c.kind === 'pass');
+    expect(pass).toMatchObject({ kind: 'pass', to: 'r50', quality: expect.closeTo(.5, 8) });
+    expect(s.phase).toBe('passing');
   });
   it('startet Ziehen auch beim Catch-and-Shoot mit 80 px schon vor dem Loslassen', () => {
     const s = catchArrow(), vector = swipeTo('rim');
@@ -382,7 +486,7 @@ describe('Spielzug-Labor Integration', () => {
     gesture({ type: 'hold' });
     expect(s.phase).toBe('combo');
   });
-  it('lässt einen schnellen 30-px-Wisch während Catch-and-Shoot sofort ziehen, auch während der Kamerafahrt', () => {
+  it('lässt eine durchgehende 80-px-Geste während Catch-and-Shoot ziehen, auch während der Kamerafahrt', () => {
     const look = vi.spyOn(PerspectiveCamera.prototype, 'lookAt');
     const stage = document.querySelector<HTMLElement>('#stage')!;
     Object.defineProperties(stage, { clientWidth: { value: 800 }, clientHeight: { value: 600 } });
@@ -394,7 +498,7 @@ describe('Spielzug-Labor Integration', () => {
     const dx = (rim.x - origin.x) * 400, dy = (origin.y - rim.y) * 300, len = Math.hypot(dx, dy);
     gesture({ type: 'start' });
     now += 100;
-    gesture({ type: 'flick', dx: dx / len * 30, dy: dy / len * 30, holdMs: 100 });
+    gesture({ type: 'drag', dx: dx / len * 80, dy: dy / len * 80 });
     expect(s.phase).toBe('driving');
     expect(s.arrowMeter).toBeNull();
   });
@@ -613,6 +717,7 @@ describe('Spielzug-Labor Integration', () => {
     mode.setPaused!(true);
     advance(1 / 60);
     state().phase = 'ended';
+    mode.apply({ ...DEFAULTS, mode: 'play', play: 'pnr', defenseRandom: false }); // pausiertes Bild gezielt invalidieren
     advance(1 / 60);
     expect(document.querySelector<HTMLElement>('.phud-ring')!.hidden).toBe(true);
     expect(document.querySelector<HTMLElement>('.phud-handler')!.hidden).toBe(true);

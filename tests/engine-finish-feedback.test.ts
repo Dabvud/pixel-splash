@@ -180,6 +180,7 @@ describe('Abschluss-Feedback und Poster', () => {
     // Bei Foul anschließend die Freiwürfe ausführen.
     for (let i = 0; i < 2000 && s.phase !== 'ended'; i++) {
       if (s.phase === 'freethrows') {
+        step(s, .8, c, rng); // Aufstellung vor der Wurf-Kombi
         command(s, { kind: 'comboStart' }, c, rng);
         command(s, { kind: 'comboRelease', holdMs: s.combo!.meterMs, angleDeg: 0 }, c, rng);
       }
@@ -196,12 +197,14 @@ describe('Abschluss-Feedback und Poster', () => {
     expect(s.ball.z * Math.sign(-t)).toBeGreaterThan(.2);
   });
 
-  it('endet ohne Tipp auch bei angekündigtem Foul weiterhin ohne Freiwürfe', () => {
+  it('behält angekündigte Fouls beim Meter-Timeout als Fehlversuch plus Freiwürfe', () => {
     const c = { ...cfg, foulMult: 2 }, s = takeoff('contact_dunk', false, c);
     expect(s.combo!.fouled).toBe(true);
     const events = step(s, 10, c, rng);
-    expect(events.some(e => e.type === 'freethrow')).toBe(false);
-    expect(s.phase).toBe('ended');
+    expect(events.some(e => e.type === 'freethrow')).toBe(true);
+    expect(s.phase).toBe('freethrows');
+    expect(s.freeThrows!.left).toBe(2);
+    expect(s.points).toBe(0);
     expect(s.banner).toBe('GEBLOCKT');
   });
 
@@ -225,6 +228,7 @@ describe('Abschluss-Feedback und Poster', () => {
     const events: EngineEvent[] = [];
     for (let i = 0; i < 3000 && s.phase !== 'ended'; i++) {
       if (s.phase === 'freethrows') {
+        step(s, .8, c, rng); // Aufstellung vor der Wurf-Kombi
         command(s, { kind: 'comboStart' }, c, rng);
         command(s, { kind: 'comboRelease', holdMs: s.combo!.meterMs, angleDeg: 0 }, c, rng);
       }
@@ -238,4 +242,12 @@ describe('Abschluss-Feedback und Poster', () => {
     expect(events.some(e => e.type === 'result' && e.made && e.banner.includes('POSTER!'))).toBe(true);
     expect(s.phase).toBe('ended');
   });
+});
+
+it.each(['dunk', 'contact_dunk'] as const)('%s hat kein Brett-Fenster und trifft bei t=1,5 nicht', kind => {
+  const s = takeoff(kind), m = s.arrowMeter!;
+  expect(s.combo!.bankWindow).toBeNull(); expect(m.bankWindow).toBeNull();
+  step(s, Math.max(0, m.startTime + m.meterMs * (1 + 1.5 * m.zones.g) / 1000 - s.realTime), cfg, rng);
+  command(s, { kind: 'tap' }, cfg, rng); step(s, 10, cfg, rng);
+  expect(s.points).toBe(0); expect(s.banner).not.toContain('BRETT');
 });

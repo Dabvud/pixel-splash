@@ -36,6 +36,7 @@ describe('Bankshots in der Engine', () => {
     release(s, true, c, () => 0);
     until(s, () => s.phase === 'freethrows', c, () => 0);
     const before = s.points;
+    step(s, .8, c, safe); // Aufstellung vor der Wurf-Kombi
     command(s, { kind: 'comboStart' }, c, safe);
     const combo = s.combo!;
     expect(combo.bankWindow!.hi - combo.bankWindow!.lo).toBeCloseTo(.3 * combo.zones.g, 10);
@@ -73,6 +74,7 @@ function choose(s: PlayState, o: Option, c = cfg, rng = safe): EngineEvent[] {
     : o.kind === 'drive' ? { kind: 'drive', lane: 0 } : { kind: 'pass', to: o.to! }, c, rng);
 }
 function release(s: PlayState, perfect: boolean, c = cfg, rng = safe): void {
+  if (s.phase === 'freethrows') step(s, .8, c, rng); // Aufstellung vor der Wurf-Kombi
   if (s.arrowMeter && s.arrowMeter.fill === null) {
     if (perfect) step(s, Math.max(0, s.arrowMeter.startTime + s.arrowMeter.meterMs / 1000 - s.realTime), c, rng);
     command(s, { kind: 'tap' }, c, rng);
@@ -436,6 +438,7 @@ describe('Freiwurf-Serie', () => {
     expect(s.points).toBe(3);
     expect(s.freeThrows!.left).toBe(1);
     s.clock = 0;
+    step(s, .8, c, () => 0); // Aufstellung vor der Wurf-Kombi
     command(s, { kind: 'comboStart' }, c, () => 0);
     expect(s.combo!.meterMs).toBe(c.shot.meterMs);
     expect(s.combo!.fouled).toBe(false);

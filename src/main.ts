@@ -1,3 +1,5 @@
+import { registerSW } from "virtual:pwa-register";
+import { registerAppUpdate } from "./pwa-update";
 import "@fontsource/press-start-2p";
 import "./style.css";
 import { loadSettings, type Settings } from "./settings";
@@ -24,3 +26,5 @@ const onChange = (s: Settings): void => {
 };
 
 createLabMenu(app, settings, onChange, (open) => mode.setPaused?.(open), () => mode.restart?.());
+
+registerAppUpdate(registerSW);

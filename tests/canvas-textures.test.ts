@@ -19,6 +19,21 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Canvas-Texturfarben', () => {
+  it('rastert im Lazy-Atlas nur angeforderte Bilder, cached sie und bleibt unter 20 MiB RGBA für zehn Akteure', () => {
+    const atlas = buildAtlas(ACTORS, { lazy: true });
+    const context = vi.mocked(HTMLCanvasElement.prototype.getContext).mock.results.at(-1)!.value as CanvasRenderingContext2D;
+    expect(context.putImageData).not.toHaveBeenCalled();
+    const bytes = atlas.textures!.reduce((sum, t) => sum + t.image.width * t.image.height * 4, 0);
+    expect(bytes).toBeLessThanOrEqual(20 * 1024 * 1024);
+    for (const t of atlas.textures!) {
+      expect(t.image.width).toBeLessThanOrEqual(4096); expect(t.image.height).toBeLessThanOrEqual(4096);
+    }
+    const uv = atlas.uv('r3', 'idle', 'back', 0);
+    expect(context.putImageData).toHaveBeenCalledTimes(1);
+    expect(atlas.uv('r3', 'idle', 'back', 0)).toEqual(uv);
+    expect(context.putImageData).toHaveBeenCalledTimes(1);
+    atlas.textures!.forEach(t => t.dispose());
+  });
   it('hält alle zehn Baukasten-Spieler auf Atlas-Seiten bis 4096 × 4096 mit gültigen idle-Ausschnitten', () => {
     const atlas = buildAtlas(ACTORS);
     for (const texture of atlas.textures!) {

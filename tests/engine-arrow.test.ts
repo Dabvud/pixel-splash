@@ -136,7 +136,7 @@ describe('Alley-oop-Pfeil', () => {
     expect(s.banner).toBe('VOM RING');
     expect(s.points).toBe(0);
   });
-  it('wendet Positions-, Foul-, Kontakt- und Lobfaktor genau einmal an und endet ohne Tipp mit GEBLOCKT', () => {
+  it('wendet Positions-, Foul-, Kontakt- und Lobfaktor genau einmal an und gibt ohne Tipp GEBLOCKT plus zwei Freiwürfe', () => {
     const play = fixture(true), c = { ...cfg, foulMult: 2 };
     play.segments.setup.paths.b1 = [{ t: 0, x: 0, z: .1, act: 'defend' }];
     const s = createPlayState(play, c, safe);
@@ -145,8 +145,20 @@ describe('Alley-oop-Pfeil', () => {
     command(s, { kind: 'pass', to: 'r50', quality: 0 }, c, () => rolls.shift() ?? .99);
     expect(s.arrowMeter!.zones).toEqual(effectiveZones({ ...c.finish, influence: c.shot.influence,
       rating: .8, distance: 4.6, zoneFactor: .7 * .6 * .75 * .75 }));
-    until(s, () => s.phase === 'ended', c);
+    const events = until(s, () => s.phase === 'freethrows', c);
+    expect(events).toContainEqual({ type: 'result', banner: 'GEBLOCKT', made: false });
     expect(s.banner).toBe('GEBLOCKT');
+    expect(s.points).toBe(0);
+    expect(s.freeThrows).toEqual({ shooter: 'r50', left: 2 });
+    step(s, 10, c, safe); // Freiwürfe warten ohne Zeitlimit auf die Nutzer-Kombi.
+    expect(s.phase).toBe('freethrows');
+    for (const left of [2, 1]) {
+      expect(s.freeThrows!.left).toBe(left);
+      command(s, { kind: 'comboStart' }, c, safe);
+      command(s, { kind: 'comboRelease', holdMs: s.combo!.meterMs, angleDeg: 0 }, c, safe);
+      until(s, () => s.phase === (left === 2 ? 'freethrows' : 'ended'), c);
+    }
+    expect(s.points).toBe(2);
   });
   it('startet bei einem kürzeren Lob frühestens beim Abspiel', () => {
     const play = fixture(true);
@@ -256,6 +268,7 @@ describe('Catch-and-Shoot-Pfeil', () => {
     expect(s.arrowMeter).toBeNull();
     expect(s.freeThrows).toEqual({ shooter: 'r50', left: 1 });
     expect(command(s, { kind: 'tap' }, c, safe)).toEqual([]);
+    step(s, .8, c, safe); // Aufstellung vor der Wurf-Kombi
     command(s, { kind: 'comboStart' }, c, safe);
     expect(s.phase).toBe('combo');
     command(s, { kind: 'comboRelease', holdMs: s.combo!.meterMs, angleDeg: 0 }, c, safe);

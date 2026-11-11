@@ -11,9 +11,10 @@ export const MIN_SWIPE_PX = 30;
 export const REST_PX = 20;
 
 export class GestureTracker {
-  private pointer: { id: number; x: number; y: number; t: number } | null = null;
+  private pointer: { id: number; x: number; y: number; t: number; dx: number; dy: number } | null = null;
   private held = false;
   private moved = false; // Finger hat sich vor der Halteschwelle deutlich bewegt → Wisch statt Wurf
+  private dragged = false;
 
   constructor(private opts: GestureOptions = { flicks: false, holdThresholdMs: 0 }) {}
 
@@ -23,9 +24,10 @@ export class GestureTracker {
 
   down(id: number, x: number, y: number, t: number): GestureEvent | null {
     if (this.active) return null;
-    this.pointer = { id, x, y, t };
+    this.pointer = { id, x, y, t, dx: 0, dy: 0 };
     this.held = false;
     this.moved = false;
+    this.dragged = false;
     return { type: 'start' };
   }
 
@@ -33,14 +35,22 @@ export class GestureTracker {
     const p = this.pointer;
     if (!p || p.id !== id || this.held) return null;
     const dx = x - p.x, dy = y - p.y;
+    p.dx = dx; p.dy = dy;
     if (t - p.t < this.opts.holdThresholdMs && Math.hypot(dx, dy) > REST_PX) this.moved = true;
-    return this.opts.flicks && this.moved ? { type: 'drag', dx, dy } : null;
+    if (!this.opts.flicks || !this.moved || t - p.t < this.opts.holdThresholdMs) return null;
+    this.dragged ||= Math.hypot(dx, dy) >= 60;
+    return { type: 'drag', dx, dy };
   }
 
   poll(t: number, id = this.pointer?.id): GestureEvent | null {
-    if (!this.pointer || this.held || this.moved || this.opts.holdThresholdMs <= 0
+    if (!this.pointer || this.held || this.opts.holdThresholdMs <= 0
       || this.pointer.id !== id
       || t - this.pointer.t < this.opts.holdThresholdMs) return null;
+    if (this.moved) {
+      if (this.dragged || Math.hypot(this.pointer.dx, this.pointer.dy) < 60) return null;
+      this.dragged = true;
+      return { type: 'drag', dx: this.pointer.dx, dy: this.pointer.dy };
+    }
     this.held = true;
     return { type: 'hold', startedAt: this.pointer.t + this.opts.holdThresholdMs };
   }

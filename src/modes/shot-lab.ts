@@ -30,8 +30,11 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
   let made = 0;
   let shots = 0;
   let raf = 0;
+  let menuPaused = false, hidden = false, paused = false;
+  let activeNow = 0, last = performance.now();
+  let dirty = true;
 
-  const { scene, ball, updateNet } = createScene();
+  const { scene, ball, updateNet, crowd } = createScene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
   const player = createPlayer(scene);
@@ -47,7 +50,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     distance: spotDistance(spot()),
     bankAngleDeg: Math.atan2(Math.abs(spot().x), spot().z) * 180 / Math.PI,
   });
-  const resize = () => px.resize(settings.pixelHeight, camera);
+  const resize = () => { px.resize(settings.pixelHeight, camera); dirty = true; };
 
   function toReady(): void {
     state = { k: "ready" };
@@ -63,28 +66,57 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     toReady();
   }
 
-  const detach = attachGesture(
+  function advanceTo(now: number): void {
+    const elapsed = Math.max(0, now - last);
+    last = Math.max(last, now);
+    if (!paused && elapsed <= 1000) activeNow += elapsed;
+    else if (!paused && state.k === "charging") toReady();
+  }
+
+  const attach = () => attachGesture(
     stage,
     (e) => {
+      if (paused) return;
+      advanceTo(performance.now());
       if (e.type === "start") {
-        state = { k: "charging", t0: performance.now() };
+        state = { k: "charging", t0: activeNow };
         player.setPose("shoot");
       } else if (e.type === "release" && state.k === "charging") {
         const result = resolveShot({ holdMs: e.holdMs, angleDeg: e.angleDeg }, params());
         shots++;
-        if (result.made) made++;
+        if (result.made) { made++; crowd?.cheer(result.outcome === "swish" ? .7 : .5); }
         hud.markRelease(result.fill, false, effectiveZones(params()));
         hud.showResult(result);
         hud.setStats(made, shots);
-        state = { k: "flying", t0: performance.now(), flight: buildFlight(result.outcome, player.handPos()), fill: result.fill };
+        state = { k: "flying", t0: activeNow, flight: buildFlight(result.outcome, player.handPos()), fill: result.fill };
       } else {
         toReady();
       }
     },
-    () => state.k === "flying",
+    () => paused || state.k === "flying",
   );
+  let detach = attach();
+
+  function syncPause(): void {
+    const next = menuPaused || hidden;
+    if (paused === next) return;
+    advanceTo(performance.now());
+    paused = next;
+    hud.setPaused(paused);
+    if (paused) {
+      detach();
+      if (state.k === "charging") toReady();
+    } else detach = attach();
+    last = performance.now();
+  }
+  const visibility = () => { hidden = document.hidden; syncPause(); };
 
   function frame(now: number): void {
+    advanceTo(now);
+    raf = requestAnimationFrame(frame);
+    if (paused && !dirty) return;
+    dirty = false;
+    now = activeNow;
     const s = placed;
     let progress: number | null = null;
     if (state.k === "flying") {
@@ -108,19 +140,20 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     const pose = cameraPose(settings.camera, { x: s.x, y: 0, z: s.z }, progress);
     camera.position.set(pose.pos.x, pose.pos.y, pose.pos.z);
     camera.lookAt(pose.look.x, pose.look.y, pose.look.z);
-    updateNet(now);
+    if (!paused) { updateNet(now); crowd?.update(now); }
     px.renderer.render(scene, camera);
-    raf = requestAnimationFrame(frame);
   }
 
   addEventListener("resize", resize);
+  document.addEventListener("visibilitychange", visibility);
   placePlayer();
   resize();
   raf = requestAnimationFrame(frame);
 
   return {
     setPaused(paused) {
-      hud.setPaused(paused);
+      menuPaused = paused;
+      syncPause();
     },
     restart() {
       made = shots = 0;
@@ -135,6 +168,7 @@ export function startShotLab(app: HTMLElement, initial: Settings): Mode {
     stop() {
       cancelAnimationFrame(raf);
       removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", visibility);
       detach();
       hud.dispose();
       px.renderer.dispose();

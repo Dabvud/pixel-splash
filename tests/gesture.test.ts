@@ -92,11 +92,14 @@ describe('Spielzug-Haltetimer', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it('leitet drag vor dem Loslassen weiter und unterdrückt danach hold', () => {
+  it('leitet drag erst bei liegenbleibendem Finger weiter und unterdrückt danach hold', () => {
     const now = vi.spyOn(performance, 'now').mockReturnValue(0);
     const { pointer, onEvent, detach } = setup();
     pointer('pointerdown');
     now.mockReturnValue(80);
+    pointer('pointermove', 1, 420);
+    expect(onEvent.mock.calls.flat()).toEqual([{ type: 'start' }]);
+    now.mockReturnValue(220);
     pointer('pointermove', 1, 420);
     expect(onEvent.mock.calls.flat()).toEqual([
       { type: 'start' }, { type: 'drag', dx: 0, dy: -80 },
@@ -380,7 +383,7 @@ describe('Ruhe-Regel: Wisch vs. Wurf im Spielzug-Labor', () => {
     t.down(1, 100, 500, 0);
     expect(t.move(2, 100, 420, 50)).toBeNull();
     expect(t.move(1, 100, 490, 50)).toBeNull();
-    expect(t.move(1, 100, 470, 80)).toEqual({ type: 'drag', dx: 0, dy: -30 });
+    expect(t.move(1, 100, 470, 80)).toBeNull();
     expect(t.move(1, 100, 420, 450)).toEqual({ type: 'drag', dx: 0, dy: -80 });
     expect(t.up(1, 100, 400, 500)).toEqual({ type: 'flick', dx: 0, dy: -100, holdMs: 500 });
     const shot = new GestureTracker();
@@ -415,4 +418,15 @@ describe('Ruhe-Regel: Wisch vs. Wurf im Spielzug-Labor', () => {
     t.move(1, 200, 500, 260);
     expect(t.poll(260)).toMatchObject({ type: 'hold' });
   });
+});
+
+it('unterscheidet einen 80-px-Flick vom gleichen Wisch mit liegenbleibendem Finger', () => {
+  const t = new GestureTracker({ flicks: true, holdThresholdMs: 200 });
+  t.down(1, 100, 500, 0);
+  expect(t.move(1, 100, 420, 80)).toBeNull();
+  expect(t.up(1, 100, 420, 100)).toEqual({ type: 'flick', dx: 0, dy: -80, holdMs: 100 });
+  t.down(1, 100, 500, 1000);
+  expect(t.move(1, 100, 420, 1080)).toBeNull();
+  expect(t.poll(1200)).toEqual({ type: 'drag', dx: 0, dy: -80 });
+  expect(t.poll(1250)).toBeNull();
 });

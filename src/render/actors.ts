@@ -20,7 +20,7 @@ export function frameAt(move: MoveId, moveT: number): number {
 }
 
 export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): { sync(views: ActorView[], cameraYaw: number): void; dispose(): void } {
-  const sprites = new Map<string, { sprite: THREE.Sprite; shadow: THREE.Mesh; tex: THREE.Texture }>();
+  const sprites = new Map<string, { sprite: THREE.Sprite; shadow: THREE.Mesh; tex: THREE.Texture; sourceVersion: number }>();
   for (const id of ids) {
     const tex = (atlas.textureFor?.(id) ?? atlas.texture).clone();
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -34,7 +34,7 @@ export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): {
     );
     shadow.rotation.x = -Math.PI / 2;
     scene.add(sprite, shadow);
-    sprites.set(id, { sprite, shadow, tex });
+    sprites.set(id, { sprite, shadow, tex, sourceVersion: -1 });
   }
   return {
     sync(views, cameraYaw) {
@@ -49,6 +49,8 @@ export function createActors(scene: THREE.Scene, atlas: Atlas, ids: string[]): {
         if (mirrored && sideView) dir = dir === 'left' ? 'right' : 'left';
         s.shadow.position.set(v.x, 0.01, v.z);
         const [ox, oy, rx, ry] = atlas.uv(v.id, v.move, dir, frameAt(v.move, v.moveT));
+        const version = (atlas.textureFor?.(v.id) ?? atlas.texture).version;
+        if (s.sourceVersion !== version) { s.tex.needsUpdate = true; s.sourceVersion = version; }
         // Sprite-Shader verwenden den Betrag der Objekt-Skalierung: über UVs spiegeln.
         s.tex.offset.set(mirrored ? ox + rx : ox, oy);
         s.tex.repeat.set(mirrored ? -rx : rx, ry);

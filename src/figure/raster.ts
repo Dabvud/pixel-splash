@@ -106,18 +106,13 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
   // Rumpf: dicke Linie Schultermitte → Becken, Breite aus Schulterabstand bzw. Statur
   const shMid = mid(p.shL, p.shR);
   const span = Math.abs(p.shL.u - p.shR.u) * s;
-  const tw = Math.max(Math.round(span - 1), Math.round((side ? 0.13 : 0.17) * s * bw));
+  const number = side ? '' : String(look.num);
+  const numberWidth = number.length * 4 - 1; // 3 px je Ziffer, 1 px Zwischenraum
+  // Die Nummer braucht beidseitig einen Trikotpixel Abstand zum Umriss.
+  const tw = Math.max(Math.round(span - 1), Math.round((side ? 0.13 : 0.17) * s * bw), side ? 0 : numberWidth + 2);
   line(p.neck, shMid, limb, skin);
   band(shMid, p.pelvis, tw, jersey);
   band(p.pelvis, mid(mid(p.hipL, p.hipR), mid(p.knL, p.knR), 0.25), tw, shorts);
-
-  // Nummer auf Rücken bzw. Brust
-  if (!side) {
-    const str = String(look.num);
-    const c = mid(shMid, p.pelvis, 0.45);
-    const x0 = Math.round(X(c.u) - (str.length * 4 - 1) / 2), y0 = Math.round(Y(c.v) - 2);
-    [...str].forEach((d, i) => DIGITS[d].forEach((row, y) => [...row].forEach((b, x) => b === "1" && set(x0 + i * 4 + x, y0 + y, [255, 255, 255]))));
-  }
 
   // Kopf
   const hr = Math.max(3, 0.078 * s);
@@ -178,6 +173,13 @@ export function rasterPose(p: Projected, look: Look, dir: Dir, w = CELL_W, h = C
   // Von vorne/hinten liegen beide Arme vor bzw. neben dem Rumpf
   if (!side) arm(far, false);
   arm(near, false);
+
+  // Nummer auf Rücken bzw. Brust: Armstempel am Rumpfrand dürfen keine Spalte löschen.
+  if (!side) {
+    const c = mid(shMid, p.pelvis, 0.45);
+    const x0 = Math.round(X(c.u) - (numberWidth - 1) / 2), y0 = Math.round(Y(c.v) - 2);
+    [...number].forEach((d, i) => DIGITS[d].forEach((row, y) => [...row].forEach((b, x) => b === "1" && set(x0 + i * 4 + x, y0 + y, [255, 255, 255]))));
+  }
 
   // 1-px-Umriss
   const src = new Uint8ClampedArray(buf);

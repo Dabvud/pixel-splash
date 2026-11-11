@@ -312,3 +312,9 @@ Neue Bewegungen (Skelett-Schlüsselposen in `moves.ts`, je 6–8 Bilder, gleiche
 | Pass-Varianten | Passbahn: Bodenpass (Ball prallt in der Mitte auf, y-Minimum 0,12) bei Abstand < 6 m und Verteidiger nahe der Passlinie (< 1,5 m); Bogenpass (höherer Scheitel) bei Abstand > 9 m; sonst wie bisher. Werfer-Animation `pass_bounce` bzw. `pass_overhead` |
 
 Atlas-Grenze: Die Atlas-Textur darf 4096 px Kantenlänge nicht überschreiten; wenn nötig nur die Akteure des aktuellen Spielzugs rastern oder auf mehrere Texturen verteilen.
+
+## Erweiterung: Pass nur per Flick, Zug zum Korb nur per durchgehender Geste
+
+- Ein Pass entsteht ausschließlich beim Loslassen eines kurzen Wischs (Flick). Die Zielwahl berücksichtigt nur Mitspieler, einschließlich Spielern am Korb: Bildschirmrichtung innerhalb 45°, bestehende Winkel-/Distanzregel und Passqualität aus dem vollständigen Flick-Vektor. Ohne passendes Ziel passiert nichts; der Korb selbst ist kein Passziel.
+- Bewegt sich der Finger in den ersten 200 ms mehr als 20 px und bleibt bis zur 200-ms-Schwelle liegen, startet ein Wisch ab 60 px immer den Zug zum Korb. Das gilt in jeder Bildschirmrichtung und auch dann, wenn dort ein Mitspieler steht. Die seitliche Bahn folgt weiterhin der Winkelabweichung zur projizierten Korbrichtung. Der Timer erkennt das Liegenbleiben auch ohne weiteres Bewegungsereignis.
+- Loslassen vor der Schwelle lässt den Flick als Pass auswerten. Nach begonnenem Zug ist der Wisch konsumiert; sein späteres Loslassen löst wie bisher gegebenenfalls das Abschluss-Meter aus. Ruhendes Halten für Würfe, Catch-and-Shoot und die KI-Wahl bleiben unverändert.

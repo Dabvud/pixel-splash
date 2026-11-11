@@ -16,7 +16,8 @@ export interface Atlas {
 }
 
 // Alle Bilder aller Figuren einmal vorab rastern; im Spiel wird nur der Ausschnitt gewechselt
-export function buildAtlas(looks: Record<string, Look>): Atlas {
+export function buildAtlas(looks: Record<string, Look>, options?: { lazy: boolean }): Atlas {
+  if (options?.lazy) return lazyAtlas(looks);
   const moves = Object.keys(MOVES) as MoveId[];
   const cellsPerActor = moves.reduce((sum, m) => sum + MOVES[m].frames * DIRS.length, 0);
   const actorsPerPage = Math.floor(MAX_CELLS / cellsPerActor);
@@ -64,4 +65,42 @@ export function buildAtlas(looks: Record<string, Look>): Atlas {
       return [(i % COLS) / COLS, 1 - (Math.floor(i / COLS) + 1) / rows, 1 / COLS, 1 / rows];
     },
   };
+}
+
+/** 256 gecachte Zellen pro Akteur = 512 × 1024 × RGBA, höchstens 20 MiB bei zehn Figuren.
+ * Beim Einstieg werden nur leere Leinwände angelegt; pro Frame wird höchstens ein
+ * tatsächlich benötigtes Bild je Figur gerastert. Alte Bilder werden zyklisch ersetzt.
+ */
+function lazyAtlas(looks: Record<string, Look>): Atlas {
+  const cols = 16, rows = 16, capacity = cols * rows;
+  const poses = new Map<MoveId, ReturnType<typeof moveFrames>>();
+  const pages = new Map(Object.entries(looks).map(([id, look]) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = cols * CELL_W; canvas.height = rows * CELL_H;
+    const context = canvas.getContext('2d')!;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.magFilter = texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    const page = { look, context, texture, image: context.createImageData(CELL_W, CELL_H), next: 0,
+      keys: [] as string[], cells: new Map<string, [number, number, number, number]>() };
+    return [id, page] as const;
+  }));
+  const textures = [...pages.values()].map(p => p.texture);
+  return { texture: textures[0], textures, textureFor: id => pages.get(id)!.texture,
+    uv(id, move, dir, frame) {
+      const page = pages.get(id)!, key = `${move}|${dir}|${frame}`;
+      const cached = page.cells.get(key);
+      if (cached) return cached;
+      const index = page.next++ % capacity;
+      page.cells.delete(page.keys[index]); page.keys[index] = key;
+      let frames = poses.get(move);
+      if (!frames) { frames = moveFrames(move); poses.set(move, frames); }
+      page.image.data.set(rasterPose(project(frames[frame], dir), page.look, dir));
+      page.context.putImageData(page.image, index % cols * CELL_W, Math.floor(index / cols) * CELL_H);
+      page.texture.needsUpdate = true;
+      const uv: [number, number, number, number] = [index % cols / cols, 1 - (Math.floor(index / cols) + 1) / rows, 1 / cols, 1 / rows];
+      page.cells.set(key, uv);
+      return uv;
+    } };
 }

@@ -66,6 +66,9 @@ interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams
 interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
   segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
+  paths: Record<string, Waypoint[]>;
+  decisionEnd?: number;
+  decisionPathRate?: number;
   clockStarted: boolean; pass?: Pass; drive?: Drive; shot?: Shot; params?: ShotParams;
   offsets: Record<string, Vec2>;
   lob?: boolean;
@@ -74,6 +77,7 @@ interface Runtime {
   arrow?: ComboData & { tapped?: ArrowInput; timedOut?: boolean };
   comboMove?: MoveId;
   celebration?: { from: Record<string, Vec2>; elapsed: number };
+  lineup?: { from: Record<string, Vec2>; elapsed: number };
 }
 // Laufzeitdetails gehören zu genau diesem Zustand, ohne das öffentliche Datenformat zu erweitern.
 const runtimes = new WeakMap<PlayState, Runtime>();
@@ -151,7 +155,7 @@ function activityMove(act: Activity, moving: boolean): MoveId {
 }
 
 function updatePaths(s: PlayState, previous: number): void {
-  const r = rt(s), paths = { ...r.segment.paths, ...r.variant.defPaths[r.segment.id] };
+  const r = rt(s), paths = r.paths;
   for (const a of Object.values(s.actors)) {
     if (a.move === 'knocked_down') continue;
     if (s.freeThrows || (['receiving', 'driving', 'ballflight', 'combo', 'takeoff'].includes(s.phase) && a.id === s.handler)
@@ -212,13 +216,33 @@ function decisionOptions(s: PlayState): Option[] {
   return options;
 }
 
-function decision(s: PlayState, events: EngineEvent[]): void {
+function decision(s: PlayState, events: EngineEvent[], cfg: EngineConfig): void {
   phase(s, 'decision');
-  rt(s).aiSelected = null;
+  const r = rt(s);
+  r.aiSelected = null;
+  if (cfg.decisionLead !== undefined) {
+    r.decisionEnd = s.gameT + cfg.decisionS;
+    // Das verbleibende Wegstück füllt genau das gewählte Fenster. Zusätzliche
+    // Pässe ohne Folgesegment behalten dagegen ihre bisherige Weg-Zeitachse.
+    r.decisionPathRate = r.segment.id === 'received' ? 1
+      : Math.max(0, (r.segment.decisionAt ?? 0) - r.segT) / cfg.decisionS;
+  }
   events.push({ type: 'decision', options: decisionOptions(s) });
 }
 
-export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => number): PlayState {
+export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number): PlayState {
+  // Kurze Folgesegmente bieten auch beim maximalen Reglerwert ein volles Fenster.
+  // Alle Angreifer- und Verteidigerwege teilen dieselbe gestreckte Zeitachse.
+  if (cfg.decisionLead !== undefined) {
+    const factors = Object.fromEntries(Object.entries(play.segments).map(([id, segment]) =>
+      [id, segment.decisionAt ? Math.max(1, cfg.decisionS / segment.decisionAt) : 1]));
+    const scaled = (paths: Record<string, Waypoint[]>, f: number) => Object.fromEntries(
+      Object.entries(paths).map(([id, path]) => [id, path.map(p => ({ ...p, t: p.t * f }))]));
+    play = { ...play, segments: Object.fromEntries(Object.entries(play.segments).map(([id, segment]) =>
+      [id, { ...segment, decisionAt: (segment.decisionAt ?? 0) * factors[id], paths: scaled(segment.paths, factors[id]) }])),
+      variants: play.variants.map(v => ({ ...v, defPaths: Object.fromEntries(Object.entries(v.defPaths)
+        .map(([id, paths]) => [id, scaled(paths, factors[id] ?? 1)])) })) };
+  }
   const total = play.variants.reduce((sum, v) => sum + v.weight, 0);
   let pick = rng() * total;
   const variant = play.variants.find(v => (pick -= v.weight) < 0) ?? play.variants[play.variants.length - 1];
@@ -230,7 +254,8 @@ export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => numbe
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null,
   };
-  runtimes.set(s, { segment, variant, segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
+  runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
+    segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {} });
   for (const id of play.actors) {
     const p = (variant.defPaths[segment.id]?.[id] ?? segment.paths[id])?.[0];
     s.actors[id] = { id, pos: { x: p?.x ?? 0, z: p?.z ?? 0 }, y: 0, facing: 0, move: 'idle', moveT: 0 };
@@ -241,7 +266,7 @@ export function createPlayState(play: Play, _cfg: EngineConfig, rng: () => numbe
 }
 
 function predicted(s: PlayState, id: string, ahead: number): Vec2 {
-  const r = rt(s), path = r.variant.defPaths[r.segment.id]?.[id] ?? r.segment.paths[id];
+  const r = rt(s), path = r.paths[id];
   if (!path?.length || path[path.length - 1].t <= r.segT) return s.actors[id].pos;
   const p = point(path, r.segT + ahead), off = r.offsets[id] ?? { x: 0, z: 0 };
   return { x: p.x + off.x, z: p.z + off.z };
@@ -286,8 +311,9 @@ function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, r
   const a = ACTORS[actor];
   const params = { ...base, meterMs, influence: cfg.shot.influence,
     rating: finishing ? a.athleticism : a.shot,
-    distance: finishing ? 4.6 : distance(pos, { x: 0, z: 0 }),
-    bankAngleDeg: Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI,
+    distance: ft ? 4.2 : finishing ? 4.6 : distance(pos, { x: 0, z: 0 }),
+    bankAngleDeg: kind === 'dunk' || kind === 'contact_dunk' ? undefined
+      : ft ? 0 : Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI,
     zoneFactor: ft ? 1 : zoneFactor(P, cfg.zoneFloor, fouled, kind === 'contact_dunk')
       * (lobQuality === undefined ? 1 : .75 + .25 * lobQuality) };
   return { params, combo: { kind, P, meterMs, zones: effectiveZones(params), fouled, bankWindow: bankWindow(params) }, foulRoll };
@@ -418,15 +444,16 @@ function nextSegment(s: PlayState, option: Option): void {
   if (!next) {
     // Ohne Fortsetzung laufen die bisherigen Wege mit ihrem Zeitstand und Versatz zu Ende.
     r.segment = { id: 'received', handler: option.to!,
-      paths: { ...r.segment.paths, ...r.variant.defPaths[r.segment.id] },
+      paths: r.paths,
       decisionAt: .4, options: [{ kind: 'shoot' }, { kind: 'drive' }] };
     return;
   }
   r.segment = next;
+  r.paths = { ...next.paths, ...r.variant.defPaths[next.id] };
   r.segT = 0;
   r.offsets = {};
   // Bewegte Empfänger bleiben am tatsächlichen Fangpunkt; Fortsetzungen sind relativ dazu.
-  for (const [id, path] of Object.entries(r.segment.paths)) {
+  for (const [id, path] of Object.entries(r.paths)) {
     const a = s.actors[id];
     if (a && path.length) r.offsets[id] = { x: a.pos.x - path[0].x, z: a.pos.z - path[0].z };
   }
@@ -497,14 +524,14 @@ function receptionReady(s: PlayState, cfg: EngineConfig, rng: () => number, even
   const r = rt(s), reception = r.reception!, c = reception.closeout;
   // Anschließende Datenwege setzen am tatsächlichen Ende des Closeouts an.
   if (c) {
-    const path = r.variant.defPaths[r.segment.id]?.[c.id] ?? r.segment.paths[c.id];
+    const path = r.paths[c.id];
     if (path?.length) {
       const p = point(path, r.segT), a = s.actors[c.id];
       r.offsets[c.id] = { x: a.pos.x - p.x, z: a.pos.z - p.z };
     }
   }
   r.reception = undefined;
-  decision(s, events);
+  decision(s, events, cfg);
   if ((r.segment.options ?? [{ kind: 'shoot' }]).some(o => o.kind === 'shoot')) {
     const data = comboData(s, shotKindAt(s.actors[s.handler].pos), currentP(s), cfg, rng);
     startArrow(s, 'catchshoot', s.realTime, data, events);
@@ -569,6 +596,7 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
     return events;
   }
   if (cmd.kind === 'comboStart') {
+    if (s.freeThrows && distance(s.actors[s.freeThrows.shooter].pos, { x: 0, z: 4.2 }) > 1e-6) return events;
     if (s.phase === 'combo') return events;
     if (s.phase === 'takeoff') {
       r.comboWait = { phase: 'takeoff', elapsed: r.realT };
@@ -607,20 +635,23 @@ export function command(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () =
 // Freiwurf-Aufstellung: Schütze an der Linie, alle anderen abwechselnd links/rechts am Zonenrand
 function lineUp(s: PlayState, dtReal: number): void {
   const shooter = s.freeThrows!.shooter;
+  const r = rt(s);
+  const setup = r.lineup ??= { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0 };
+  setup.elapsed = Math.min(.8, setup.elapsed + dtReal);
+  const f = setup.elapsed / .8;
   let i = 0;
   for (const a of Object.values(s.actors)) {
     if (a.move === 'knocked_down') continue;
     const to = a.id === shooter ? { x: 0, z: 4.2 } : { x: i % 2 ? 2.75 : -2.75, z: 1.2 + Math.floor(i / 2) * 0.6 };
     if (a.id !== shooter) i++;
-    const d = distance(a.pos, to), stepM = 8 * dtReal;
-    if (d <= stepM) {
+    if (f >= 1 || distance(setup.from[a.id], to) < 1e-6) {
       a.pos = to;
       a.facing = facingTo(a.pos, { x: 0, z: 0 });
-      if (a.id !== shooter && a.move !== "idle") move(a, "idle", true);
+      if ((a.id !== shooter || s.phase === 'freethrows') && a.move !== "idle") move(a, "idle", true);
     } else {
       a.facing = facingTo(a.pos, to);
-      a.pos = { x: a.pos.x + (to.x - a.pos.x) * stepM / d, z: a.pos.z + (to.z - a.pos.z) * stepM / d };
-      if (a.id !== shooter && a.move !== "run") move(a, "run", true);
+      a.pos = { x: mix(setup.from[a.id].x, to.x, f), z: mix(setup.from[a.id].z, to.z, f) };
+      if (a.move !== "run") move(a, "run", true);
     }
     if (a.id !== shooter) a.y = 0;
   }
@@ -631,8 +662,8 @@ function freeThrow(s: PlayState, events: EngineEvent[]): void {
   s.combo = null;
   const h = s.actors[s.freeThrows!.shooter];
   s.handler = h.id;
-  h.pos = { x: 0, z: 4.2 }; // Schütze sofort an die Linie, damit die Distanz für die Zonen stimmt
   h.y = 0; h.facing = 0;
+  rt(s).lineup = { from: Object.fromEntries(Object.values(s.actors).map(a => [a.id, { ...a.pos }])), elapsed: 0 };
   rt(s).lob = false;
   move(h, 'idle', true);
   heldBall(s);
@@ -657,7 +688,7 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
     s.freeThrows!.left--;
     if (s.freeThrows!.left > 0) freeThrow(s, events); else end(s, events);
   } else {
-    const count = shot.timedOut ? 0 : freeThrowCount(kind, result.made, fouled);
+    const count = freeThrowCount(kind, result.made, fouled);
     if (count) { s.freeThrows = { shooter: s.handler, left: count }; freeThrow(s, events); }
     else end(s, events);
   }
@@ -782,12 +813,15 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   }
   for (const a of Object.values(s.actors)) a.moveT += dt;
   const previous = r.segT;
-  r.segT += dt;
+  r.segT += dt * ((oldPhase === 'decision' || (oldPhase === 'combo' && r.comboWait?.phase === 'decision'))
+    ? r.decisionPathRate ?? 1 : 1);
   updatePaths(s, previous);
   if (oldPhase === 'running') {
     // Entscheiden im Laufen: das Fenster öffnet schon während der letzten Wegsekunde, niemand bleibt stehen
-    if (r.segT >= Math.max(0, (r.segment.decisionAt ?? 0) - (cfg.decisionLead ?? 0))) decision(s, events);
-  } else if (oldPhase === 'decision' && !s.arrowMeter && r.segT + 1e-9 >= (r.segment.decisionAt ?? 0) && r.realT + 1e-9 >= cfg.decisionS && !s.fingerDown) {
+    if (r.segT >= Math.max(0, (r.segment.decisionAt ?? 0) - (cfg.decisionLead ?? 0))) decision(s, events, cfg);
+  } else if (oldPhase === 'decision' && !s.arrowMeter && !s.fingerDown
+    && (r.aiSelected || cfg.decisionLead === undefined ? r.segT + 1e-9 >= (r.segment.decisionAt ?? 0) && r.realT + 1e-9 >= cfg.decisionS
+      : s.gameT + 1e-9 >= r.decisionEnd!)) {
     if (r.aiSelected) miss(s, events, 'ZU LANGE GEZÖGERT');
     else {
       const option = aiChoice(s);
@@ -867,7 +901,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     if (s.realTime + 1e-9 >= endTime) {
       s.fingerDown = false;
       if (meter.kind !== 'catchshoot') timeoutFinishArrow(s, rng, events);
-      else { clearArrow(s, events); decision(s, events); }
+      else { clearArrow(s, events); decision(s, events, cfg); }
     }
   }
   if (s.phase !== 'passing' && s.phase !== 'ballflight' && s.phase !== 'ended') heldBall(s);

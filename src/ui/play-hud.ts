@@ -54,6 +54,7 @@ export function createPlayHud(root: HTMLElement): {
   const q = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
   const sit = q(".phud-sit"), ring = q(".phud-ring"), fl = q(".phud-flash"), dec = q(".phud-decision"), box = q(".phud-markers");
   const handler = q(".phud-handler");
+  const sitTop = q('.phud-sit-top'), sitName = q('.phud-sit-name');
   const feedback = q('.phud-finish-feedback'), poster = q('.phud-poster');
   const stars = [...poster.querySelectorAll<HTMLElement>('span')];
   const clock = q('.phud-game-clock'), red = q('.phud-score-red'), blue = q('.phud-score-blue');
@@ -63,6 +64,13 @@ export function createPlayHud(root: HTMLElement): {
   let flashDeadline = 0;
   let paused = false;
   let disposed = false;
+  const setHidden = (node: HTMLElement, hidden: boolean) => { if (node.hidden !== hidden) node.hidden = hidden; };
+  const setText = (node: HTMLElement, text: string) => { if (node.textContent !== text) node.textContent = text; };
+  const setStyle = (node: HTMLElement, key: 'transform' | 'borderColor', value: string) => {
+    if (node.style[key] !== value) node.style[key] = value;
+  };
+  let lastWord: FinishFeedback | null | undefined;
+  let lastRingColor = '';
 
   function resumeFlash(): void {
     if (paused || disposed || flashRemaining === null) return;
@@ -76,13 +84,12 @@ export function createPlayHud(root: HTMLElement): {
 
   return {
     setSituation(top, name = "") {
-      sit.hidden = top === null;
-      q(".phud-sit-top").textContent = top ?? "";
-      q(".phud-sit-name").textContent = name;
+      setHidden(sit, top === null);
+      setText(sitTop, top ?? "");
+      setText(sitName, name);
     },
     setScoreboard(seconds, deficit, points) {
       const score = playScore(deficit, points);
-      const setText = (node: HTMLElement, text: string) => { if (node.textContent !== text) node.textContent = text; };
       setText(clock, formatPlayClock(seconds));
       setText(red, String(score.red));
       setText(blue, String(score.blue));
@@ -120,24 +127,27 @@ export function createPlayHud(root: HTMLElement): {
       }
     },
     setRing(x, y, P, visible) {
-      ring.hidden = !visible;
+      setHidden(ring, !visible);
       if (!visible) return;
-      ring.style.transform = `translate(${x}px, ${y}px)`;
-      ring.style.borderColor = P === null ? "white" : `hsl(${Math.round(P * 120)} 85% 55%)`; // rot → gelb → grün
+      setStyle(ring, 'transform', `translate(${x}px, ${y}px)`);
+      const color = P === null ? "white" : `hsl(${Math.round(P * 120)} 85% 55%)`;
+      if (color !== lastRingColor) { ring.style.borderColor = color; lastRingColor = color; }
     },
     setHandler(x, y, visible) {
-      handler.hidden = !visible;
-      if (visible) handler.style.transform = `translate(${x}px, ${y}px)`;
+      setHidden(handler, !visible);
+      if (visible) setStyle(handler, 'transform', `translate(${x}px, ${y}px)`);
     },
     setFinishFeedback(word) {
-      feedback.hidden = word === null;
-      feedback.textContent = word;
+      if (word === lastWord) return;
+      lastWord = word;
+      setHidden(feedback, word === null);
+      setText(feedback, word ?? '');
       feedback.classList.toggle('perfect', word === 'PERFEKT');
     },
     setPoster(x, y, visible, elapsed = 0) {
-      poster.hidden = !visible;
+      setHidden(poster, !visible);
       if (!visible) return;
-      poster.style.transform = `translate(${x}px, ${y}px)`;
+      setStyle(poster, 'transform', `translate(${x}px, ${y}px)`);
       stars.forEach((star, i) => {
         const angle = elapsed * Math.PI * 2 + i * Math.PI * 2 / 3;
         star.style.transform = `translate(${Math.cos(angle) * 18}px, ${Math.sin(angle) * 7}px)`;

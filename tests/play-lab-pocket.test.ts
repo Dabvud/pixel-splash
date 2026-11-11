@@ -65,8 +65,14 @@ describe('Pocket im Spielzug-Labor', () => {
     if (route !== 'Kurzwisch') {
       const initial = vector(route === 'Richtungswechsel' ? 15 : 0, 80);
       emit(tracker.move(1, initial.dx, initial.dy, now));
-      advance(.2); // Die begonnene Bewegung bleibt auch jenseits der Halteschwelle ein Wisch.
-      expect(tracker.poll(now)).toBeNull();
+      advance(.2);
+      emit(tracker.poll(now));
+      expect(s.phase).toBe('driving');
+      const release = vector(angle);
+      emit(tracker.up(1, release.dx, release.dy, now));
+      expect(vi.mocked(command).mock.calls.some(([, cmd]) => cmd.kind === 'pass')).toBe(false);
+      expect(s.fingerDown).toBe(false);
+      return;
     }
     expect(s.phase).toBe('decision');
     expect(vi.mocked(command).mock.calls.some(([, cmd]) => cmd.kind === 'pass')).toBe(false);

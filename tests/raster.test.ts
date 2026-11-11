@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CELL_H, CELL_W, rasterPose } from '../src/figure/raster';
+import { CELL_H, CELL_W, FEET_ROW, PX_PER_M, rasterPose } from '../src/figure/raster';
 import type { Look } from '../src/figure/raster';
 import { moveFrames } from '../src/figure/moves';
 import { project } from '../src/figure/skeleton';
@@ -35,6 +35,50 @@ describe('32×64 Figurenraster mit Füßen in Zeile 62', () => {
     else {
       expect(whites.length).toBeGreaterThan(5);
       for (const p of whites) { expect(p.y).toBeGreaterThan(37); expect(p.y).toBeLessThan(48); }
+    }
+  });
+  it.each(['front', 'back'] as const)('zeichnet Nummern vollständig, mittig und innerhalb des Umrisses: %s', dir => {
+    const digits: Record<string, string[]> = {
+      0: ['111', '101', '101', '101', '111'], 1: ['010', '110', '010', '010', '111'],
+      2: ['111', '001', '111', '100', '111'], 3: ['111', '001', '111', '001', '111'],
+      4: ['101', '101', '111', '001', '001'], 5: ['111', '100', '111', '001', '111'],
+      6: ['111', '100', '111', '101', '111'], 7: ['111', '001', '010', '010', '010'],
+      8: ['111', '101', '111', '101', '111'], 9: ['111', '101', '111', '001', '111'],
+    };
+    for (const num of Array.from({ length: 100 }, (_, i) => i)) {
+      // Die Problemnummern zusätzlich bei allen Staturen, Größen und Subpixelpositionen.
+      const regression = [0, 1, 11, 44, 50, 88, 99].includes(num);
+      for (const build of (regression ? ['slim', 'normal', 'broad'] : ['normal']) as Look['build'][]) {
+        for (const heightM of regression ? [1.85, 2.13] : [look.heightM]) {
+          for (const offset of regression ? [-0.01, 0, 0.01] : [0]) {
+            const p = project(idle, dir);
+            for (const point of Object.values(p)) point.u += offset;
+            const buf = rasterPose(p, { ...look, num, build, heightM }, dir);
+            const scale = PX_PER_M * heightM;
+            const shoulder = { u: (p.shL.u + p.shR.u) / 2, v: (p.shL.v + p.shR.v) / 2 };
+            const cx = CELL_W / 2 + (shoulder.u * 0.55 + p.pelvis.u * 0.45) * scale;
+            const cy = FEET_ROW - (shoulder.v * 0.55 + p.pelvis.v * 0.45) * scale;
+            const str = String(num), width = str.length * 4 - 1;
+            const x0 = Math.round(cx - (width - 1) / 2), y0 = Math.round(cy - 2);
+            const expected: { x: number; y: number }[] = [];
+            for (let y = 0; y < 5; y++) for (let i = 0; i < str.length; i++) {
+              for (let x = 0; x < 3; x++) if (digits[str[i]][y][x] === '1') expected.push({ x: x0 + i * 4 + x, y: y0 + y });
+            }
+            expect(pixels(buf, [255, 255, 255, 255]), `${dir}, ${num}, ${build}, ${heightM}, ${offset}`).toEqual(expected);
+            for (const { x, y } of expected) {
+              expect(x).toBeGreaterThan(0);
+              expect(x).toBeLessThan(CELL_W - 1);
+              expect(y).toBeGreaterThan(0);
+              expect(y).toBeLessThan(CELL_H - 1);
+              for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+                const rgba = [...buf.slice(((y + dy) * CELL_W + x + dx) * 4, ((y + dy) * CELL_W + x + dx + 1) * 4)];
+                expect(rgba).not.toEqual(outline);
+                expect(rgba[3]).toBe(255);
+              }
+            }
+          }
+        }
+      }
     }
   });
   it.each(['back', 'front', 'left', 'right'] as Dir[])('umgibt jede gefüllte Fläche mit Umriss-Pixeln: %s', dir => {

@@ -44,3 +44,17 @@ describe('Pause-Menü', () => {
     expect(toggle).toHaveBeenLastCalledWith(false);
   });
 });
+
+it('benennt beide Dialoge über ihre sichtbare Überschrift', () => {
+  createLabMenu(document.body, DEFAULTS, () => {});
+  for (const dialog of document.querySelectorAll('dialog')) {
+    const title = document.getElementById(dialog.getAttribute('aria-labelledby') ?? '');
+    expect(title).toBe(dialog.querySelector('h2'));
+  }
+});
+it('bietet das Entscheidungsfenster mit Spielsekunden, 1,5–4 und Standard 2,5 an', () => {
+  createLabMenu(document.body, DEFAULTS, () => {});
+  const input = q<HTMLInputElement>('#lab-decisionS');
+  expect(input.min).toBe('1.5'); expect(input.max).toBe('4'); expect(input.value).toBe('2.5');
+  expect(input.closest('label')!.textContent).toContain('Entscheidungsfenster');
+});

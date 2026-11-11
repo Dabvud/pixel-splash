@@ -13,7 +13,7 @@ describe('Einstellungen', () => {
     expect(DEFAULTS).toEqual({
       spot: 'top', camera: 'auto', profile: 'avg', influence: 'fair',
       meterMs: 700, greenZone: 0.07, aimDeg: 6, pixelHeight: 320,
-      mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2, animSpeed: 1,
+      mode: 'shot', play: 'random', slowmo: 0.3, decisionS: 2.5, animSpeed: 1,
       defenseRandom: true, fouls: 'normal', finishMeterMs: 450, finishGreen: 0.1,
       finishAim: 8, tempoSpread: 0.3, zoneFloor: 0.7,
       passDelayMax: 0.6, closeoutRandom: 1,
@@ -134,7 +134,7 @@ describe('Spielzug-Einstellungen', () => {
 
   it.each([
     ['slowmo', -1, 0.2], ['slowmo', 0.9, 0.5],
-    ['decisionS', 0, 1], ['decisionS', 9, 4],
+    ['decisionS', 0, 1.5], ['decisionS', 9, 4],
     ['animSpeed', 0, 0.5], ['animSpeed', 2, 1.5],
     ['finishMeterMs', 0, 300], ['finishMeterMs', 900, 700],
     ['finishGreen', 0, 0.05], ['finishGreen', 1, 0.2],

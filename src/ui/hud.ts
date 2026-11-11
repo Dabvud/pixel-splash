@@ -32,6 +32,10 @@ export function createHud(root: HTMLElement): {
   const timers: DisplayTimer[] = [banner, mark].map(element => ({ element, id: null, remaining: null, deadline: 0 }));
   const [bannerTimer, markTimer] = timers;
   const pct = (v: number) => `${(Math.min(v, max) / max) * 100}%`;
+  let previousFill: number | null | undefined;
+  let previousG = 0, previousA = 0, previousMax = 0, previousArrow = false;
+  let previousLo: number | undefined, previousHi: number | undefined;
+  const setHidden = (node: HTMLElement, hidden: boolean) => { if (node.hidden !== hidden) node.hidden = hidden; };
 
   function clearTimer(timer: DisplayTimer): void {
     if (timer.id !== null) window.clearTimeout(timer.id);
@@ -57,8 +61,14 @@ export function createHud(root: HTMLElement): {
 
   return {
     setMeter(fill, zones, fillMax, arrow = false, bank = null) {
-      meter.hidden = fill === null;
-      bankEl.hidden = fill === null || bank === null;
+      if (fill === previousFill && zones.g === previousG && zones.a === previousA && fillMax === previousMax
+        && arrow === previousArrow && bank?.lo === previousLo && bank?.hi === previousHi) return;
+      const zonesChanged = zones.g !== previousG || fillMax !== previousMax || previousFill === null || previousFill === undefined;
+      const bankChanged = bank?.lo !== previousLo || bank?.hi !== previousHi || fillMax !== previousMax;
+      previousFill = fill; previousG = zones.g; previousA = zones.a; previousMax = fillMax;
+      previousArrow = arrow; previousLo = bank?.lo; previousHi = bank?.hi;
+      setHidden(meter, fill === null);
+      setHidden(bankEl, fill === null || bank === null);
       if (fill === null) {
         mark.hidden = true;
         mark.classList.remove("good");
@@ -67,19 +77,22 @@ export function createHud(root: HTMLElement): {
         return;
       }
       max = fillMax;
-      fillEl.hidden = arrow;
-      arrowEl.hidden = !arrow;
+      setHidden(fillEl, arrow);
+      setHidden(arrowEl, !arrow);
       arrowEl.style.bottom = pct(fill);
       fillEl.style.height = pct(fill);
-      green.style.bottom = pct(1 - zones.g);
-      green.style.height = `${((2 * zones.g) / max) * 100}%`;
-      if (bank) {
+      if (zonesChanged) {
+        green.style.bottom = pct(1 - zones.g);
+        green.style.height = `${((2 * zones.g) / max) * 100}%`;
+      }
+      if (bank && bankChanged) {
         bankEl.style.bottom = pct(bank.lo);
         bankEl.style.height = `${(Math.min(bank.hi, max) - Math.min(bank.lo, max)) / max * 100}%`;
       }
     },
     markRelease(fill, persist = false, zones) {
       if (disposed) return;
+      previousFill = undefined;
       const good = zones !== undefined && Math.abs(fill - 1) <= zones.g + 1e-9;
       mark.classList.toggle("good", good);
       arrowEl.classList.toggle("good", good);

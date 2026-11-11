@@ -29,7 +29,7 @@ describe('Entscheiden im Laufen', () => {
   });
 
   it('trifft die KI-Wahl erst am Wegende, nicht mitten im Lauf', () => {
-    const cfg = { ...base, decisionLead: 2.5, decisionS: 0.5 };
+    const cfg = { ...base, decisionLead: 2.5, decisionS: 2.5 };
     const s = untilDecision(cfg);
     for (let i = 0; i < 90; i++) step(s, 1 / 60, cfg, rng); // 1,5 s Echtzeit = 0,45 Spielsekunden
     expect(s.phase).toBe('decision');

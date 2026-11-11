@@ -12,7 +12,7 @@ import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
 import { actorHead, command, createPlayState, lastHint, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState } from "../play/engine";
 import { positionValue } from "../play/position";
-import { laneFromAngle, passQuality, pickTargetWithAngle, type ScreenTarget } from "../play/pass";
+import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
 import { createPlayHud, formatPlayClock, type Marker } from "../ui/play-hud";
 import type { Mode } from "./mode";
@@ -41,18 +41,19 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   root.append(stage);
 
   let settings = initial;
-  const { scene, ball, updateNet } = createScene();
+  const { scene, ball, updateNet, crowd } = createScene();
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   const px = createPixelRenderer(stage);
-  const atlas = buildAtlas(ACTORS);
-  const actors = createActors(scene, atlas, Object.keys(ACTORS));
+  let atlas: ReturnType<typeof buildAtlas>;
+  let actors: ReturnType<typeof createActors>;
+  let actorIds = "";
   const hud = createHud(root);
   const phud = createPlayHud(root);
   const statsEl = root.querySelector<HTMLElement>("#hud-stats")!;
   const stats: Record<string, { tries: number; points: number; turnovers: number }> = {};
 
   const cfg = (): EngineConfig => ({
-    decisionLead: 2.5,
+    decisionLead: settings.decisionS,
     finishArrow: true,
     slowmo: settings.slowmo,
     decisionS: settings.decisionS,
@@ -76,17 +77,26 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   let driveTouch = false; // Dieselbe Berührung darf nach dem Ziehen nur noch das Meter auslösen.
   let endedAt: number | null = null;
   let menuOpen = false;
+  let menuPaused = false, hidden = false, dirty = true;
   let camHold = 0; // Sekunden, in denen nach einem Ballwechsel keine Kombi startet
   let lastHandler = "";
   let finishCam: ReturnType<typeof finishCameraPose> | null = null;
   let raf = 0;
   let last = performance.now();
-  let lastFrame = last;
+  let lastFrame = 0; // aktive Millisekunden des letzten gerenderten Bildes
   let activeNow = 0;
   let detach = () => {};
   const camPos = new THREE.Vector3();
   const camLook = new THREE.Vector3();
   let camInit = false;
+  const projection = new THREE.Vector3();
+  const views: ActorView[] = [];
+  const targets: { x: number; z: number }[] = [];
+  const defenderPositions: { x: number; z: number }[] = [];
+  const markerPool: Marker[] = [], markers: Marker[] = [];
+  const head = { x: 0, y: 0 }, feet = { x: 0, y: 0 }, posterPoint = { x: 0, y: 0 };
+  const noZones = { g: 0, a: 0 };
+  let stageWidth = 0, stageHeight = 0;
 
   function showStats(): void {
     const st = stats[s.play.id];
@@ -97,6 +107,17 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     rng = settings.defenseRandom ? Math.random : seeded(7);
     const id = settings.play === "random" ? PLAY_IDS[Math.min(PLAY_IDS.length - 1, Math.floor(rng() * PLAY_IDS.length))] : settings.play;
     s = createPlayState(PLAYS[id], cfg(), rng);
+    const ids = Object.keys(s.actors);
+    if (ids.join("|") !== actorIds) {
+      actors?.dispose();
+      if (atlas) (atlas.textures ?? [atlas.texture]).forEach(t => t.dispose());
+      atlas = buildAtlas(Object.fromEntries(ids.map(id => [id, ACTORS[id]])), { lazy: true });
+      actors = createActors(scene, atlas, ids);
+      actorIds = ids.join("|");
+    }
+    views.length = 0;
+    for (const id of ids) views.push({ id, x: 0, y: 0, z: 0, facing: 0, move: "idle", moveT: 0, visible: true });
+    dirty = true;
     options = [];
     comboT0 = releasedFill = endedAt = null;
     arrowTouch = null;
@@ -106,7 +127,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     camInit = false;
     detach();
     detach = menuOpen ? () => {} : attach();
-    hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
+    hud.setMeter(null, noZones, MAX_FILL);
     phud.setMarkers([]);
     phud.setFinishFeedback(null);
     phud.setPoster(0, 0, false);
@@ -115,11 +136,17 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     showStats();
   }
 
-  function screen(x: number, y: number, z: number): { x: number; y: number } {
-    const v = new THREE.Vector3(x, y, z).project(camera);
+  function screen(x: number, y: number, z: number, out = { x: 0, y: 0 }): { x: number; y: number } {
+    const v = projection.set(x, y, z).project(camera);
     // Punkte hinter der Kamera spiegeln, damit die Richtung für Randpfeile stimmt
     const f = v.z > 1 ? -1 : 1;
-    return { x: ((v.x * f + 1) / 2) * stage.clientWidth, y: ((1 - v.y * f) / 2) * stage.clientHeight };
+    out.x = ((v.x * f + 1) / 2) * stageWidth; out.y = ((1 - v.y * f) / 2) * stageHeight;
+    return out;
+  }
+
+  function addMarker(kind: Marker["kind"], x: number, y: number, z: number, label?: string): void {
+    const m = markerPool[markers.length] ??= { kind, x: 0, y: 0 };
+    m.kind = kind; m.label = label; screen(x, y, z, m); markers.push(m);
   }
 
   function handle(events: EngineEvent[]): void {
@@ -127,12 +154,12 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       if (e.type === "decision") options = e.options;
       else if (e.type === "arrowStart") {
         comboT0 = releasedFill = null;
-        hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
+        hud.setMeter(null, noZones, MAX_FILL);
       } else if (e.type === "arrowTap") {
         hud.markRelease(e.fill, true, s.arrowMeter?.zones);
         phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
       }
-      else if (e.type === "arrowEnd") hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
+      else if (e.type === "arrowEnd") hud.setMeter(null, noZones, MAX_FILL);
       else if (e.type === "pass" || e.type === "caught") options = [];
       else if (e.type === "pocket") {
         if (e.quality >= .9) phud.flash("IN DIE POCKET!");
@@ -145,12 +172,14 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       } else if (e.type === "combo") {
         if (e.fouled) phud.flash("KONTAKT!");
       } else if (e.type === "result") {
+        if (e.made) crowd?.cheer(/DUNK|POSTER/.test(e.banner) ? .9 : .6);
         hud.showResult({ banner: e.banner, hint: e.made ? "" : lastHint(s), made: e.made } as ShotResult);
         comboT0 = null;
       } else if (e.type === "freethrow") {
         phud.flash(e.left === 1 ? "LETZTER FREIWURF" : `${e.left} FREIWÜRFE`);
         releasedFill = null;
       } else if (e.type === "end") {
+        if (e.verdict === "GAMEWINNER") crowd?.cheer(1);
         options = [];
         const st = (stats[s.play.id] ??= { tries: 0, points: 0, turnovers: 0 });
         st.tries++;
@@ -170,7 +199,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       if (o.kind === "pass" && o.to) {
         const a = s.actors[o.to];
         targets.push({ id: o.to, ...screen(a.pos.x, 1, a.pos.z), distM: Math.hypot(a.pos.x - h.pos.x, a.pos.z - h.pos.z) });
-      } else if (o.kind === "drive") targets.push({ id: "rim", ...screen(0, 3.05, 0), distM: Math.hypot(h.pos.x, h.pos.z) });
+      }
     }
     return pickTargetWithAngle(origin, { dx, dy }, targets);
   }
@@ -201,11 +230,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     if (e.type === "drag") {
       if (!driveTouch && s.phase === "decision" && !s.combo && Math.hypot(e.dx, e.dy) >= 60
         && (!arrowTouch || arrowTouch.kind === "catchshoot")) {
-        const target = swipeTarget(e.dx, e.dy);
-        if (target?.id === "rim") {
-          handle(command(s, { kind: "drive", lane: laneFromAngle(target.angleDeg) }, c, rng));
-          if (s.phase !== "decision") { driveTouch = true; arrowTouch = null; }
-        }
+        const h = s.actors[s.handler].pos;
+        const angle = swipeAngleTo(screen(h.x, 1, h.z), screen(0, 3.05, 0), e);
+        handle(command(s, { kind: "drive", lane: laneFromAngle(angle) }, c, rng));
+        if (s.phase !== "decision") { driveTouch = true; arrowTouch = null; }
       }
       return;
     }
@@ -238,10 +266,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     }
     if (e.type === "flick" && s.phase === "decision" && !s.combo) {
       const target = swipeTarget(e.dx, e.dy);
-      if (target?.id === "rim") {
-        const lane = laneFromAngle(target.angleDeg);
-        handle(command(s, { kind: "drive", lane }, c, rng));
-      } else if (target) handle(command(s, { kind: "pass", to: target.id, quality: passQuality(target.angleDeg) }, c, rng));
+      if (target) handle(command(s, { kind: "pass", to: target.id, quality: passQuality(target.angleDeg) }, c, rng));
     } else if (e.type === "release" && s.combo && comboT0 !== null) {
       const holdMs = Math.max(0, activeNow - comboT0);
       releasedFill = Math.min(holdMs / s.combo.meterMs, MAX_FILL);
@@ -262,13 +287,13 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     },
     { flicks: true, holdThresholdMs: HOLD_MS });
 
-  const resize = () => px.resize(settings.pixelHeight, camera);
+  const resize = () => { px.resize(settings.pixelHeight, camera); dirty = true; };
 
   // Dieselbe pausierbare Echtzeit treibt Anzeige, Release und Engine-Fristen.
   function advanceTo(now: number): void {
     let left = Math.max(0, now - last);
     last = Math.max(last, now);
-    if (menuOpen) return;
+    if (menuOpen || left > 1000) return;
     const c = cfg();
     while (left > 1e-8) {
       const ms = Math.min(50, left), dt = ms / 1000;
@@ -287,16 +312,24 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
   }
 
   function frame(now: number): void {
-    const dt = Math.max(0, (now - lastFrame) / 1000);
-    lastFrame = now;
     advanceTo(now);
+    // Kamera und Engine verwenden dieselbe aktive Zeit, auch wenn ein Release
+    // zwischen zwei Bildern bereits advanceTo() aufgerufen hat. Pausen und
+    // verworfene Hintergrundzeit bewegen damit auch die Kamera nicht weiter.
+    const dt = Math.max(0, (activeNow - lastFrame) / 1000);
+    lastFrame = activeNow;
+    raf = requestAnimationFrame(frame);
+    if (menuOpen && !dirty) return;
+    dirty = false;
+    stageWidth = stage.clientWidth; stageHeight = stage.clientHeight;
 
     // Entscheidungen rahmen alle Optionen ein; Kombis und Abschlüsse bleiben tief.
     const h = s.actors[s.handler];
     const catchArrow = s.arrowMeter?.kind === "catchshoot" && s.arrowMeter.fill === null;
     const aimPhase = s.phase === "combo" || s.phase === "takeoff" || s.phase === "ballflight" || s.phase === "freethrows" || catchArrow;
     const view = settings.camera === "low" || aimPhase ? "aim" : "wide";
-    const targets = options.filter(o => o.kind === "pass" && o.to).map(o => s.actors[o.to!].pos);
+    targets.length = 0;
+    for (const o of options) if (o.kind === "pass" && o.to) targets.push(s.actors[o.to].pos);
     // Auch bei fehlenden Passzielen bleibt das Catch-and-Shoot-Pfeil-Meter tief.
     const overview = settings.camera !== "low" && s.phase === "decision" && !catchArrow;
     // Korbleger/Dunk im Profil zeigen; Standort beim Absprung merken, weil der Spieler danach zum Ring wandert
@@ -321,40 +354,45 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     camera.updateMatrixWorld(true);
     const yaw = Math.atan2(camLook.x - camPos.x, -(camLook.z - camPos.z));
 
-    const views: ActorView[] = Object.values(s.actors).map((a) => ({ id: a.id, x: a.pos.x, y: a.y, z: a.pos.z, facing: a.facing, move: a.move, moveT: a.moveT, moveSide: a.moveSide, visible: true }));
-    for (const id of Object.keys(ACTORS)) if (!s.actors[id]) views.push({ id, x: 0, y: 0, z: 0, facing: 0, move: "idle", moveT: 0, visible: false });
+    for (const v of views) {
+      const a = s.actors[v.id];
+      v.x = a.pos.x; v.y = a.y; v.z = a.pos.z; v.facing = a.facing;
+      v.move = a.move; v.moveT = a.moveT; v.moveSide = a.moveSide;
+    }
     actors.sync(views, yaw);
     ball.position.set(s.ball.x, s.ball.y, s.ball.z);
 
     // HUD
     phud.setScoreboard(s.clock, s.deficit, s.points);
     if (s.phase !== "intro") phud.setSituation(null);
-    const head = screen(h.pos.x, h.y + ACTORS[h.id].heightM + 0.35, h.pos.z);
-    const markers: Marker[] = [];
+    screen(h.pos.x, h.y + ACTORS[h.id].heightM + 0.35, h.pos.z, head);
+    markers.length = 0;
     if (s.phase === "decision" && !s.combo) {
       for (const o of options) {
         if (o.kind === "pass" && o.to) {
           const a = s.actors[o.to];
-          markers.push({ kind: "pass", ...screen(a.pos.x, 0, a.pos.z), label: `#${ACTORS[o.to].num}` });
-        } else if (o.kind === "drive") markers.push({ kind: "drive", ...screen(h.pos.x * 0.6, 0.2, h.pos.z * 0.6) });
-        else markers.push({ kind: "shoot", x: head.x, y: head.y - 40 });
+          addMarker("pass", a.pos.x, 0, a.pos.z, `#${ACTORS[o.to].num}`);
+        } else if (o.kind === "drive") addMarker("drive", h.pos.x * 0.6, 0.2, h.pos.z * 0.6);
+        else {
+          const m = markerPool[markers.length] ??= { kind: "shoot", x: 0, y: 0 };
+          m.kind = "shoot"; m.x = head.x; m.y = head.y - 40; m.label = undefined; markers.push(m);
+        }
       }
     }
     phud.setMarkers(markers);
     const colorRing = s.phase === "decision" || s.phase === "driving" || s.phase === "takeoff";
     const showPlayer = s.phase !== "ended";
-    const defenders = Object.values(s.actors)
-      .filter((a) => ACTORS[a.id].team === "def")
-      .map((a) => a.pos);
-    const feet = screen(h.pos.x, 0, h.pos.z);
-    phud.setRing(feet.x, feet.y, colorRing ? (s.combo ? s.combo.P : positionValue(h.pos, defenders)) : null, showPlayer);
+    defenderPositions.length = 0;
+    for (const v of views) if (ACTORS[v.id].team === "def") defenderPositions.push(s.actors[v.id].pos);
+    screen(h.pos.x, 0, h.pos.z, feet);
+    phud.setRing(feet.x, feet.y, colorRing ? (s.combo ? s.combo.P : positionValue(h.pos, defenderPositions)) : null, showPlayer);
     phud.setHandler(head.x, head.y, showPlayer);
     phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
     const poster = s.poster;
     // Auch die Endreaktionen nutzen die pausierbare Engine-Echtzeit.
     const posterElapsed = poster ? s.realTime - poster.startedAt : 0;
     if (poster && posterElapsed < 1.5) {
-      const p = actorHead(s.actors[poster.defender]), projected = screen(p.x, p.y + .25, p.z);
+      const p = actorHead(s.actors[poster.defender]), projected = screen(p.x, p.y + .25, p.z, posterPoint);
       phud.setPoster(projected.x, projected.y, true, posterElapsed);
     } else phud.setPoster(0, 0, false);
 
@@ -362,13 +400,32 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
       const meter = s.arrowMeter;
       hud.setMeter(meter.fill ?? Math.min((s.realTime - meter.startTime) * 1000 / meter.meterMs, MAX_FILL), meter.zones, MAX_FILL, true, meter.bankWindow);
     } else if (s.combo && comboT0 !== null) hud.setMeter(releasedFill ?? Math.min((activeNow - comboT0) / s.combo.meterMs, MAX_FILL), s.combo.zones, MAX_FILL, false, s.combo.bankWindow);
-    else hud.setMeter(null, { g: 0, a: 0 }, MAX_FILL);
+    else hud.setMeter(null, noZones, MAX_FILL);
 
-    updateNet(now);
+    if (!menuOpen) { updateNet(activeNow); crowd?.update(activeNow); }
     px.renderer.render(scene, camera);
-    raf = requestAnimationFrame(frame);
   }
 
+  function syncPause(): void {
+    const p = menuPaused || hidden;
+    if (p === menuOpen) return;
+    const now = performance.now();
+    advanceTo(now);
+    if (p) {
+      detach();
+      detach = () => {};
+      endTouch();
+      if (releasedFill === null) comboT0 = null;
+    } else detach = attach();
+    menuOpen = p;
+    hud.setPaused(p); phud.setPaused(p);
+    dirty = true;
+    last = now;
+    lastFrame = activeNow;
+  }
+
+  const visibility = () => { hidden = document.hidden; syncPause(); };
+  document.addEventListener("visibilitychange", visibility);
   addEventListener("resize", resize);
   newPlay();
   resize();
@@ -376,7 +433,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
 
   return {
     apply(next) {
-      const restart = next.play !== settings.play || next.defenseRandom !== settings.defenseRandom;
+      const restart = next.play !== settings.play || next.defenseRandom !== settings.defenseRandom || next.decisionS !== settings.decisionS;
       settings = next;
       resize();
       if (restart) newPlay();
@@ -384,25 +441,15 @@ export function startPlayLab(app: HTMLElement, initial: Settings): Mode {
     restart() {
       newPlay();
     },
-    setPaused(p) {
-      if (p === menuOpen) return;
-      const now = performance.now();
-      advanceTo(now);
-      if (p) {
-        detach();
-        detach = () => {};
-        endTouch();
-        if (releasedFill === null) comboT0 = null;
-      } else detach = attach();
-      menuOpen = p;
-      lastFrame = last = now;
-    },
+    setPaused(p) { menuPaused = p; syncPause(); },
     stop() {
       cancelAnimationFrame(raf);
       removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", visibility);
       detach();
       actors.dispose();
       (atlas.textures ?? [atlas.texture]).forEach(texture => texture.dispose());
+      hud.dispose();
       phud.dispose();
       px.renderer.dispose();
       root.remove();

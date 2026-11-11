@@ -26,7 +26,7 @@ const RANGES: RangeField[] = [
   { key: "finishGreen", label: "Grüne Zone Abschluss", show: "play", min: 5, max: 20, step: 1, scale: 100, fmt: (v) => `± ${v} %` },
   { key: "finishAim", label: "Richtung Abschluss", show: "play", min: 4, max: 14, step: 1, scale: 1, fmt: (v) => `± ${v}°` },
   { key: "slowmo", label: "Zeitlupe", show: "play", min: 20, max: 50, step: 5, scale: 100, fmt: pct },
-  { key: "decisionS", label: "Entscheidungszeit", show: "play", min: 1, max: 4, step: 0.5, scale: 1, fmt: (v) => `${v} s` },
+  { key: "decisionS", label: "Entscheidungsfenster", show: "play", min: 1.5, max: 4, step: 0.5, scale: 1, fmt: (v) => `${v} s` },
   { key: "passDelayMax", label: "Pass-Verzögerung max.", show: "play", min: 0, max: 1, step: 0.05, scale: 1, fmt: (v) => `${v} s` },
   { key: "closeoutRandom", label: "Closeout-Zufall", show: "play", min: 0, max: 100, step: 5, scale: 100, fmt: pct },
   { key: "animSpeed", label: "Animationstempo", show: "play", min: 50, max: 150, step: 10, scale: 100, fmt: pct },
@@ -44,15 +44,15 @@ export function createLabMenu(root: HTMLElement, s: Settings, onChange: (s: Sett
   root.insertAdjacentHTML(
     "beforeend",
     `<button class="lab-open" id="lab-open" aria-label="Pause">⏸</button>
-     <dialog class="lab pause" id="pause">
-       <h2>Pause</h2>
+     <dialog class="lab pause" id="pause" aria-labelledby="pause-title">
+       <h2 id="pause-title">Pause</h2>
        <button class="lab-close" id="pause-resume">Weiter</button>
        <button class="pause-btn" id="pause-restart">${s.mode === "play" ? "Spielzug neu starten" : "Statistik zurücksetzen"}</button>
        <button class="pause-btn" id="pause-settings">Einstellungen</button>
      </dialog>
-     <dialog class="lab" id="lab">
+     <dialog class="lab" id="lab" aria-labelledby="lab-title">
        <form method="dialog">
-         <h2>Labor</h2>
+         <h2 id="lab-title">Labor</h2>
          ${SELECTS.map(select).join("")}
          ${RANGES.map(range).join("")}
          <button class="lab-close" value="close">Fertig</button>
