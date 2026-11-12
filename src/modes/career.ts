@@ -4,14 +4,14 @@ import { newCareer, seededRng } from '../career/create';
 import { teamById, teamName } from '../career/league';
 import { dressTeams, registerHero, unregisterHero } from '../career/hero';
 import { projectLine, scenePlan, sceneSpec, scheduleSeason } from '../career/keygame';
-import { advanceScore, crunch, openingScore, sceneGap, type GameScore } from '../career/momentum';
+import { advanceScore, crunch, fate, openingScore, sceneGap, type GameScore } from '../career/momentum';
 
 /** Ausgang eines Key Games: Sieg/Niederlage, Endstand, optional Hinweis (Crunchtime schon entschieden) */
 interface Outcome { won: boolean; own: number; opp: number; note?: string }
-import { finishSeason, playoffStatus, projectWins, standings, strengthOf } from '../career/season';
+import { finishSeason, offDef, playoffStatus, projectWins, standings, strengthOf } from '../career/season';
 import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResult } from '../career/playoffs';
 import type { PlayScene, SceneResult } from '../career/scene-types';
-import { acceptOffer, ackTrade, beginOffseason, endOffseason, refund, refundStage, spend } from '../career/offseason';
+import { acceptOffer, ackNews, ackTrade, beginOffseason, endOffseason, refund, refundStage, spend } from '../career/offseason';
 import { RATING_KEYS, type RatingKey } from '../play/ratings';
 import { SPECS, STAGE_COST, buyStage, chooseSpec, perksOf, updateHot, type SpecId } from '../career/spec';
 import type { SceneSpec } from '../career/scene-types';
@@ -90,7 +90,8 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       ${c.injured ? '<p>Verletzt: diese Saison nur 3 Key Games.</p>' : ''}
       <p>Bilanz Key Games: ${wins} – ${c.season.length - wins}</p>
       ${c.contract ? `<p>Vertrag: noch ${c.contract.years} ${c.contract.years === 1 ? 'Jahr' : 'Jahre'} · ${money(c.contract.salary)}</p>` : ''}
-      <div class="career-next"><b>Key Game ${c.gameIndex + 1} / ${c.keyGames.length}</b><br>${esc(game.label)}<br>${opponentLine(game)}</div>`,
+      <p>${teamValue(c, c.team)}</p>
+      <div class="career-next"><b>Key Game ${c.gameIndex + 1} / ${c.keyGames.length}</b><br>${esc(game.label)}<br>${opponentLine(game)}<br><small>${teamValue(c, game.opponent)}</small></div>`,
       [['Spielen', () => playGame(c, game)], ['Karriere-Statistik', () => stats(c, () => hub(c))]]);
   }
 
@@ -99,9 +100,21 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     const total = scenePlan(game), results: SceneResult[] = [];
     const own = teamById(c.team), opp = teamById(game.opponent);
     const ownStr = strengthOf(c, c.team), oppStr = strengthOf(c, game.opponent);
-    let score: GameScore | undefined;
+    let score: GameScore | undefined, openOffset = 0;
     const next = (): void => {
       const i = results.length;
+      if (i >= total && openOffset) {
+        // letzte Szene war nicht entscheidend: der Rest des Viertels läuft mit dem Schwung der Szene zu Ende
+        const before = score!.opp - score!.own;
+        const end = advanceScore(score!, results[i - 1], openOffset / 720, ownStr, oppStr, c.difficulty, rng);
+        if (end.own === end.opp) {
+          const won = rng() < .5, base = end.own + 6 + Math.floor(rng() * 7), margin = 1 + Math.floor(rng() * 5);
+          return finish(results, rng, { won, own: won ? base + margin : base, opp: won ? base : base + margin, note: 'Entschieden in der Verlängerung.' });
+        }
+        const won = end.own > end.opp;
+        return finish(results, rng, { won, own: end.own, opp: end.opp,
+          note: won && before > 0 ? 'Comeback im Schlussviertel!' : !won && before < 0 ? 'Die Führung im Schlussviertel noch hergegeben.' : undefined });
+      }
       if (i >= total) {
         // Crunchtime gespielt: die letzte Szene entscheidet, Gleichstand (Overtime) per Münzwurf
         const last = results[i - 1], ot = !last.won && /OVERTIME/.test(last.verdict);
@@ -117,18 +130,11 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
           : { won, own: ownEnd, opp: Math.max(score!.opp, ownEnd + 1) });
       }
       // Momentum: Treffer in der letzten Szene schieben den Spielstand bis zur nächsten Szene
-      score = !score ? openingScore(total, ownStr, oppStr, c.difficulty, rng)
+      score = !score ? fate(openingScore(total, ownStr, oppStr, c.difficulty, rng), rng)
         : advanceScore(score, results[i - 1], sceneGap(total, i), ownStr, oppStr, c.difficulty, rng);
       let deficit: number;
-      if (i === total - 1) {
-        const cr = crunch(score);
-        if (cr.kind !== 'play') {
-          const won = cr.kind === 'won', extra = 2 + Math.floor(rng() * 5);
-          return finish(results, rng, {
-            won, own: score.own + (won ? extra : 0), opp: score.opp + (won ? 0 : extra),
-            note: won ? 'Vor der Crunchtime schon klar vorne – souverän nach Hause gebracht.' : 'Pech – vor der Crunchtime war der Rückstand schon zu groß.',
-          });
-        }
+      const cr = i === total - 1 ? crunch(score, rng) : undefined, open = cr?.kind === 'open';
+      if (cr?.kind === 'play') {
         deficit = cr.deficit;
         score = { own: score.own, opp: score.own + deficit };
       } else deficit = Math.max(1, Math.min(3, score.opp - score.own));
@@ -136,10 +142,11 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       const t = TUNING[c.difficulty];
       const withPerks = (sp: SceneSpec): SceneSpec => ({ ...sp, tuning: { zone: t.zone, meter: t.meter, ai: t.ai },
         perks: { ...perks, passSteal: (perks.passSteal ?? 1) * t.steal, onFire: Boolean(perks.greenLight) && hot >= 2 } });
-      const spec = withPerks(sceneSpec(c, game, i, total, deficit, rng, score));
+      const spec = withPerks(sceneSpec(c, game, i, total, deficit, rng, score, open));
+      openOffset = spec.clockOffset ?? 0;
       // Coach-Call: zweiter Spielzug zur Wahl (gleiche Lage, anderer Spielzug)
       let alt: SceneSpec | undefined;
-      for (let k = 0; perks.coachCall && k < 6 && (!alt || alt.play.id === spec.play.id); k++) alt = withPerks({ ...sceneSpec(c, game, i, total, deficit, rng, score), title: spec.title, clockS: spec.clockS, deficit });
+      for (let k = 0; perks.coachCall && k < 6 && (!alt || alt.play.id === spec.play.id); k++) alt = withPerks({ ...sceneSpec(c, game, i, total, deficit, rng, score, open), title: spec.title, clockS: spec.clockS, clockOffset: spec.clockOffset, deficit });
       if (alt?.play.id === spec.play.id) alt = undefined;
       const go = (chosen: SceneSpec = spec): void => {
         clearTimeout(timer);
@@ -173,6 +180,11 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     unregisterHero();
   }
 
+  function teamValue(c: CareerState, id: string): string {
+    const v = offDef(c, id);
+    return `${esc(teamById(id).name)}: Teamwert ${strengthOf(c, id)} · Angriff ${v.off} · Verteidigung ${v.def}`;
+  }
+
   function finishGame(c: CareerState, game: KeyGame, results: SceneResult[], rng: () => number, o: Outcome): void {
     const won = o.won, line = projectLine(c.player.ratings, results, rng), ownPts = o.own, oppPts = o.opp;
     const after: CareerState = { ...c, gameIndex: c.gameIndex + 1, hot: updateHot(c.hot ?? 0, results),
@@ -191,8 +203,8 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     const rank = table.findIndex(r => r.team === c.team) + 1;
     screen(`<h2>Saisonende ${c.year}</h2><p>${ownWins} – ${82 - ownWins} · Platz ${rank} in der ${teamById(c.team).conference === 'east' ? 'Eastern' : 'Western'} Conference</p>
       <p>${STATUS[playoffStatus(rank)]}</p>
-      <table class="career-table"><thead><tr><th>#</th><th>Team</th><th>S</th><th>N</th></tr></thead><tbody>${table.map((r, i) =>
-        `<tr${r.team === c.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${esc(teamName(teamById(r.team)))}</td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</tbody></table>`,
+      <table class="career-table"><thead><tr><th>#</th><th>Team</th><th>Wert</th><th>S</th><th>N</th></tr></thead><tbody>${table.map((r, i) =>
+        `<tr${r.team === c.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${esc(teamName(teamById(r.team)))}${r.note ? ` <small>${r.note}</small>` : ''}</td><td>${strengthOf(c, r.team)}</td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</tbody></table>`,
       rank <= 10
         ? [[rank <= 6 ? 'Playoffs' : 'Play-In', () => {
           const n = { ...c, postseason: startPostseason(c, ownWins, table, seededRng(seed + 2))! };
@@ -223,11 +235,20 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       const cards = o.offers!.map(offer => {
         const t = teamById(offer.team), strength = strengthOf(c, offer.team);
         return `<div class="offer"><b>${esc(teamName(t))}${offer.team === c.team ? ' (Verlängerung)' : ''}</b>
-          <span class="offer-bar" style="--v:${strength}%" title="Teamstärke ${strength}"></span>
+          <span>${teamValue(c, offer.team)}</span>
+          <span class="offer-bar" style="--v:${strength}%" title="Teamwert ${strength}"></span>
           <span>${offer.years} ${offer.years === 1 ? 'Jahr' : 'Jahre'} · ${money(offer.salary)} · <em>${offer.spPerYear} Skillpunkte/Jahr</em></span></div>`;
       }).join('');
       return screen(`<h2>Vertragsangebote</h2><p>Dein Vertrag ist ausgelaufen. Schwache Teams locken manchmal mit mehr Skillpunkten – dort ist es aber schwerer zu gewinnen.</p><div class="offers">${cards}</div>`,
         o.offers!.map(offer => [`Unterschreiben: ${teamName(teamById(offer.team))}`, () => go(acceptOffer(c, offer))] as [string, () => void]), 'career-long');
+    }
+    if (o.step === 'news') {
+      const moves = o.moves ?? [];
+      const rows = moves.map(m => `<div class="offer"><b>${esc(m.name)}</b>
+        <span>${esc(teamName(teamById(m.from)))} → ${esc(teamName(teamById(m.to)))}</span>
+        <span>${teamById(m.to).name}: Teamwert jetzt <em>${strengthOf(c, m.to)}</em> (+${m.value}) · ${teamById(m.from).name}: ${strengthOf(c, m.from)}</span></div>`).join('');
+      return screen(`<h2>Wechselbörse</h2><p>${moves.length ? 'Die großen Wechsel dieser Off-Season:' : 'Keine großen Wechsel in dieser Off-Season.'}</p><div class="offers">${rows}</div>
+        <p>${teamValue(c, c.team)}</p>`, [['Weiter', () => go(ackNews(c))]], 'career-long');
     }
     // „−“ nur für Punkte, die in dieser Off-Season verteilt wurden
     const spentOn = (k: string) => (o.spent ?? []).some(e => e.k === k);

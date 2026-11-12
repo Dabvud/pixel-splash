@@ -10,6 +10,8 @@ export interface SceneSpec {
   teams?: [string, string]; period?: string;
   /** echter Spielstand zu Szenenbeginn (eigenes Team, Gegner) */
   score?: [number, number];
+  /** Szene mitten im Viertel: die Szenen-Uhr ist die Wurfuhr, die Spieluhr zeigt so viele Sekunden mehr */
+  clockOffset?: number;
   /** Schwierigkeit in der Szene: grüne Zone, Meter-Dauer, Trefferquote der KI-Mitspieler (Faktoren) */
   tuning?: { zone: number; meter: number; ai: number };
   /** letzte Szene (Crunchtime)? Davor zeigt das Ende „+X PUNKTE“ statt GAMEWINNER/VERLOREN/OVERTIME */

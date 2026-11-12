@@ -34,11 +34,16 @@ export function advanceScore(score: GameScore, last: SceneResult | undefined, qu
   };
 }
 
-/** Lage vor der Crunchtime: knapp hinten → spielen; zu weit hinten → schon verloren (Pech); klar vorne → schon gewonnen */
-export function crunch(score: GameScore): { kind: 'play'; deficit: number } | { kind: 'won' } | { kind: 'lost' } {
+/** Spielverlauf gegen die eigene Leistung: je 7 % läuft das Spiel früh klar gegen bzw. für das eigene Team */
+export function fate(score: GameScore, rng: () => number): GameScore {
+  const r = rng(), swing = 10 + Math.floor(rng() * 7);
+  return r < .07 ? { own: score.own, opp: score.opp + swing } : r < .14 ? { own: score.own + swing, opp: score.opp } : score;
+}
+
+/** Schluss-Szene nur, wenn ein Angriff das Spiel entscheidet: Gleichstand oder 1–3 hinten; sonst offene Szene mitten im 4. Viertel */
+export function crunch(score: GameScore, rng: () => number): { kind: 'play'; deficit: number } | { kind: 'open' } {
   const d = score.opp - score.own;
-  if (d > 6) return { kind: 'lost' };
-  if (d >= 1) return { kind: 'play', deficit: d };
-  // knapp vorne: der Gegner trifft spät, du musst das Spiel selbst zumachen
-  return d >= -3 ? { kind: 'play', deficit: 1 } : { kind: 'won' };
+  if (d >= 0 && d <= 3) return { kind: 'play', deficit: d };
+  // knapp vorne: der Gegner trifft spät zum Ausgleich oder zur Führung, du musst das Spiel selbst zumachen
+  return d < 0 && d >= -3 ? { kind: 'play', deficit: rng() < .5 ? 0 : 1 } : { kind: 'open' };
 }

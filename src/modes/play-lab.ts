@@ -203,7 +203,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
       phud.setSituation(career.spec.title, career.spec.subtitle);
       if (career.spec.teams) phud.setLabels(career.spec.teams[0], career.spec.teams[1], career.spec.period, career.spec.score);
     }
-    phud.setScoreboard(s.clock, s.deficit, s.points, s.overtime);
+    phud.setScoreboard(s.clock + (career?.spec.clockOffset ?? 0), s.deficit, s.points, s.overtime);
     showStats();
   }
 
@@ -582,7 +582,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
     ball.position.set(s.ball.x, s.ball.y, s.ball.z);
 
     // HUD
-    phud.setScoreboard(s.clock, s.deficit, s.points, s.overtime);
+    phud.setScoreboard(s.clock + (career?.spec.clockOffset ?? 0), s.deficit, s.points, s.overtime);
     if (s.phase !== "intro") phud.setSituation(null);
     screen(h.pos.x, h.y + ACTORS[h.id].heightM + 0.35, h.pos.z, head);
     markers.length = 0;

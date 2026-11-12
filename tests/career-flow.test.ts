@@ -80,6 +80,7 @@ describe('Karriere-Ablauf', () => {
     press('Nächste Saison'); skipAwards();
     // Off-Season: Rookie-Vertrag läuft weiter (bzw. seltener Trade) → Skillpunkte verteilen
     if (text().includes('Trade!')) press('Weiter');
+    if (text().includes('Wechselbörse')) press('Weiter');
     expect(text()).toContain('Skillpunkte');
     const bonus = awardPoints(loadCareer(st)!.history[0].awards ?? []);
     expect(loadCareer(st)!.offseason!.points).toBe(3 + bonus);
@@ -178,6 +179,7 @@ describe('Karriere – Play-In und Playoffs', () => {
     expect(text()).toContain('MEISTER!');
     press('Nächste Saison'); skipAwards();
     if (text().includes('Trade!')) press('Weiter');
+    if (text().includes('Wechselbörse')) press('Weiter');
     press('Fertig');
     const next = loadCareer(st)!;
     expect(next.history[0].playoff).toBe('champion');
@@ -241,6 +243,7 @@ describe('Karriere – Off-Season-Bildschirme', () => {
     const btn = [...document.querySelectorAll('button')].find(b => b.textContent!.startsWith('Unterschreiben') && b.textContent!.includes(TEAM_NAME(target.team)))!;
     btn.click();
     expect(loadCareer(st)!.team).toBe(target.team);
+    expect(text()).toContain('Wechselbörse'); press('Weiter');
     expect(text()).toContain('Skillpunkte');
     press('Fertig');
     expect(text()).toContain(TEAM_NAME(target.team));
@@ -374,5 +377,44 @@ describe('Karriere – Endstand passt zum Spielverlauf', () => {
       expect(Number(m[2])).toBe(last.score![1]);
     }
     expect(Number(m[1])).toBeGreaterThan(Number(m[2]));
+  });
+});
+
+describe('Karriere – Schluss-Szene nur wenn sie entscheidet', () => {
+  function run(own: number, others: number, hit: boolean): { wins: number; open: number } {
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, strengths: Object.fromEntries(ALL_TEAMS.map(t => [t.id, t.id === c.team ? own : others])) }, st);
+    outcome = () => hit ? { won: true, verdict: 'GAMEWINNER', pts: 3, ast: 0, teamPts: 3 } : { won: false, verdict: 'VERLOREN', pts: 0, ast: 0, teamPts: 0 };
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    let wins = 0, open = 0;
+    for (let g = 0; g < 5; g++) {
+      playGame();
+      const last = specs.at(-1)!, m = /(\d+) : (\d+)/.exec(text())!, won = text().includes('Sieg');
+      // angezeigter Endstand passt immer zu Sieg/Niederlage
+      expect(Number(m[1]) > Number(m[2])).toBe(won);
+      if (won) wins++;
+      if (last.clockOffset) { open++; expect(last.final).toBe(false); }
+      press('Weiter');
+    }
+    for (const sp of specs.filter(x => x.final)) {
+      const d = sp.score![1] - sp.score![0];
+      expect(d).toBeGreaterThanOrEqual(0); expect(d).toBeLessThanOrEqual(3);
+      expect(sp.deficit).toBe(d);
+    }
+    return { wins, open };
+  }
+  it('klar unterlegen: offene Szenen statt aussichtsloser Schlusswürfe; trotz Treffern gehen Spiele verloren', () => {
+    const r = run(25, 95, true);
+    expect(r.open).toBeGreaterThan(0);
+    expect(r.wins).toBeLessThan(5);
+  });
+  it('klar überlegen: auch ohne einen einzigen Treffer werden Spiele gewonnen', () => {
+    const r = run(95, 25, false);
+    expect(r.open).toBeGreaterThan(0);
+    expect(r.wins).toBeGreaterThan(0);
+  });
+  it('ausgeglichen: Treffen lohnt sich – mit Treffern mehr Siege als ohne', () => {
+    expect(run(60, 60, true).wins).toBeGreaterThan(run(60, 60, false).wins);
   });
 });

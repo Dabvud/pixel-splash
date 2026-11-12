@@ -42,10 +42,11 @@ describe('Neue Karriere', () => {
     expect(g.pass).toBeGreaterThan(b.pass);
   });
   it('wird von einem der 5 schwächsten Teams gedraftet, deterministisch je Seed, Trikot in Teamfarben', () => {
-    const weakest = [...TEAMS].sort((a, b) => a.strength - b.strength).slice(0, 5).map(t => t.id);
     const seen = new Set<string>();
     for (let seed = 1; seed <= 60; seed++) {
       const c = newCareer(input(), seed);
+      // Teamwerte werden je Karriere gelost
+      const weakest = [...TEAMS].sort((a, b) => c.strengths![a.id] - c.strengths![b.id]).slice(0, 5).map(t => t.id);
       expect(weakest).toContain(c.team);
       expect(newCareer(input(), seed).team).toBe(c.team);
       const team = TEAMS.find(t => t.id === c.team)!;

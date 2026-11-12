@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advanceScore, crunch, openingScore, scenePeriods, sceneGap } from '../src/career/momentum';
+import { advanceScore, crunch, fate, openingScore, scenePeriods, sceneGap } from '../src/career/momentum';
 import { seededRng } from '../src/career/create';
 
 const res = (teamPts: number) => ({ won: teamPts > 0, verdict: '', pts: teamPts, ast: 0, teamPts });
@@ -39,11 +39,27 @@ describe('Momentum in den Key Games', () => {
     }
     expect(hof).toBeGreaterThan(rookie);
   });
-  it('Crunchtime: 1–6 hinten → spielen, mehr → schon verloren, knapp vorne → Gegner gleicht fast aus, klar vorne → gewonnen', () => {
-    expect(crunch({ own: 95, opp: 99 })).toEqual({ kind: 'play', deficit: 4 });
-    expect(crunch({ own: 90, opp: 99 })).toEqual({ kind: 'lost' });
-    expect(crunch({ own: 99, opp: 98 })).toEqual({ kind: 'play', deficit: 1 });
-    expect(crunch({ own: 99, opp: 99 })).toEqual({ kind: 'play', deficit: 1 });
-    expect(crunch({ own: 104, opp: 99 })).toEqual({ kind: 'won' });
+  it('Schluss-Szene nur bei Gleichstand oder 1–3 hinten; knapp vorne → Gegner gleicht aus oder führt mit 1; sonst offene Szene', () => {
+    const rng = seededRng(1);
+    expect(crunch({ own: 96, opp: 99 }, rng)).toEqual({ kind: 'play', deficit: 3 });
+    expect(crunch({ own: 99, opp: 99 }, rng)).toEqual({ kind: 'play', deficit: 0 });
+    expect(crunch({ own: 95, opp: 99 }, rng)).toEqual({ kind: 'open' });
+    expect(crunch({ own: 90, opp: 99 }, rng)).toEqual({ kind: 'open' });
+    expect(crunch({ own: 104, opp: 99 }, rng)).toEqual({ kind: 'open' });
+    for (let i = 0; i < 50; i++) {
+      const c = crunch({ own: 101, opp: 99 }, rng);
+      expect(c.kind).toBe('play');
+      if (c.kind === 'play') expect([0, 1]).toContain(c.deficit);
+    }
+  });
+  it('Spielverlauf gegen die Leistung: etwa 7 % klar dagegen, 7 % klar dafür, sonst unverändert', () => {
+    let against = 0, forUs = 0;
+    for (let seed = 1; seed <= 3000; seed++) {
+      const s = fate({ own: 22, opp: 22 }, seededRng(seed)), d = s.own - s.opp;
+      expect([0, ...Array.from({ length: 7 }, (_, i) => 10 + i)]).toContain(Math.abs(d));
+      if (d < 0) against++; else if (d > 0) forUs++;
+    }
+    expect(against / 3000).toBeGreaterThan(.04); expect(against / 3000).toBeLessThan(.1);
+    expect(forUs / 3000).toBeGreaterThan(.04); expect(forUs / 3000).toBeLessThan(.1);
   });
 });

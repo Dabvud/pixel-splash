@@ -140,10 +140,29 @@ describe('Szenen-Anzeigetafel', () => {
 });
 
 describe('Bilanz hängt vor allem an den Key Games', () => {
-  it('0 von 5 → wenige Siege, 5 von 5 → viele Siege (schwaches Team)', () => {
-    for (let seed = 1; seed <= 50; seed++) {
-      expect(projectWins(40, 0, 5, 'pro', seededRng(seed))).toBeLessThanOrEqual(15);
-      expect(projectWins(40, 5, 5, 'pro', seededRng(seed))).toBeGreaterThanOrEqual(55);
+  it('Basis aus dem Teamwert; alle Key Games gewonnen/verloren verschiebt um 10–20 %, ausgeglichen gar nicht', () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      // Teamwert 60 → Basis 41 Siege; ±10–20 % von 82 = 8–16 Siege, dazu ±2 Zufall
+      const lost = projectWins(60, 0, 5, 'pro', seededRng(seed)), won = projectWins(60, 5, 5, 'pro', seededRng(seed));
+      expect(won).toBeGreaterThanOrEqual(47); expect(won).toBeLessThanOrEqual(60);
+      expect(lost).toBeGreaterThanOrEqual(22); expect(lost).toBeLessThanOrEqual(35);
+      expect(Math.abs(projectWins(60, 2, 4, 'pro', seededRng(seed)) - 41)).toBeLessThanOrEqual(2);
+      // ein starkes Team bleibt auch ohne Key-Siege besser als ein schwaches mit lauter Siegen
+      expect(projectWins(85, 0, 5, 'pro', seededRng(seed))).toBeGreaterThan(projectWins(40, 5, 5, 'pro', seededRng(seed)));
+    }
+  });
+});
+
+describe('Offene Szene im 4. Viertel (Spiel nicht knapp)', () => {
+  it('kein Schluss-Banner, normale Wurfuhr, Spieluhr zeigt Minuten statt Sekunden', () => {
+    for (let seed = 1; seed <= 100; seed++) {
+      const sp = sceneSpec(state(), { opponent: 'bos', label: 'Rivalen-Duell', home: true }, 1, 2, 3, seededRng(seed), { own: 80, opp: 92 }, true);
+      expect(sp.final).toBe(false);
+      expect(sp.period).toBe('4. VIERTEL');
+      expect(sp.play.id).not.toBe('lob08');
+      expect(sp.clockS).toBeGreaterThanOrEqual(14);
+      expect(sp.clockOffset).toBeGreaterThanOrEqual(150); expect(sp.clockOffset).toBeLessThanOrEqual(330);
+      expect(sp.title).toMatch(/^4\. VIERTEL · [2-5]:\d\d · 80:92$/);
     }
   });
 });

@@ -5,6 +5,7 @@ import type { PlayoffResult, Postseason } from './playoffs';
 import type { Contract, Offseason } from './offseason';
 import type { SpecId } from './spec';
 import type { AwardId } from './legacy';
+import type { League } from './world';
 
 export type Position = 'guard' | 'wing' | 'big';
 export type Difficulty = 'rookie' | 'pro' | 'hof';
@@ -24,6 +25,8 @@ export interface CareerState {
   history: SeasonRecord[]; injured: boolean; retired: boolean;
   /** Teamstärken, die sich jede Saison entwickeln (fehlt: Startwerte der Liga) */
   strengths?: Record<string, number>;
+  /** Liga hinter den Teamwerten: Kader-Grundwerte, Verläufe und Stars (fehlt bei alten Ständen: wird aus dem Seed gelost) */
+  league?: League;
   /** laufende Nachsaison (Play-In/Playoffs) nach den Key Games */
   postseason?: Postseason;
   /** laufender Vertrag (fehlt bei alten Ständen: Rookie-Vertrag) */

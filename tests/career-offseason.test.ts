@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptOffer, ackTrade, ageRatings, beginOffseason, endOffseason, makeOffers, marketValue, spend } from '../src/career/offseason';
+import { acceptOffer, ackNews, ackTrade, ageRatings, beginOffseason, endOffseason, makeOffers, marketValue, spend } from '../src/career/offseason';
 import { newCareer, seededRng } from '../src/career/create';
 import { TEAMS } from '../src/career/league';
 import { RATING_KEYS } from '../src/play/ratings';
@@ -33,7 +33,7 @@ describe('Off-Season', () => {
         expect(o.years).toBeGreaterThanOrEqual(1); expect(o.years).toBeLessThanOrEqual(5);
         expect(o.spPerYear).toBeGreaterThanOrEqual(1); expect(o.spPerYear).toBeLessThanOrEqual(11);
         expect(o.salary).toBeGreaterThan(0);
-        const strength = TEAMS.find(t => t.id === o.team)!.strength;
+        const strength = s.strengths![o.team];
         if (strength < 45 && o.spPerYear >= Math.round(2 + 7 * marketValue(s)) + 2) weakBonus++;
       }
     }
@@ -54,7 +54,7 @@ describe('Off-Season', () => {
     const s = beginOffseason({ ...base(), history: [season(2)] }, seededRng(11));
     expect(s.contract!.years).toBe(3);
     expect(s.offseason).toMatchObject({ points: 3 });
-    expect(['skills', 'trade']).toContain(s.offseason!.step);
+    expect(['news', 'trade']).toContain(s.offseason!.step);
   });
   it('Vertragsende → Angebote; Annahme wechselt ggf. das Team und plant neue Key Games', () => {
     const s0 = { ...base(), contract: { team: base().team, years: 1, salary: 1.5, spPerYear: 3 }, history: [season(4)] };
@@ -64,8 +64,24 @@ describe('Off-Season', () => {
     const s2 = acceptOffer(s1, other);
     expect(s2.team).toBe(other.team);
     expect(s2.contract).toEqual(other);
-    expect(s2.offseason!.step).toBe('skills');
+    expect(s2.offseason!.step).toBe('news');
+    expect(ackNews(s2).offseason!.step).toBe('skills');
     for (const g of s2.keyGames) expect(g.opponent).not.toBe(other.team);
+  });
+  it('Star-Wechsel: bei den Angeboten noch nicht eingerechnet, erst nach der eigenen Unterschrift', () => {
+    const s0 = { ...base(), contract: { team: base().team, years: 1, salary: 1.5, spPerYear: 3 }, history: [season(4)] };
+    const s1 = beginOffseason(s0, seededRng(2)), moves = s1.offseason!.moves!;
+    expect(moves.length).toBeGreaterThanOrEqual(1); expect(moves.length).toBeLessThanOrEqual(3);
+    expect(s1.strengths).toEqual(s0.strengths);
+    const s2 = acceptOffer(s1, s1.offseason!.offers![0]);
+    for (const m of moves) {
+      expect(s2.league!.stars.find(x => x.name === m.name)!.team).toBe(m.to);
+      expect(s2.league!.teams[m.to].fresh).toBe(true);
+    }
+    // nur beteiligte Teams ändern ihren Wert, und zwar um die Werte der Stars
+    const delta: Record<string, number> = {};
+    for (const m of moves) { delta[m.to] = (delta[m.to] ?? 0) + m.value; delta[m.from] = (delta[m.from] ?? 0) - m.value; }
+    for (const t of TEAMS) expect(s2.strengths![t.id] - s0.strengths![t.id], t.id).toBe(delta[t.id] ?? 0);
   });
   it('Trade ≈ 5 % mitten im Vertrag, nie im letzten Vertragsjahr', () => {
     let trades = 0;
@@ -75,7 +91,7 @@ describe('Off-Season', () => {
         trades++;
         expect(s.team).toBe(s.offseason!.tradedTo);
         expect(s.contract!.team).toBe(s.team);
-        expect(ackTrade(s).offseason!.step).toBe('skills');
+        expect(ackTrade(s).offseason!.step).toBe('news');
       }
       const last = beginOffseason({ ...base(), contract: { team: base().team, years: 1, salary: 1.5, spPerYear: 3 }, history: [season(2)] }, seededRng(seed));
       expect(last.offseason!.step).toBe('offers');

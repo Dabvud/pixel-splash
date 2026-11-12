@@ -6,6 +6,7 @@ import { TEAMS, teamById, teamName } from './league';
 import type { SceneResult, SceneSpec } from './scene-types';
 import type { CareerState, KeyGame } from './state';
 import { scenePeriods, type GameScore } from './momentum';
+import { strengthOf } from './season';
 
 export const LABELS = ['Rivalen-Duell', 'Spitzenspiel', 'Christmas Game', 'Auswärts in feindlicher Halle', 'Nationales TV-Spiel', 'Rückkehr zum Ex-Team'];
 const pick = <T>(list: T[], rng: () => number): T => list[Math.min(list.length - 1, Math.floor(rng() * list.length))];
@@ -22,7 +23,7 @@ export function scheduleSeason(state: CareerState, rng: () => number): KeyGame[]
   }
   return chosen.map(label => {
     const pool = label === 'Rivalen-Duell' ? others.filter(t => t.conference === own.conference)
-      : label === 'Spitzenspiel' ? [...others].sort((a, b) => b.strength - a.strength).slice(0, 6) : others;
+      : label === 'Spitzenspiel' ? [...others].sort((a, b) => strengthOf(state, b.id) - strengthOf(state, a.id)).slice(0, 6) : others;
     const opponent = label === 'Rückkehr zum Ex-Team' ? ex! : pick(pool, rng).id;
     const home = label === 'Auswärts in feindlicher Halle' ? false : label === 'Rückkehr zum Ex-Team' ? false : rng() < .5;
     return { opponent, label, home };
@@ -49,8 +50,10 @@ export function gameResult(scenes: SceneResult[], rng: () => number): boolean {
 
 /** score: echter Spielstand (sonst nur Rückstand im Titel) */
 export function sceneSpec(state: CareerState, game: KeyGame, index: number, total: number, deficit: number, rng: () => number,
-  score?: GameScore): SceneSpec {
-  const last = index === total - 1;
+  score?: GameScore, open = false): SceneSpec {
+  // open: letzte Szene ohne Entscheidung – normaler Angriff mitten im 4. Viertel, die Uhr der Szene ist die Wurfuhr
+  const last = index === total - 1 && !open;
+  const clockOffset = open ? 150 + Math.floor(rng() * 181) : 0;
   const period = scenePeriods(total)[index] ?? '4. VIERTEL';
   // Lob in 0,8 s ist nur eine Crunchtime-Situation
   const id = pick(playsForHero(state.player.position).filter(p => last || p !== 'lob08'), rng);
@@ -62,7 +65,8 @@ export function sceneSpec(state: CareerState, game: KeyGame, index: number, tota
   return {
     play, deficit, clockS, controlled: HERO_ID, final: last,
     teams: [state.team.toUpperCase(), game.opponent.toUpperCase()], period, ...(score ? { score: [score.own, score.opp] as [number, number] } : {}),
-    title: `${period} · ${formatPlayClock(clockS, false)} · ${score ? `${score.own}:${score.opp}` : `−${deficit}`}`,
+    ...(open ? { clockOffset } : {}),
+    title: `${period} · ${formatPlayClock(clockS + clockOffset, false)} · ${score ? `${score.own}:${score.opp}` : `−${deficit}`}`,
     subtitle: `${game.label} · ${game.home ? 'gegen die' : 'bei den'} ${opp}`,
   };
 }

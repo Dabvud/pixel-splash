@@ -2,13 +2,16 @@ import { RATING_KEYS, clamp01, type RatingKey, type Ratings } from '../play/rati
 import { seededRng } from './create';
 import { TEAMS } from './league';
 import { scheduleSeason } from './keygame';
-import { strengthOf } from './season';
+import { leagueOf, strengthOf } from './season';
+import { applyMoves, pickMoves, ratings, type Move } from './world';
 import type { CareerState } from './state';
 import { awardPoints } from './legacy';
 
 export interface Contract { team: string; years: number; salary: number; spPerYear: number }
 export interface Offseason {
-  step: 'offers' | 'trade' | 'skills'; offers?: Contract[]; tradedTo?: string; points: number;
+  step: 'offers' | 'trade' | 'news' | 'skills'; offers?: Contract[]; tradedTo?: string; points: number;
+  /** große Star-Wechsel dieser Off-Season: erst nach der eigenen Teamwahl gezeigt und eingerechnet */
+  moves?: Move[];
   /** in dieser Off-Season verteilte Punkte (für „−“): Wert + tatsächliche Änderung bzw. Stufe + Kosten */
   spent?: { k: RatingKey | 'stage'; v: number }[];
 }
@@ -60,20 +63,30 @@ export function beginOffseason(state: CareerState, rng: () => number): CareerSta
   const s: CareerState = { ...state, contract, player: { ...state.player, ratings: ageRatings(state.player.ratings, state.player.age) } };
   // Vertrag + Award-Bonus der gerade beendeten Saison
   const points = (state.offseason?.points ?? 0) + old.spPerYear + awardPoints(state.history.at(-1)?.awards ?? []);
-  if (contract.years <= 0) return { ...s, offseason: { step: 'offers', offers: makeOffers(s, rng), points } };
+  if (contract.years <= 0) return { ...s, offseason: { step: 'offers', offers: makeOffers(s, rng), points, moves: pickMoves(leagueOf(s), rng) } };
   if (rng() < .05) {
     const others = TEAMS.filter(t => t.id !== state.team), to = others[Math.floor(rng() * others.length)].id;
-    return reschedule({ ...s, team: to, contract: { ...contract, team: to }, offseason: { step: 'trade', tradedTo: to, points } });
+    return reschedule({ ...s, team: to, contract: { ...contract, team: to }, offseason: { step: 'trade', tradedTo: to, points, moves: pickMoves(leagueOf(s), rng) } });
   }
-  return { ...s, offseason: { step: 'skills', points } };
+  return toNews({ ...s, offseason: { step: 'skills', points, moves: pickMoves(leagueOf(s), rng) } });
+}
+
+/** Wechselbörse: die Star-Wechsel werden jetzt wirksam (Teamwerte neu) und gezeigt */
+function toNews(state: CareerState): CareerState {
+  const league = applyMoves(leagueOf(state), state.offseason!.moves ?? []);
+  return { ...state, league, strengths: ratings(league), offseason: { ...state.offseason!, step: 'news' } };
 }
 
 export function acceptOffer(state: CareerState, offer: Contract): CareerState {
-  const s: CareerState = { ...state, team: offer.team, contract: { ...offer }, offseason: { ...state.offseason!, step: 'skills', offers: undefined } };
-  return offer.team === state.team ? s : reschedule(s);
+  const s: CareerState = { ...state, team: offer.team, contract: { ...offer }, offseason: { ...state.offseason!, offers: undefined } };
+  return toNews(offer.team === state.team ? s : reschedule(s));
 }
 
 export function ackTrade(state: CareerState): CareerState {
+  return toNews(state);
+}
+
+export function ackNews(state: CareerState): CareerState {
   return { ...state, offseason: { ...state.offseason!, step: 'skills' } };
 }
 

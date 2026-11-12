@@ -4,6 +4,7 @@ import { TEAMS } from './league';
 import type { CareerState, Difficulty, Position } from './state';
 import type { SpecId } from './spec';
 import { rookieContract } from './offseason';
+import { createLeague, ratings } from './world';
 
 export interface CareerInput { name: string; num: number; look: Look; position: Position; difficulty: Difficulty; spec?: SpecId }
 
@@ -35,7 +36,8 @@ export function startRatings(position: Position, difficulty: Difficulty): Rating
 /** Ohne Combine: Draft zu einem der 5 schwächsten Teams */
 export function newCareer(input: CareerInput, seed: number): CareerState {
   const rng = seededRng(seed);
-  const weakest = [...TEAMS].sort((a, b) => a.strength - b.strength).slice(0, 5);
+  const league = createLeague(rng), strengths = ratings(league);
+  const weakest = [...TEAMS].sort((a, b) => strengths[a.id] - strengths[b.id]).slice(0, 5);
   const team = weakest[Math.floor(rng() * weakest.length)];
   return {
     version: 1, seed: seed >>> 0, difficulty: input.difficulty,
@@ -46,6 +48,6 @@ export function newCareer(input: CareerInput, seed: number): CareerState {
       ...(input.spec ? { spec: input.spec, specLevel: 0 } : {}),
     },
     team: team.id, year: 1, keyGames: [], gameIndex: 0, season: [], history: [], injured: false, retired: false,
-    contract: rookieContract(team.id),
+    contract: rookieContract(team.id), league, strengths,
   };
 }

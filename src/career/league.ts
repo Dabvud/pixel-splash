@@ -58,9 +58,3 @@ export function teamById(id: string): Team {
   if (!t) throw new Error(`Unbekanntes Team ${id}`);
   return t;
 }
-
-/** Saisonwechsel: ±0–8 Punkte, geklemmt auf 25–95 */
-export function evolveStrength(t: Team, rng: () => number): number {
-  const step = Math.round((rng() * 2 - 1) * 8);
-  return Math.max(25, Math.min(95, t.strength + step));
-}
