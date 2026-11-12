@@ -667,6 +667,7 @@ body {
 .offer { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--panel); border: 2px solid var(--line); border-radius: 8px; font: 14px/1.4 var(--body); }
 .offer b { font: 11px/1.5 var(--pixel); color: var(--fg); }
 .offer em { font-style: normal; color: var(--good); font-weight: 700; }
+.team-logo { vertical-align: -5px; margin-right: 5px; image-rendering: pixelated; border-radius: 2px; }
 .offer-bar { display: block; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--accent) var(--v), rgb(255 255 255 / 0.08) var(--v)); }
 .skill { display: grid; grid-template-columns: 8.5em 1fr 40px 40px; align-items: center; gap: 10px; font: 14px var(--body); color: var(--fg); }
 .skill-plus, .skill-minus { min-height: 40px; font: 16px var(--pixel); background: var(--panel); color: var(--good); border: 2px solid var(--line); border-radius: 8px; cursor: pointer; }

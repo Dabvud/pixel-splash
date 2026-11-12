@@ -11,6 +11,7 @@ interface Outcome { won: boolean; own: number; opp: number; note?: string }
 import { finishSeason, offDef, playoffStatus, projectWins, standings, strengthOf } from '../career/season';
 import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResult } from '../career/playoffs';
 import type { PlayScene, SceneResult } from '../career/scene-types';
+import { teamLogo } from '../career/logos';
 import { acceptOffer, ackNews, ackTrade, beginOffseason, endOffseason, refund, refundStage, spend } from '../career/offseason';
 import { RATING_KEYS, type RatingKey } from '../play/ratings';
 import { SPECS, STAGE_COST, buyStage, chooseSpec, perksOf, updateHot, type SpecId } from '../career/spec';
@@ -74,7 +75,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       const c = newCareer(input, deps.seed ?? (Date.now() >>> 0));
       c.keyGames = scheduleSeason(c, gameRng(c));
       save(c);
-      screen(`<h2>Draft</h2><p>Die ${esc(teamName(teamById(c.team)))} holen ${esc(c.player.name)} mit der Nummer ${c.player.num}!</p>`,
+      screen(`<h2>Draft</h2><p>${teamLogo(c.team, 66)}</p><p>Die ${esc(teamName(teamById(c.team)))} holen ${esc(c.player.name)} mit der Nummer ${c.player.num}!</p>`,
         [['Weiter', () => hub(c)]]);
     });
   }
@@ -86,7 +87,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     if (c.gameIndex >= c.keyGames.length) return c.postseason ? c.postseason.done ? postseasonEnd(c) : playoffHub(c) : seasonEnd(c);
     const game = c.keyGames[c.gameIndex], wins = c.season.filter(g => g.won).length;
     screen(`<h2>Saison ${c.year}</h2>
-      <p>${esc(c.player.name)} · #${c.player.num} · ${c.player.age} Jahre · ${esc(teamName(teamById(c.team)))}</p>
+      <p>${esc(c.player.name)} · #${c.player.num} · ${c.player.age} Jahre · ${teamLogo(c.team)}${esc(teamName(teamById(c.team)))}</p>
       ${c.injured ? '<p>Verletzt: diese Saison nur 3 Key Games.</p>' : ''}
       <p>Bilanz Key Games: ${wins} – ${c.season.length - wins}</p>
       ${c.contract ? `<p>Vertrag: noch ${c.contract.years} ${c.contract.years === 1 ? 'Jahr' : 'Jahre'} · ${money(c.contract.salary)}</p>` : ''}
@@ -182,7 +183,9 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
 
   function teamValue(c: CareerState, id: string): string {
     const v = offDef(c, id);
-    return `${esc(teamById(id).name)}: Teamwert ${strengthOf(c, id)} · Angriff ${v.off} · Verteidigung ${v.def}`;
+    // die drei besten Stars des Teams (alte Spielstände ohne Liga: keine)
+    const stars = (c.league?.stars ?? []).filter(s => s.team === id).sort((a, b) => b.value - a.value).slice(0, 3).map(s => esc(s.name));
+    return `${esc(teamById(id).name)}: Teamwert ${strengthOf(c, id)} · Angriff ${v.off} · Verteidigung ${v.def}${stars.length ? `<br>Stars: ${stars.join(', ')}` : ''}`;
   }
 
   function finishGame(c: CareerState, game: KeyGame, results: SceneResult[], rng: () => number, o: Outcome): void {
@@ -204,7 +207,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     screen(`<h2>Saisonende ${c.year}</h2><p>${ownWins} – ${82 - ownWins} · Platz ${rank} in der ${teamById(c.team).conference === 'east' ? 'Eastern' : 'Western'} Conference</p>
       <p>${STATUS[playoffStatus(rank)]}</p>
       <table class="career-table"><thead><tr><th>#</th><th>Team</th><th>Wert</th><th>S</th><th>N</th></tr></thead><tbody>${table.map((r, i) =>
-        `<tr${r.team === c.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${esc(teamName(teamById(r.team)))}${r.note ? ` <small>${r.note}</small>` : ''}</td><td>${strengthOf(c, r.team)}</td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</tbody></table>`,
+        `<tr${r.team === c.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${teamLogo(r.team, 16)}${esc(teamName(teamById(r.team)))}${r.note ? ` <small>${r.note}</small>` : ''}</td><td>${strengthOf(c, r.team)}</td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</tbody></table>`,
       rank <= 10
         ? [[rank <= 6 ? 'Playoffs' : 'Play-In', () => {
           const n = { ...c, postseason: startPostseason(c, ownWins, table, seededRng(seed + 2))! };
@@ -228,13 +231,13 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     const o = c.offseason!;
     const go = (n: CareerState) => { save(n); hub(n); };
     if (o.step === 'trade') {
-      return screen(`<h2>Trade!</h2><p>${esc(c.player.name)} wurde zu den ${esc(teamName(teamById(o.tradedTo!)))} getradet. Der Vertrag läuft weiter.</p>`,
+      return screen(`<h2>Trade!</h2><p>${teamLogo(o.tradedTo!, 66)}</p><p>${esc(c.player.name)} wurde zu den ${esc(teamName(teamById(o.tradedTo!)))} getradet. Der Vertrag läuft weiter.</p>`,
         [['Weiter', () => go(ackTrade(c))]]);
     }
     if (o.step === 'offers') {
       const cards = o.offers!.map(offer => {
         const t = teamById(offer.team), strength = strengthOf(c, offer.team);
-        return `<div class="offer"><b>${esc(teamName(t))}${offer.team === c.team ? ' (Verlängerung)' : ''}</b>
+        return `<div class="offer"><b>${teamLogo(offer.team)}${esc(teamName(t))}${offer.team === c.team ? ' (Verlängerung)' : ''}</b>
           <span>${teamValue(c, offer.team)}</span>
           <span class="offer-bar" style="--v:${strength}%" title="Teamwert ${strength}"></span>
           <span>${offer.years} ${offer.years === 1 ? 'Jahr' : 'Jahre'} · ${money(offer.salary)} · <em>${offer.spPerYear} Skillpunkte/Jahr</em></span></div>`;
@@ -245,7 +248,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     if (o.step === 'news') {
       const moves = o.moves ?? [];
       const rows = moves.map(m => `<div class="offer"><b>${esc(m.name)}</b>
-        <span>${esc(teamName(teamById(m.from)))} → ${esc(teamName(teamById(m.to)))}</span>
+        <span>${teamLogo(m.from)}${esc(teamName(teamById(m.from)))} → ${teamLogo(m.to)}${esc(teamName(teamById(m.to)))}</span>
         <span>${teamById(m.to).name}: Teamwert jetzt <em>${strengthOf(c, m.to)}</em> (+${m.value}) · ${teamById(m.from).name}: ${strengthOf(c, m.from)}</span></div>`).join('');
       return screen(`<h2>Wechselbörse</h2><p>${moves.length ? 'Die großen Wechsel dieser Off-Season:' : 'Keine großen Wechsel in dieser Off-Season.'}</p><div class="offers">${rows}</div>
         <p>${teamValue(c, c.team)}</p>`, [['Weiter', () => go(ackNews(c))]], 'career-long');
@@ -275,7 +278,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   const postRng = (c: CareerState) => seededRng((c.seed ^ (c.year * 7919 + 5000 + (c.postseason?.faced.length ?? 0) * 104729)) >>> 0);
   function playoffHub(c: CareerState): void {
     const p = c.postseason!, game = postseasonGame(p);
-    screen(`<h2>${ROUND_NAME[p.round]}</h2><p>Saison ${c.year} · ${esc(teamName(teamById(c.team)))}</p>
+    screen(`<h2>${ROUND_NAME[p.round]}</h2><p>Saison ${c.year} · ${teamLogo(c.team)}${esc(teamName(teamById(c.team)))}</p>
       <div class="career-next"><b>${esc(p.situation)}</b><br>${opponentLine(game)}</div>`,
       [['Spielen', () => playGame(c, game, (results, rng, o) => finishPlayoff(c, game, results, rng, o), postRng(c))]]);
   }
@@ -329,7 +332,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     return `<p class="career-rings">Ringe: ${rings}</p><table class="career-table"><thead><tr><th>Saison</th><th>Team</th><th>Alter</th><th>Bilanz</th><th>Platz</th><th>Playoffs</th><th>PTS</th></tr></thead><tbody>${
       c.history.map(h => `<tr${h.playoff === 'champion' ? ' class="own"' : ''}><td>${h.year}</td><td>${esc(teamById(h.team).name)}</td><td>${h.age}</td><td>${h.wins}–${h.losses}</td><td>${h.rank}</td><td>${RESULT_SHORT[h.playoff ?? 'none']}</td><td>${avg(h.games)}</td></tr>`).join('')}</tbody></table>`;
   }
-  const opponentLine = (g: KeyGame) => `${g.home ? 'gegen die' : 'bei den'} ${esc(teamName(teamById(g.opponent)))}`;
+  const opponentLine = (g: KeyGame) => `${g.home ? 'gegen die' : 'bei den'} ${teamLogo(g.opponent)}${esc(teamName(teamById(g.opponent)))}`;
 
   start();
   return {
