@@ -18,6 +18,7 @@ import { PLAYS } from "../play/plays";
 import type { Option, PlayId } from "../play/types";
 import type { SceneResult, SceneSpec } from "../career/scene-types";
 import { createBallFire } from "../render/fire";
+import { TACTIC_NAME } from "../play/tactics";
 import { command, createPlayState, isControlled, lastHint, playPositionValue, step, type ArrowMeter, type EngineConfig, type EngineEvent, type PlayState, arrowEndFill, meterDisplayFill } from "../play/engine";
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
@@ -82,6 +83,8 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
 
   const cfg = (): EngineConfig => ({
     situationRandom: settings.defenseRandom,
+    // Verteidigungstaktik am Ballblock: im Labor mit Verteidigungs-Zufall, in der Karriere immer
+    tactics: settings.defenseRandom || Boolean(career),
     decisionLead: settings.decisionS,
     finishArrow: true,
     foulScene: true,
@@ -194,7 +197,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
     grave.sync(null);
     posterEffects.sync(null, 0);
     const period = s.overtime ? 'OVERTIME' : '4. VIERTEL';
-    const name = s.play.name + (s.foulTrouble ? ` · #${ACTORS[s.foulTrouble].num} HAT 5 FOULS` : '');
+    const name = s.play.name + (s.tactic ? ` · Abwehr: ${TACTIC_NAME[s.tactic]}` : '') + (s.foulTrouble ? ` · #${ACTORS[s.foulTrouble].num} HAT 5 FOULS` : '');
     phud.setSituation(`${period} · ${formatPlayClock(s.clock, !Number.isInteger(s.clock))} · −${s.deficit}`, name);
     if (career) {
       phud.setSituation(career.spec.title, career.spec.subtitle);
@@ -246,6 +249,10 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else if (e.kind === "dunk") phud.flash("DUNK!");
       } else if (e.type === "combo") {
         if (e.fouled) phud.flash("KONTAKT!");
+      } else if (e.type === "tactic") {
+        phud.flash(`${e.name.toUpperCase()}!`);
+      } else if (e.type === "mismatch") {
+        if (mine()) phud.flash("MISMATCH!");
       } else if (e.type === "ankle") {
         phud.flash("ANKLE BREAKER!");
         crowd?.cheer(0.9);

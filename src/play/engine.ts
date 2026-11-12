@@ -13,6 +13,7 @@ import { positionValue } from './position';
 import type { Vec2 } from './position';
 import { ACTORS } from './teams';
 import { finishMeter, ratingsOf } from './ratings';
+import { TACTICS, TACTIC_NAME, findBallScreen, tacticTarget, type Tactic } from './tactics';
 import { castPlay, varyHelpTiming } from './situations';
 import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types';
 
@@ -44,6 +45,8 @@ export interface EngineConfig {
   aiDifficulty?: number;
   /** Karriere vor der Crunchtime: kein Spielende-Jubel/-Frust, nur kurzer Treffer-Jubel des Schützen */
   calmEnd?: boolean;
+  /** Verteidigungstaktik am Ballblock würfeln (Switch/Drop/Hedge/Doppeln/Unter dem Block) + Mismatch-Effekt; forceTactic für Tests */
+  tactics?: boolean; forceTactic?: Tactic;
   /** Karriere-Spezialisierung: wirkt nur für `controlled` (onFire = Green Light aktiv) */
   perks?: Perks & { onFire?: boolean };
   posterVariant?: 'random' | PosterVariant;
@@ -69,6 +72,8 @@ export interface PlayState {
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
   poster: { victim: string; kind: 'poster' | 'block' | 'ankle'; variant: PosterVariant; startedAt: number } | null;
   grave: { x: number; z: number; since: number } | null;
+  /** gewürfelte Verteidigungstaktik am Ballblock (null: keine bzw. kein Ballblock) */
+  tactic: Tactic | null;
   ghost: { x: number; z: number; since: number } | null;
   splinters: { x: number; z: number; since: number } | null;
   ouch: { since: number } | null;
@@ -83,7 +88,7 @@ export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pas
   | { type: 'arrowStart'; kind: ArrowMeter['kind'] } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
   | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
   | { type: 'foul'; andOne: boolean }
-  | { type: 'glass' } | { type: 'glassFixed' } | { type: 'boardOop' } | { type: 'ankle' }
+  | { type: 'glass' } | { type: 'glassFixed' } | { type: 'boardOop' } | { type: 'ankle' } | { type: 'tactic'; name: string } | { type: 'mismatch' }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
 
 interface Pass {
@@ -109,6 +114,7 @@ interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
   ratings?: boolean;
   perks?: Perks & { onFire?: boolean }; controlled?: string; calmEnd?: boolean;
+  tacticRt?: { t: number; screener: string; hd?: string; sd?: string; pos: Record<string, Vec2>; done?: boolean };
   /** Floor General: dieser Mitspieler wird nach dem Pass des eigenen Spielers mitgesteuert */
   borrowed?: string;
   /** KI-Zug eines Mitspielers (Karriere): Schlüssel der aktuellen Situation, Startzeit, Ziel-Füllstand, Wurfzeitpunkt */
@@ -151,10 +157,62 @@ export function playPositionValue(s: PlayState, pos: Vec2, ahead = 0): number {
   const r = rt(s)?.ratings, dribble = r ? ratingsOf(ACTORS[s.handler]).dribble : 0;
   return positionValue(pos, defenders(s).filter(a => !impacted(a)).map(a => ({ ...(ahead ? predicted(s, a.id, ahead) : a.pos),
     // Karriere: guter Dribbler gegen schwachen Verteidiger → Verteidiger zählt weniger
-    weight: (a.id === s.foulTrouble ? .5 : 1)
+    weight: (a.id === s.foulTrouble ? .5 : 1) * mismatch(s, a.id, pos)
       * (r ? Math.max(.7, Math.min(1.3, 1 - .4 * (dribble - ratingsOf(ACTORS[a.id]).defense))) : 1) })));
 }
+/** Mismatch (nur mit Taktiken): langsamer Big draußen gegen Guard/Flügel zählt weniger, kleiner Verteidiger gegen Big am Korb ebenso */
+function mismatch(s: PlayState, defId: string, pos: Vec2): number {
+  if (!rt(s)?.tacticRt) return 1;
+  const off = ACTORS[s.handler]?.role, def = ACTORS[defId]?.role, rimD = distance(pos, { x: 0, z: 0 });
+  if (def === 'big' && off !== 'big' && rimD > 3) return .8;
+  if (def === 'guard' && off === 'big' && rimD <= 3) return .75;
+  return 1;
+}
+const isMismatch = (s: PlayState) => {
+  const h = s.actors[s.handler], d = h && defenders(s).filter(a => !impacted(a)).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
+  return Boolean(d && distance(d.pos, h.pos) < 2.5 && mismatch(s, d.id, h.pos) < 1);
+};
 const currentP = (s: PlayState) => playPositionValue(s, s.actors[s.handler].pos);
+
+/** Ab dem Ballblock bewegen sich die zwei beteiligten Verteidiger nach der gewürfelten Taktik statt nach ihrem Laufweg */
+function applyTactic(s: PlayState, dt: number, events: EngineEvent[]): void {
+  const r = rt(s), tr = r.tacticRt;
+  if (!tr || !s.tactic) return;
+  if (r.segment.id !== s.play.start || s.freeThrows || s.phase === 'ended') {
+    if (tr.hd && tr.sd && !tr.done) {
+      tr.done = true;
+      // danach: Abweichung als Versatz zum neuen Laufweg behalten, statt zurückzuspringen
+      for (const id of [tr.hd, tr.sd]) {
+        const a = s.actors[id], path = r.paths[id];
+        if (!a || !path?.length || !tr.pos[id] || impacted(a)) continue;
+        const p = point(path, r.segT);
+        r.offsets[id] = { x: tr.pos[id].x - p.x, z: tr.pos[id].z - p.z };
+        a.pos = { ...tr.pos[id] };
+      }
+    }
+    return;
+  }
+  if (r.segT < tr.t) return;
+  const h = s.actors[s.handler], sc = s.actors[tr.screener];
+  if (!h || !sc) return;
+  if (!tr.hd) {
+    const defs = defenders(s).filter(a => !impacted(a));
+    const by = (p: Vec2) => (a: ActorState, b: ActorState) => distance(a.pos, p) - distance(b.pos, p);
+    const hd = [...defs].sort(by(h.pos))[0], sd = defs.filter(a => a !== hd).sort(by(sc.pos))[0];
+    if (!hd || !sd) { tr.done = true; return; }
+    tr.hd = hd.id; tr.sd = sd.id; tr.pos[hd.id] = { ...hd.pos }; tr.pos[sd.id] = { ...sd.pos };
+    events.push({ type: 'tactic', name: TACTIC_NAME[s.tactic] });
+  }
+  for (const [id, role] of [[tr.hd, 'hd'], [tr.sd!, 'sd']] as const) {
+    const a = s.actors[id];
+    if (!a || impacted(a) || (s.phase === 'ballflight' && id === r.shot?.defender)) continue;
+    a.pos = { ...tr.pos[id] };
+    const arrived = stepToward(a, tacticTarget(s.tactic, role, h.pos, sc.pos, r.segT - tr.t), 6.5 * dt);
+    tr.pos[id] = { ...a.pos };
+    if (!['block_jump', 'block_jump_hit', 'contact'].includes(a.move)) move(a, arrived ? 'defend' : 'run');
+    a.facing = facingTo(a.pos, h.pos);
+  }
+}
 function contactKind(s: PlayState, kind: 'layup' | 'dunk' | 'contact_dunk', pos: Vec2, ahead = 0): typeof kind {
   return s.foulTrouble && kind === 'contact_dunk'
     && !contactDefenders(s).some(a => distance(ahead ? predicted(s, a.id, ahead) : a.pos, pos) <= 2.5) ? 'dunk' : kind;
@@ -311,6 +369,7 @@ function decision(s: PlayState, events: EngineEvent[], cfg: EngineConfig): void 
       : Math.max(0, (r.segment.decisionAt ?? 0) - r.segT) / cfg.decisionS;
   }
   events.push({ type: 'decision', options: decisionOptions(s) });
+  if (isMismatch(s)) events.push({ type: 'mismatch' });
 }
 
 export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number): PlayState {
@@ -355,11 +414,17 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
     play, variant: variant.id, deficit, overtime, foulTrouble, phase: 'intro', gameT: 0, clock, handler: segment.handler,
     actors: {}, ball: { x: 0, y: 0, z: 0 }, points: 0, assisted: false, turnovers: 0, foulScene: cfg.foulScene ?? false, box: {}, lastPasser: null,
     combo: null, freeThrows: null, banner: null, verdict: null, fingerDown: false, realTime: 0, arrowMeter: null, poster: null, grave: null,
-    ghost: null, splinters: null, ouch: null, glass: null, glassSweep: 0,
+    ghost: null, splinters: null, ouch: null, glass: null, glassSweep: 0, tactic: null,
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
     segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {}, ratings: cfg.ratingMeters ?? false,
     perks: cfg.perks, controlled: cfg.controlled, calmEnd: cfg.calmEnd });
+  // Taktik nur würfeln, wenn eingeschaltet und der Spielzug einen Ballblock hat (sonst kein zusätzlicher Zufall)
+  const screen = cfg.tactics ? findBallScreen(play) : null;
+  if (screen) {
+    s.tactic = cfg.forceTactic ?? TACTICS[Math.min(TACTICS.length - 1, Math.floor(rng() * TACTICS.length))];
+    rt(s).tacticRt = { t: screen.t, screener: screen.screener, pos: {} };
+  }
   for (const id of play.actors) {
     const p = (variant.defPaths[segment.id]?.[id] ?? segment.paths[id])?.[0];
     s.actors[id] = { id, pos: { x: p?.x ?? 0, z: p?.z ?? 0 }, y: 0, facing: 0, move: 'idle', moveT: 0 };
@@ -1274,6 +1339,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
   r.segT += dt * ((oldPhase === 'decision' || (oldPhase === 'combo' && r.comboWait?.phase === 'decision'))
     ? r.decisionPathRate ?? 1 : 1);
   updatePaths(s, previous);
+  applyTactic(s, dt, events);
   if (oldPhase === 'running') {
     // Entscheiden im Laufen: das Fenster öffnet schon während der letzten Wegsekunde, niemand bleibt stehen
     if (r.segT >= Math.max(0, (r.segment.decisionAt ?? 0) - (cfg.decisionLead ?? 0))) decision(s, events, cfg);
