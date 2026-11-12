@@ -93,7 +93,7 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       ${c.contract ? `<p>Vertrag: noch ${c.contract.years} ${c.contract.years === 1 ? 'Jahr' : 'Jahre'} · ${money(c.contract.salary)}</p>` : ''}
       ${c.injured ? '<p>Verletzt: nur 3 Key Games</p>' : ''}
       ${tiles(c, c.team)}
-      <div class="career-next"><b>Key Game ${c.gameIndex + 1} / ${c.keyGames.length} · ${wins}–${c.season.length - wins}</b><br>${esc(game.label)}<br>${opponentLine(game)}${tiles(c, game.opponent)}</div>`,
+      <div class="career-next"><b>Key Game ${c.gameIndex + 1} / ${c.keyGames.length} · ${wins}–${c.season.length - wins}</b><br>${esc(game.label)}${matchup(c, game)}</div>`,
       [['Spielen', () => playGame(c, game)], ['Karriere-Statistik', () => stats(c, () => hub(c))]]);
   }
 
@@ -192,6 +192,20 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     const stars = (c.league?.stars ?? []).filter(s => s.team === id).sort((a, b) => b.value - a.value).slice(0, 3)
       .map(s => esc(s.name.split(' ').slice(1).join(' ') || s.name));
     return stars.length ? `★ ${stars.join(' · ')}` : '';
+  }
+  /** Paarung: Gast links, Heim rechts – Wappen, Name, Saisonbilanz bis hierher, Teamwert */
+  function matchup(c: CareerState, game: KeyGame): string {
+    // gleiche Seeds wie die Tabelle am Saisonende → die Bilanzen laufen auf den späteren Endstand zu
+    const seed = (c.seed ^ (c.year * 31337)) >>> 0, played = Math.round(82 * (c.gameIndex + .5) / c.keyGames.length);
+    const keyWins = c.season.filter(g => g.won).length, conf = teamById(game.opponent).conference;
+    const ownFinal = projectWins(strengthOf(c, c.team), keyWins, c.season.length, c.difficulty, seededRng(seed));
+    const oppFinal = standings(c, ownFinal, seededRng(seed + (conf === teamById(c.team).conference ? 1 : 3)), conf).find(r => r.team === game.opponent)!.wins;
+    const side = (id: string, final: number) => {
+      const w = Math.round(final * played / 82);
+      return `<div>${teamLogo(id, 44)}<b>${esc(teamById(id).name)}</b><span>${w}–${played - w}</span><span>OVR ${strengthOf(c, id)}</span></div>`;
+    };
+    const own = side(c.team, ownFinal), opp = side(game.opponent, oppFinal), stars = starLine(c, game.opponent);
+    return `<div class="matchup">${game.home ? opp : own}<em>@</em>${game.home ? own : opp}</div>${stars ? `<p class="tv-stars">${stars}</p>` : ''}`;
   }
   /** Teamwerte als drei Kacheln: Gesamt, Angriff, Verteidigung */
   function tiles(c: CareerState, id: string): string {

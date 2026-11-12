@@ -30,8 +30,7 @@ export function projectWins(teamStrength: number, keyWins: number, keyGames: num
 }
 
 /** Tabelle: Teamwert ist nur die Basis – Verteidigung zählt etwas mehr, dazu Form/Chemie, Verletzungspech und Glück */
-export function standings(state: CareerState, ownWins: number, rng: () => number): { team: string; wins: number; losses: number; note?: string }[] {
-  const conf = teamById(state.team).conference;
+export function standings(state: CareerState, ownWins: number, rng: () => number, conf = teamById(state.team).conference): { team: string; wins: number; losses: number; note?: string }[] {
   return TEAMS.filter(t => t.conference === conf).map(t => {
     if (t.id === state.team) return { team: t.id, wins: ownWins, losses: 82 - ownWins };
     const ts = state.league?.teams[t.id];
