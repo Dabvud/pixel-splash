@@ -21,22 +21,28 @@ describe('Statline hängt an den eigenen Key Moments', () => {
     expect(two).toBeGreaterThan(26); expect(two).toBeLessThan(32);
     expect(half).toBeGreaterThan(21); expect(half).toBeLessThan(two);
     expect(avg(none)).toBeLessThan(half - 8);
-    for (const p of none) { expect(p).toBeGreaterThanOrEqual(6); expect(p).toBeLessThanOrEqual(14); }
+    for (const p of none) { expect(p).toBeGreaterThanOrEqual(10); expect(p).toBeLessThanOrEqual(14); }
     expect(three).toBeGreaterThan(two);
   });
-  it('Assists: in jeder Szene ein Assist → zweistellig; ohne Assist nur der Grundwert aus dem Passen', () => {
+  it('Assists: Spanne 3–15 – ohne Assist 3–5, in jeder Szene ein Assist 13–15', () => {
     const all = lines([scene(0, 1), scene(0, 1)]).map(l => l.ast), none = lines([scene(3), scene(3)]).map(l => l.ast);
-    expect(Math.min(...all)).toBeGreaterThanOrEqual(10);
-    expect(Math.max(...none)).toBeLessThanOrEqual(6);
+    expect(Math.min(...all)).toBeGreaterThanOrEqual(13); expect(Math.max(...all)).toBeLessThanOrEqual(15);
+    expect(Math.min(...none)).toBeGreaterThanOrEqual(3); expect(Math.max(...none)).toBeLessThanOrEqual(5);
     const one = avg(lines([scene(0, 1), scene(3)]).map(l => l.ast));
     expect(one).toBeGreaterThan(avg(none)); expect(one).toBeLessThan(avg(all));
-    // besserer Passgeber hat den höheren Grundwert
-    expect(avg(lines([scene(0)], { ...r, pass: .95 }).map(l => l.ast))).toBeGreaterThan(avg(lines([scene(0)], { ...r, pass: .2 }).map(l => l.ast)));
   });
   it('Rebounds kommen aus Athletik und Verteidigung (keine Szenen-Aktion), nie negativ', () => {
     const big = avg(lines([scene(0)], { ...r, athleticism: .9, defense: .9 }).map(l => l.reb));
     const small = avg(lines([scene(0)], { ...r, athleticism: .2, defense: .2 }).map(l => l.reb));
     expect(big).toBeGreaterThan(small + 3);
     for (const l of lines([])) { expect(l.pts).toBeGreaterThanOrEqual(0); expect(l.ast).toBeGreaterThanOrEqual(0); expect(l.reb).toBeGreaterThanOrEqual(0); }
+  });
+});
+
+describe('Statline: alle Körbe zählen', () => {
+  it('Korbleger/Dunk (2 Punkte) in jeder Szene zählt wie jeder andere Zweier; mit And-One mehr', () => {
+    const two = avg(lines([scene(2), scene(2), scene(2)]).map(l => l.pts)), andOne = avg(lines([scene(3), scene(2), scene(2)]).map(l => l.pts));
+    expect(two).toBeGreaterThan(28); expect(two).toBeLessThan(32);
+    expect(andOne).toBeGreaterThan(two);
   });
 });
