@@ -23,13 +23,15 @@ export function seasonStats(games: GameRecord[]): { ppg: number; apg: number; rp
 export function seasonAwards(state: CareerState, rank: number, playoff: PlayoffResult, year = state.year): AwardId[] {
   const st = seasonStats(state.season), out: AwardId[] = [];
   if (!st.games) return out;
-  if (st.ppg >= 26 && st.wins >= 4 && rank <= 3) out.push('mvp');
+  // Schwellen nach Spieltest angezogen: Teamerfolg zählt mit (kein All-Star als mittelmäßiger Scorer im Tabellenkeller)
+  const winRate = st.wins / st.games;
+  if (st.ppg >= 28 && winRate >= .8 && rank <= 3) out.push('mvp');
   if (playoff === 'champion') out.push('ring', 'fmvp');
-  if (st.ppg >= 23) out.push('allnba');
-  if (st.ppg >= 19 || (st.ppg >= 16 && st.apg >= 7)) out.push('allstar');
-  if (year === 1 && st.ppg >= 15) out.push('roy');
-  if (st.ppg >= 29) out.push('scoring');
-  if (state.player.ratings.defense >= .85 && rank <= 8) out.push('dpoy');
+  if (st.ppg >= 25 && rank <= 8) out.push('allnba');
+  if (st.ppg >= 24 || (winRate >= .6 && (st.ppg >= 21 || (st.ppg >= 18 && st.apg >= 8)))) out.push('allstar');
+  if (year === 1 && st.ppg >= 18) out.push('roy');
+  if (st.ppg >= 31) out.push('scoring');
+  if (state.player.ratings.defense >= .88 && rank <= 6) out.push('dpoy');
   if (st.games >= 5 && st.wins === st.games) out.push('clutch');
   return out;
 }
@@ -42,8 +44,8 @@ export function legacyOf(history: SeasonRecord[]): number {
 }
 
 export function tierOf(legacy: number): { tier: string; hof: boolean } {
-  const tier = legacy >= 130 ? 'GOAT-Debatte' : legacy >= 80 ? 'Hall of Famer' : legacy >= 45 ? 'All-Star' : legacy >= 20 ? 'Starter' : 'Rollenspieler';
-  return { tier, hof: legacy >= 80 };
+  const tier = legacy >= 170 ? 'GOAT-Debatte' : legacy >= 100 ? 'Hall of Famer' : legacy >= 55 ? 'All-Star' : legacy >= 25 ? 'Starter' : 'Rollenspieler';
+  return { tier, hof: legacy >= 100 };
 }
 
 export interface RankEntry { id: string; name: string; position: Position; seasons: number; rings: number; mvps: number; legacy: number; tier: string; date: string }

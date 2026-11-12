@@ -119,3 +119,37 @@ describe('Trefferquote der KI-Mitspieler (abgestimmte Wertetabelle)', () => {
     expect(aiHitChance('three', .1, 0, 9, .85)).toBe(.05);
   });
 });
+
+describe('Frühe Karriere-Szenen enden ohne Spielende-Reaktion', () => {
+  it('calmEnd: niemand jubelt wie nach einem Gamewinner oder lässt den Kopf hängen', () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const { s, rng } = scene('guard', 'iso', seed);
+      const c = { ...cfg, calmEnd: true };
+      const calm = createPlayState(s.play, c, rng);
+      for (let i = 0; i < 60 * 240 && calm.phase !== 'ended'; i++) step(calm, 1 / 240, c, rng);
+      if (calm.phase !== 'ended') continue;
+      checked++;
+      for (const a of Object.values(calm.actors)) expect(['celebrate', 'dejected']).not.toContain(a.move);
+    }
+    expect(checked).toBeGreaterThan(10);
+  });
+});
+
+describe('KI-Mitspieler ziehen auch zum Korb', () => {
+  it('nach einem Pass vom eigenen Spieler gibt es nicht nur Sprungwürfe', () => {
+    let drives = 0, shots = 0;
+    for (const playId of ['pnr', 'kickout', 'pickpop', 'iso', 'floppy'] as const) for (let seed = 1; seed <= 30; seed++) {
+      const { s, rng } = scene('guard', playId, seed);
+      run(s, rng, () => s.phase === 'decision' && inputOwner(s) === HERO_ID, 30);
+      const pass = s.phase === 'decision' ? (s.play.segments[s.play.start].options ?? []).find(o => o.kind === 'pass') : undefined;
+      if (!pass) continue;
+      command(s, { kind: 'pass', to: pass.to!, quality: 1 }, cfg, rng);
+      const ev = run(s, rng, () => s.phase === 'ended' || (inputOwner(s) === HERO_ID && s.phase === 'decision'), 30);
+      if (ev.some(e => e.type === 'takeoff')) drives++;
+      else if (ev.some(e => e.type === 'combo' || e.type === 'arrowTap')) shots++;
+    }
+    expect(drives).toBeGreaterThan(5);
+    expect(shots).toBeGreaterThan(5);
+  });
+});

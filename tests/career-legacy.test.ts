@@ -24,14 +24,18 @@ describe('Auszeichnungen', () => {
   });
   it('Schwellen laut Plan', () => {
     const five = (pts: number, won = true) => Array.from({ length: 5 }, () => g(pts, won));
-    expect(seasonAwards(state(five(30)), 2, 'none', 2)).toEqual(expect.arrayContaining(['mvp', 'allnba', 'allstar', 'scoring', 'clutch']));
-    expect(seasonAwards(state(five(26)), 5, 'none', 2)).not.toContain('mvp'); // Platz zu schlecht
-    expect(seasonAwards(state(five(20, false)), 9, 'none', 2)).toEqual(['allstar']);
-    expect(seasonAwards(state(five(15, false)), 9, 'none', 1)).toEqual(['roy']); // 1. Saison
+    expect(seasonAwards(state(five(32)), 2, 'none', 2)).toEqual(expect.arrayContaining(['mvp', 'allnba', 'allstar', 'scoring', 'clutch']));
+    expect(seasonAwards(state(five(29)), 5, 'none', 2)).not.toContain('mvp'); // Platz zu schlecht
+    // Spieltest: mittelmäßiger Scorer im Tabellenkeller ist kein All-Star
+    expect(seasonAwards(state(five(20, false)), 15, 'none', 2)).toEqual([]);
+    expect(seasonAwards(state(five(22, true)), 9, 'none', 2)).toEqual(['allstar', 'clutch']); // gewinnt und punktet
+    expect(seasonAwards(state(five(25, false)), 14, 'none', 2)).toEqual(['allstar']); // sehr viele Punkte reichen allein
+    expect(seasonAwards(state(five(18, false)), 9, 'none', 1)).toEqual(['roy']); // 1. Saison
     expect(seasonAwards(state(five(10, false)), 9, 'champion', 2)).toEqual(['ring', 'fmvp']);
     const d = state(five(10, false), { player: { ...SAMPLE.player, ratings: { ...SAMPLE.player.ratings, defense: .9 } } });
-    expect(seasonAwards(d, 8, 'none', 2)).toEqual(['dpoy']);
-    expect(seasonAwards(state([g(16, false, 7), g(16, false, 7)]), 12, 'none', 2)).toEqual(['allstar']);
+    expect(seasonAwards(d, 6, 'none', 2)).toEqual(['dpoy']);
+    expect(seasonAwards(d, 8, 'none', 2)).toEqual([]);
+    expect(seasonAwards(state([g(18, true, 8), g(18, true, 8)]), 12, 'none', 2)).toEqual(['allstar']);
   });
   it('Award-Skillpunkte: MVP 3, Finals-MVP 2, Ring 0, sonst 1', () => {
     expect(awardPoints(['mvp', 'fmvp', 'ring', 'allstar'])).toBe(6);
@@ -47,14 +51,14 @@ describe('Legacy und Einstufung', () => {
     expect(legacyOf([{ ...season(40, undefined, 10) }])).toBeCloseTo(4 + 3, 6);
   });
   it('Stufen', () => {
-    expect(tierOf(10)).toEqual({ tier: 'Rollenspieler', hof: false });
-    expect(tierOf(44)).toEqual({ tier: 'Starter', hof: false });
-    expect(tierOf(79)).toEqual({ tier: 'All-Star', hof: false });
-    expect(tierOf(80)).toEqual({ tier: 'Hall of Famer', hof: true });
-    expect(tierOf(130)).toEqual({ tier: 'GOAT-Debatte', hof: true });
+    expect(tierOf(24)).toEqual({ tier: 'Rollenspieler', hof: false });
+    expect(tierOf(54)).toEqual({ tier: 'Starter', hof: false });
+    expect(tierOf(99)).toEqual({ tier: 'All-Star', hof: false });
+    expect(tierOf(100)).toEqual({ tier: 'Hall of Famer', hof: true });
+    expect(tierOf(170)).toEqual({ tier: 'GOAT-Debatte', hof: true });
   });
   it('Saisonende speichert Awards, Off-Season schreibt die Award-Punkte gut', () => {
-    const s = state(Array.from({ length: 5 }, () => g(30)));
+    const s = state(Array.from({ length: 5 }, () => g(32)));
     const next = finishSeason(s, 60, seededRng(1));
     expect(next.history[0].awards).toEqual(expect.arrayContaining(['allnba', 'allstar', 'scoring', 'clutch']));
     const o = beginOffseason(next, seededRng(2));

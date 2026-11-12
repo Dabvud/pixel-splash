@@ -42,6 +42,8 @@ export interface EngineConfig {
   controlled?: string;
   /** Karriere: Schwierigkeits-Faktor auf die Trefferquote der KI-Mitspieler (Rookie 1,1 · Pro 1 · Hall of Fame 0,85) */
   aiDifficulty?: number;
+  /** Karriere vor der Crunchtime: kein Spielende-Jubel/-Frust, nur kurzer Treffer-Jubel des Schützen */
+  calmEnd?: boolean;
   /** Karriere-Spezialisierung: wirkt nur für `controlled` (onFire = Green Light aktiv) */
   perks?: Perks & { onFire?: boolean };
   posterVariant?: 'random' | PosterVariant;
@@ -106,11 +108,11 @@ interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams
 interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
   ratings?: boolean;
-  perks?: Perks & { onFire?: boolean }; controlled?: string;
+  perks?: Perks & { onFire?: boolean }; controlled?: string; calmEnd?: boolean;
   /** Floor General: dieser Mitspieler wird nach dem Pass des eigenen Spielers mitgesteuert */
   borrowed?: string;
   /** KI-Zug eines Mitspielers (Karriere): Schlüssel der aktuellen Situation, Startzeit, Ziel-Füllstand, Wurfzeitpunkt */
-  ai?: { key: string; at: number; target?: number; releaseAt?: number; hold?: number };
+  ai?: { key: string; at: number; target?: number; releaseAt?: number; hold?: number; decided?: boolean };
   impact?: { victim: string; from: Vec2; to: Vec2; elapsed: number; duration: number; variant: PosterVariant };
   segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
   paths: Record<string, Waypoint[]>;
@@ -259,6 +261,9 @@ function end(s: PlayState, events: EngineEvent[], banner?: string): void {
   const h = s.actors[s.handler];
   if (impacted(h)) {
     // Der Block bleibt auch im Ergebnisbild sichtbar.
+  } else if (rt(s).calmEnd) {
+    // Mitten im Spiel: nur der Schütze freut sich kurz über einen Treffer, niemand feiert das Spielende
+    if (s.points > 0) { h.y = 0; move(h, 'flex', true); }
   } else if (s.verdict === 'GAMEWINNER' || s.verdict === 'OVERTIME' || s.verdict === 'DOPPEL-OVERTIME') {
     move(h, 'celebrate', true);
     rt(s).celebration = { elapsed: 0, from: {} };
@@ -354,7 +359,7 @@ export function createPlayState(play: Play, cfg: EngineConfig, rng: () => number
   };
   runtimes.set(s, { segment, variant, paths: { ...segment.paths, ...variant.defPaths[segment.id] },
     segT: 0, phaseT: 0, realT: 0, aiSelected: null, clockStarted: !play.inboundBy, offsets: {}, ratings: cfg.ratingMeters ?? false,
-    perks: cfg.perks, controlled: cfg.controlled });
+    perks: cfg.perks, controlled: cfg.controlled, calmEnd: cfg.calmEnd });
   for (const id of play.actors) {
     const p = (variant.defPaths[segment.id]?.[id] ?? segment.paths[id])?.[0];
     s.actors[id] = { id, pos: { x: p?.x ?? 0, z: p?.z ?? 0 }, y: 0, facing: 0, move: 'idle', moveT: 0 };
@@ -755,6 +760,11 @@ function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: Engin
   const ai = r.ai, ratings = ratingsOf(ACTORS[owner]);
   if (m && m.fill === null) {
     if (s.realTime < m.startTime) return;
+    // Nach dem Fang nicht nur werfen: mit offener Bahn oft, sonst manchmal zum Korb ziehen
+    if (m.kind === 'catchshoot' && !ai.decided) {
+      ai.decided = true;
+      if (rng() < driveChance(s, owner)) { events.push(...runCommand(s, { kind: 'drive', lane: 0 }, cfg, rng)); return; }
+    }
     if (ai.target === undefined) {
       const combo = r.arrow?.combo, kind = combo?.kind ?? 'jump2', pos = s.actors[owner]?.pos ?? { x: 0, z: 0 };
       const rating = kind === 'three' ? ratings.three : kind === 'jump2' ? ratings.mid : ratings.finish;
@@ -781,10 +791,17 @@ function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: Engin
   const options = decisionOptions(s);
   const toHero = options.find(o => o.kind === 'pass' && o.to === cfg.controlled);
   // Szenen drehen sich um den eigenen Spieler: Mitspieler suchen ihn bevorzugt
-  const option = toHero && rng() < .75 ? toHero : bestOption(s, options);
+  let option = toHero && rng() < .75 ? toHero : bestOption(s, options);
+  if (option.kind === 'shoot' && options.some(o => o.kind === 'drive') && rng() < driveChance(s, owner)) option = { kind: 'drive' };
   if (option.kind === 'pass') events.push(...runCommand(s, { kind: 'pass', to: option.to!, quality: .55 + .45 * ratings.pass }, cfg, rng));
   else if (option.kind === 'drive') events.push(...runCommand(s, { kind: 'drive', lane: 0 }, cfg, rng));
   else shoot();
+}
+
+/** KI-Zug zum Korb: offene Bahn (Positionswert am Absprungpunkt ≥ 0,7) 55 %, sonst 20 % */
+function driveChance(s: PlayState, owner: string): number {
+  const pos = s.actors[owner]?.pos;
+  return pos && playPositionValue(s, takeoffPoint(pos)) >= .7 ? .55 : .2;
 }
 
 function bestOption(s: PlayState, options: Option[]): Option {
