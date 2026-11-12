@@ -146,7 +146,7 @@ describe('Alley-oop-Pfeil', () => {
     expect(s.arrowMeter!.zones).toEqual(effectiveZones({ ...c.finish, influence: c.shot.influence,
       rating: .8, distance: 4.6, zoneFactor: .7 * .6 * .75 * .75 }));
     const events = until(s, () => s.phase === 'freethrows', c);
-    expect(events).toContainEqual({ type: 'result', banner: 'GEBLOCKT', made: false });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'result', banner: 'GEBLOCKT', made: false }));
     expect(s.banner).toBe('GEBLOCKT');
     expect(s.points).toBe(0);
     expect(s.freeThrows).toEqual({ shooter: 'r50', left: 2 });

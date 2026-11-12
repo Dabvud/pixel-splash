@@ -12,6 +12,7 @@ import { finishSeason, offDef, otherSeed, playoffStatus, projectWins, seasonSeed
 import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResult } from '../career/playoffs';
 import type { PlayScene, SceneResult } from '../career/scene-types';
 import { teamLogo } from '../career/logos';
+import { applyGrowth, growth, growthText } from '../career/growth';
 import { acceptOffer, ackNews, ackTrade, beginOffseason, endOffseason, refund, refundStage, spend } from '../career/offseason';
 import { RATING_KEYS, type RatingKey } from '../play/ratings';
 import { SPECS, STAGE_COST, buyStage, chooseSpec, perksOf, updateHot, type SpecId } from '../career/spec';
@@ -230,11 +231,14 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
 
   function finishGame(c: CareerState, game: KeyGame, results: SceneResult[], rng: () => number, o: Outcome): void {
     const won = o.won, line = projectLine(c.player.ratings, results, rng), ownPts = o.own, oppPts = o.opp;
+    // eigene Treffer und Assists lassen die passenden Werte direkt wachsen
+    const grown = growth(results), gained = growthText(grown);
     const after: CareerState = { ...c, gameIndex: c.gameIndex + 1, hot: updateHot(c.hot ?? 0, results),
+      player: { ...c.player, ratings: applyGrowth(c.player.ratings, grown) },
       season: [...c.season, { opponent: game.opponent, label: game.label, home: game.home, won, ...line }] };
     save(after);
     screen(`<h2>${won ? 'Sieg' : 'Niederlage'}</h2><p>${ownPts} : ${oppPts} ${opponentLine(game)}</p>${o.note ? `<p>${o.note}</p>` : ''}
-      <p class="career-line">PTS ${line.pts} · AST ${line.ast} · REB ${line.reb}</p>`, [['Weiter', () => interim(after)]]);
+      <p class="career-line">PTS ${line.pts} · AST ${line.ast} · REB ${line.reb}</p>${gained ? `<p class="career-growth">▲ ${gained}</p>` : ''}`, [['Weiter', () => interim(after)]]);
   }
   /** Zwischenstand der Liga nach jedem Key Game (nach dem letzten folgt direkt das Saisonende) */
   function interim(c: CareerState): void {
@@ -373,12 +377,14 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   }
   function finishPlayoff(c: CareerState, game: KeyGame, results: SceneResult[], rng: () => number, o: Outcome): void {
     const p = c.postseason!, won = o.won, line = projectLine(c.player.ratings, results, rng);
-    const next = advance(p, won, c, rng), after: CareerState = { ...c, postseason: next, hot: updateHot(c.hot ?? 0, results) };
+    const grown = growth(results), gained = growthText(grown);
+    const next = advance(p, won, c, rng), after: CareerState = { ...c, postseason: next, hot: updateHot(c.hot ?? 0, results),
+      player: { ...c.player, ratings: applyGrowth(c.player.ratings, grown) } };
     save(after);
     const title = !won ? p.round === 'playin' ? 'Play-In verloren' : 'Ausgeschieden'
       : next.done ? 'MEISTER!' : p.round === 'playin' ? 'Play-In gewonnen' : 'Serie gewonnen';
     screen(`<h2 class="${next.result === 'champion' ? 'champion' : ''}">${title}</h2><p>${o.own} : ${o.opp} ${opponentLine(game)}</p>${o.note ? `<p>${o.note}</p>` : ''}
-      <p class="career-line">PTS ${line.pts} · AST ${line.ast} · REB ${line.reb}</p>`, [['Weiter', () => hub(after)]]);
+      <p class="career-line">PTS ${line.pts} · AST ${line.ast} · REB ${line.reb}</p>${gained ? `<p class="career-growth">▲ ${gained}</p>` : ''}`, [['Weiter', () => hub(after)]]);
   }
   function postseasonEnd(c: CareerState): void {
     const p = c.postseason!;

@@ -535,3 +535,18 @@ describe('Karriere – Verlängerung als eigene Szene', () => {
     expect(again.text).toContain('zweiten Verlängerung');
   });
 });
+
+describe('Karriere – Werte leveln im Spiel', () => {
+  it('eigene Dreier und Assists heben Dreier und Passen im Spielstand und stehen auf dem Ergebnis-Bildschirm', () => {
+    const st = memory(); const c = fresh(st);
+    outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 3, ast: 1, teamPts: 3, made: ['three'] });
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen'); playGame();
+    const n = specs.length, after = loadCareer(st)!.player.ratings;
+    expect(after.three).toBeCloseTo(c.player.ratings.three + n * .003, 9);
+    expect(after.pass).toBeCloseTo(c.player.ratings.pass + n * .003, 9);
+    expect(after.mid).toBe(c.player.ratings.mid);
+    expect(text()).toContain('Dreier +');
+    expect(text()).toContain('Passen +');
+  });
+});

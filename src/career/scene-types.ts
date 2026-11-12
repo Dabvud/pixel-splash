@@ -2,6 +2,7 @@ import type { Settings } from '../settings';
 import type { Mode } from '../modes/mode';
 import type { Play } from '../play/types';
 import type { Perks } from '../play/engine';
+import type { ShotKind } from '../play/finish';
 
 /** Eine Karriere-Szene: fester Spielzug, Rückstand, Uhr, eigener Spieler */
 export interface SceneSpec {
@@ -20,5 +21,6 @@ export interface SceneSpec {
   perks?: Perks & { onFire?: boolean };
 }
 /** won = GAMEWINNER; verdict OVERTIME/DOPPEL-OVERTIME (Gleichstand) entscheidet die Karriere-Logik */
-export interface SceneResult { won: boolean; verdict: string; pts: number; ast: number; heroShots?: number; heroMakes?: number; teamPts?: number }
+export interface SceneResult { won: boolean; verdict: string; pts: number; ast: number; heroShots?: number; heroMakes?: number; teamPts?: number;
+  /** Art jedes eigenen Feldkorbs in dieser Szene (für das Leveln der Werte) */ made?: ShotKind[] }
 export type PlayScene = (app: HTMLElement, s: Settings, spec: SceneSpec, onEnd: (r: SceneResult) => void) => Mode;

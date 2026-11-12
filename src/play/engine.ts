@@ -90,7 +90,7 @@ export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pas
   | { type: 'caught'; by: string } | { type: 'takeoff'; kind: 'layup' | 'dunk' | 'contact_dunk' }
   | { type: 'pocket'; quality: number }
   | { type: 'arrowStart'; kind: ArrowMeter['kind']; contest?: number } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
-  | { type: 'combo'; fouled: boolean; contact: boolean; contest?: number } | { type: 'result'; banner: string; made: boolean }
+  | { type: 'combo'; fouled: boolean; contact: boolean; contest?: number } | { type: 'result'; banner: string; made: boolean; kind?: ShotKind }
   | { type: 'foul'; andOne: boolean }
   | { type: 'glass' } | { type: 'glassFixed' } | { type: 'boardOop' } | { type: 'ankle' } | { type: 'tactic'; name: string } | { type: 'mismatch' }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
@@ -1156,7 +1156,7 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
     : result.outcome === 'bank_in'
     ? `${!ft && s.assisted ? 'ASSIST + ' : ''}${result.banner}${!ft && fouled ? ' + AND-ONE' : ''}`
     : ft ? result.made ? 'TREFFER' : 'DANEBEN' : finishBanner(kind, result.made, fouled, s.assisted);
-  events.push({ type: 'result', banner: s.banner, made: result.made });
+  events.push({ type: 'result', banner: s.banner, made: result.made, kind: ft ? undefined : kind });
   s.combo = null;
   clearArrow(s, events);
   for (const a of Object.values(s.actors)) {

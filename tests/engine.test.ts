@@ -30,7 +30,7 @@ describe('Bankshots in der Engine', () => {
       const events = until(s, () => s.phase === 'ended');
       expect(s.points).toBe(points);
       expect(s.banner).toBe('ASSIST + BRETT – DRIN');
-      expect(events).toContainEqual({ type: 'result', banner: 'ASSIST + BRETT – DRIN', made: true });
+      expect(events).toContainEqual(expect.objectContaining({ type: 'result', banner: 'ASSIST + BRETT – DRIN', made: true }));
     });
 
   it('zählt den Brett-Freiwurf als einen Punkt und zeigt sein Banner', () => {
@@ -56,7 +56,7 @@ describe('Bankshots in der Engine', () => {
     const events = until(s, () => s.phase === 'freethrows', c, () => 0);
     expect(s.points).toBe(2);
     expect(s.freeThrows!.left).toBe(1);
-    expect(events).toContainEqual({ type: 'result', banner: 'BRETT – DRIN + AND-ONE', made: true });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'result', banner: 'BRETT – DRIN + AND-ONE', made: true }));
   });
 });
 function only(play: Play, variant: Variant): Play { return { ...play, variants: [{ ...variant, weight: 1 }] }; }

@@ -111,6 +111,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
   const mine = () => !career || isControlled(s);
   // Karriere: eigene Wurfversuche für Green Light zählen (ohne Freiwürfe)
   let heroShots = 0, heroMakes = 0;
+  const heroMade: NonNullable<import("../career/scene-types").SceneResult["made"]> = [];
 
   let rng: () => number = Math.random;
   let s!: PlayState;
@@ -271,7 +272,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         hoop.setGlassBroken(false);
         shards.reset();
       } else if (e.type === "result") {
-        if (career && s.handler === career.spec.controlled && !s.freeThrows) { heroShots++; if (e.made) heroMakes++; }
+        if (career && s.handler === career.spec.controlled && !s.freeThrows) { heroShots++; if (e.made) { heroMakes++; if (e.kind) heroMade.push(e.kind); } }
         if (e.made) crowd?.cheer(s.poster?.variant === "crowd" ? 1 : /DUNK|POSTER/.test(e.banner) ? .9 : .6);
         if (e.made && e.banner.includes("POSTER")) replayPending ??= { andOne: false };
         if (s.glass && e.made && /POSTER|AND-ONE/.test(e.banner)) {
@@ -424,7 +425,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else if (!sceneDone) {
           sceneDone = true;
           const line = s.box[career.spec.controlled];
-          const result = { won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0, heroShots, heroMakes, teamPts: s.points };
+          const result = { won: s.verdict === "GAMEWINNER", verdict: s.verdict ?? "", pts: line?.pts ?? 0, ast: line?.ast ?? 0, heroShots, heroMakes, teamPts: s.points, made: heroMade };
           // erst nach diesem Bild melden: die Karriere stoppt die Szene und räumt den eigenen Spieler weg
           setTimeout(() => career.onEnd(result), 0);
         }
