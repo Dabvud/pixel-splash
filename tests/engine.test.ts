@@ -114,7 +114,9 @@ describe.each(routes)('$title', ({ play, route, perfect }) => {
     }
     expect(s.phase).toBe('ended');
     expect(s.gameT).toBeLessThan(30);
-    expect(index).toBe(route.length);
+    // ein zu früher Lob wird ein normaler Pass: der Fänger entscheidet dann noch einmal selbst
+    expect(index).toBeGreaterThanOrEqual(route.length);
+    expect(index).toBeLessThanOrEqual(route.length + 1);
   });
 });
 

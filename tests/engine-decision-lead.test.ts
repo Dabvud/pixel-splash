@@ -74,7 +74,9 @@ describe.each(routes)('Bewegte Engine-Route $title', ({ play, route }) => {
       if (s.phase === 'combo') command(s, { kind: 'comboRelease', holdMs: s.combo!.meterMs, angleDeg: 0 }, cfg, safe);
       step(s, 1 / 120, cfg, safe);
     }
-    expect(index).toBe(route.length);
+    // ein zu früher Lob wird ein normaler Pass: der Fänger entscheidet dann noch einmal selbst
+    expect(index).toBeGreaterThanOrEqual(route.length);
+    expect(index).toBeLessThanOrEqual(route.length + 1);
     expect(s.phase).toBe('ended');
   });
 });

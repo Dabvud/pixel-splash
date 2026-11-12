@@ -99,6 +99,7 @@ interface Pass {
   option: Option; from: Vec3; to: Vec3; catchPos: Vec2; duration: number; elapsed: number; stolenBy?: string;
   quality: number; startOffset: number; endOffset: number;
   style: 'normal' | 'bounce' | 'overhead';
+  /** wird als Alley-oop gefangen (nur wenn der Fangpunkt am Korb liegt) */ lob: boolean;
   /** Alley-oop vom Brett: Ball prallt hier vom Glas zum Fänger */
   board?: Vec3;
 }
@@ -124,7 +125,7 @@ interface Runtime {
   /** Floor General: dieser Mitspieler wird nach dem Pass des eigenen Spielers mitgesteuert */
   borrowed?: string;
   /** KI-Zug eines Mitspielers (Karriere): Schlüssel der aktuellen Situation, Startzeit, Ziel-Füllstand, Wurfzeitpunkt */
-  ai?: { key: string; at: number; target?: number; releaseAt?: number; hold?: number; decided?: boolean };
+  ai?: { key: string; at: number; target?: number; releaseAt?: number; hold?: number; decided?: boolean; pending?: Option };
   impact?: { victim: string; from: Vec2; to: Vec2; elapsed: number; duration: number; variant: PosterVariant };
   segment: Segment; variant: Variant; segT: number; phaseT: number; realT: number; aiSelected: Option | null;
   paths: Record<string, Waypoint[]>;
@@ -704,8 +705,22 @@ function catchOffset(a: ActorState, quality: number): Vec3 {
     z: Math.sin(a.facing) * .3 * (1 - quality) };
 }
 
+/** Fangpunkt eines Alley-oops: am Korb (≤ 3 m). Ist der Fänger noch unterwegs, wird der Ball bis zu 1,2 s voraus gespielt; sonst kein Alley-oop */
+function lobTarget(s: PlayState, option: Option): { pos: Vec2; duration: number } | null {
+  if (!option.lob) return null;
+  const near = (p: Vec2) => distance(p, { x: 0, z: 0 }) <= 3, base = catchPoint(s, option.to!);
+  if (near(base.pos)) return base;
+  for (let d = base.duration; d <= 1.2 + 1e-9; d += .05) {
+    const pos = predicted(s, option.to!, d);
+    if (near(pos)) return { pos, duration: d };
+  }
+  return null;
+}
+
 function startPass(s: PlayState, option: Option, quality: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
-  const r = rt(s), catcher = s.actors[option.to!], target = catchPoint(s, catcher.id), h = s.actors[s.handler];
+  const r = rt(s), catcher = s.actors[option.to!], h = s.actors[s.handler];
+  // Alley-oop nur, wenn der Fänger am Korb fängt; ein viel zu früher Lob (Entscheiden im Laufen) ist ein normaler Pass
+  const lead = lobTarget(s, option), target = lead ?? catchPoint(s, catcher.id), lob = Boolean(lead);
   // Steals nur bei abgefangenen Pässen: einmal beim Abspiel nach Passweg und Genauigkeit würfeln.
   const passFactor = cfg.ratingMeters ? Math.max(.5, Math.min(1.3, 1.3 - .6 * ratingsOf(ACTORS[h.id]).pass)) : 1;
   const steal = rng() < stealChance(h.pos, target.pos, defenders(s).map(a => a.pos), quality) * passFactor * (perksFor(s, h.id).passSteal ?? 1);
@@ -719,7 +734,7 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
     const f = Math.max(0, Math.min(1, ((a.pos.x - h.pos.x) * dx + (a.pos.z - h.pos.z) * dz) / (len2 || 1)));
     return distance(a.pos, { x: h.pos.x + f * dx, z: h.pos.z + f * dz });
   };
-  const style: Pass['style'] = option.lob || Math.sqrt(len2) > 9 ? 'overhead'
+  const style: Pass['style'] = lob || Math.sqrt(len2) > 9 ? 'overhead'
     : Math.sqrt(len2) < 6 && defenders(s).some(a => laneDistance(a) < 1.5) ? 'bounce' : 'normal';
   let stolenBy: string | undefined;
   if (steal) {
@@ -732,17 +747,17 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
   const receiving = stolenBy ? s.actors[stolenBy] : catcher;
   if (stolenBy) { move(receiving, 'catch', true); receiving.facing = facingTo(receiving.pos, h.pos); }
   const catchPose = { ...receiving, pos: stolenBy ? receiving.pos : target.pos, moveT: 0 };
-  if (option.lob && !stolenBy) catchPose.y = Math.max(.35, 3.05 - (hand(catchPose).y - catchPose.y));
+  if (lob && !stolenBy) catchPose.y = Math.max(.35, 3.05 - (hand(catchPose).y - catchPose.y));
   const to = hand(catchPose), offset = catchOffset(catchPose, stolenBy ? 1 : quality);
   const random = cfg.closeoutRandom ?? 0;
-  r.pass = { option, quality, style, from: hand(h), to: { x: to.x + offset.x, y: to.y + offset.y, z: to.z + offset.z }, catchPos: target.pos,
+  r.pass = { option, quality, style, lob, from: hand(h), to: { x: to.x + offset.x, y: to.y + offset.y, z: to.z + offset.z }, catchPos: target.pos,
     duration: target.duration, elapsed: 0, stolenBy,
     startOffset: !steal && random > 0 ? (rng() * 2 - 1) * .3 * random : 0,
     endOffset: !steal && random > 0 ? (rng() * 2 - 1) * .6 * random : 0 };
   phase(s, 'passing');
   s.ball = { ...r.pass.from };
   events.push({ type: 'pass', from: s.handler, to: catcher.id, steal });
-  if (option.lob && !steal) {
+  if (lob && !steal) {
     const defense = contactDefenders(s).map(a => predicted(s, a.id, target.duration));
     const P = playPositionValue(s, target.pos, target.duration);
     const kind = contactKind(s, cfg.forcePoster
@@ -907,9 +922,14 @@ function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: Engin
   const options = decisionOptions(s);
   const toHero = options.find(o => o.kind === 'pass' && o.to === cfg.controlled);
   // Szenen drehen sich um den eigenen Spieler: Mitspieler suchen ihn bevorzugt
-  let option = toHero && rng() < .75 ? toHero : bestOption(s, options);
+  // ein schon gewählter, noch wartender Lob wird nicht neu ausgewürfelt
+  let option = ai.pending ?? (toHero && rng() < .75 ? toHero : bestOption(s, options));
   if (option.kind === 'shoot' && options.some(o => o.kind === 'drive') && rng() < driveChance(s, owner)) option = { kind: 'drive' };
-  if (option.kind === 'pass') events.push(...runCommand(s, { kind: 'pass', to: option.to!, quality: .55 + .45 * ratings.pass }, cfg, rng));
+  if (option.kind === 'pass') {
+    // Lob erst spielen, wenn der Fänger am Korb ist; solange die Wege noch laufen, wartet der Mitspieler
+    if (option.lob && !lobTarget(s, option) && r.segT < (r.segment.decisionAt ?? 0)) { ai.pending = option; return; }
+    events.push(...runCommand(s, { kind: 'pass', to: option.to!, quality: .55 + .45 * ratings.pass }, cfg, rng));
+  }
   else if (option.kind === 'drive') events.push(...runCommand(s, { kind: 'drive', lane: 0 }, cfg, rng));
   else shoot();
 }
@@ -1444,7 +1464,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
         const nearest = defenders(s).sort((d, e) => distance(d.pos, a.pos) - distance(e.pos, a.pos))[0];
         nextSegment(s, p.option);
         events.push({ type: 'caught', by: s.handler });
-        if (p.option.lob) catchLob(s, rng, events);
+        if (p.lob) catchLob(s, rng, events);
         else {
           r.reception = { quality: p.quality, delay: (1 - p.quality) * (cfg.passDelayMax ?? .6), elapsed: 0,
             offset: catchOffset(a, p.quality),

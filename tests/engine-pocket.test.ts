@@ -17,7 +17,8 @@ const fixture = (lob = false): Play => ({
   id: 'kickout', name: 'Pocket-Test', clockS: 20, deficit: 2, actors: ['r3', 'r50', 'b1', 'b7'], start: 'setup',
   segments: { setup: { id: 'setup', handler: 'r3', decisionAt: 0, paths: {
     r3: [{ t: 0, x: -4, z: 5, act: 'stand' }],
-    r50: [{ t: 0, x: 0, z: 5, act: 'stand' }],
+    // Alley-oop nur am Korb: der Lob-Fänger steht in Korbnähe
+    r50: [{ t: 0, x: 0, z: lob ? 2 : 5, act: 'stand' }],
     b1: [{ t: 0, x: 0, z: 3.4, act: 'defend' }],
     b7: [{ t: 0, x: 6, z: 10, act: 'defend' }],
   }, options: [{ kind: 'pass', to: 'r50', lob }] } },
@@ -209,6 +210,8 @@ describe.each(routes)('Pocket-Route $title', ({ play, route, q }) => {
       step(s, 1 / 120, c, safe);
     }
     expect(s.phase).toBe('ended');
-    expect(index).toBe(route.length);
+    // ein zu früher Lob wird ein normaler Pass: der Fänger entscheidet dann noch einmal selbst
+    expect(index).toBeGreaterThanOrEqual(route.length);
+    expect(index).toBeLessThanOrEqual(route.length + 1);
   });
 });
