@@ -8,7 +8,7 @@ import { advanceScore, crunch, fate, openingScore, sceneGap, type GameScore } fr
 
 /** Ausgang eines Key Games: Sieg/Niederlage, Endstand, optional Hinweis (Crunchtime schon entschieden) */
 interface Outcome { won: boolean; own: number; opp: number; note?: string }
-import { finishSeason, offDef, playoffStatus, projectWins, standings, strengthOf } from '../career/season';
+import { finishSeason, offDef, otherSeed, playoffStatus, projectWins, seasonSeed, standings, strengthOf } from '../career/season';
 import { ROUND_NAME, advance, postseasonGame, startPostseason, type PlayoffResult } from '../career/playoffs';
 import type { PlayScene, SceneResult } from '../career/scene-types';
 import { teamLogo } from '../career/logos';
@@ -142,7 +142,9 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       } else deficit = Math.max(1, Math.min(3, score.opp - score.own));
       const perks = perksOf(c.player), hot = updateHot(c.hot ?? 0, results);
       const t = TUNING[c.difficulty];
-      const withPerks = (sp: SceneSpec): SceneSpec => ({ ...sp, tuning: { zone: t.zone, meter: t.meter, ai: t.ai },
+      // feindliche Halle: alle grünen Fenster 5 % kleiner, Mitspieler treffen 5 % schlechter
+      const hostile = game.label === 'Auswärts in feindlicher Halle' ? .95 : 1;
+      const withPerks = (sp: SceneSpec): SceneSpec => ({ ...sp, tuning: { zone: t.zone * hostile, meter: t.meter, ai: t.ai * hostile },
         perks: { ...perks, passSteal: (perks.passSteal ?? 1) * t.steal, onFire: Boolean(perks.greenLight) && hot >= 2 } });
       const spec = withPerks(sceneSpec(c, game, i, total, deficit, rng, score, open));
       openOffset = spec.clockOffset ?? 0;
@@ -196,10 +198,9 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
   /** Paarung: Gast links, Heim rechts – Wappen, Name, Saisonbilanz bis hierher, Teamwert */
   function matchup(c: CareerState, game: KeyGame): string {
     // gleiche Seeds wie die Tabelle am Saisonende → die Bilanzen laufen auf den späteren Endstand zu
-    const seed = (c.seed ^ (c.year * 31337)) >>> 0, played = Math.round(82 * (c.gameIndex + .5) / c.keyGames.length);
-    const keyWins = c.season.filter(g => g.won).length, conf = teamById(game.opponent).conference;
-    const ownFinal = projectWins(strengthOf(c, c.team), keyWins, c.season.length, c.difficulty, seededRng(seed));
-    const oppFinal = standings(c, ownFinal, seededRng(seed + (conf === teamById(c.team).conference ? 1 : 3)), conf).find(r => r.team === game.opponent)!.wins;
+    const played = Math.round(82 * (c.gameIndex + .5) / c.keyGames.length), conf = teamById(game.opponent).conference;
+    const ownFinal = ownProjection(c);
+    const oppFinal = standings(c, ownFinal, seededRng(conf === teamById(c.team).conference ? seasonSeed(c) + 1 : otherSeed(c)), conf).find(r => r.team === game.opponent)!.wins;
     const side = (id: string, final: number) => {
       const w = Math.round(final * played / 82);
       return `<div>${teamLogo(id, 44)}<b>${esc(teamById(id).name)}</b><span>${w}–${played - w}</span><span>OVR ${strengthOf(c, id)}</span></div>`;
@@ -219,7 +220,14 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       season: [...c.season, { opponent: game.opponent, label: game.label, home: game.home, won, ...line }] };
     save(after);
     screen(`<h2>${won ? 'Sieg' : 'Niederlage'}</h2><p>${ownPts} : ${oppPts} ${opponentLine(game)}</p>${o.note ? `<p>${o.note}</p>` : ''}
-      <p class="career-line">PTS ${line.pts} · AST ${line.ast} · REB ${line.reb}</p>`, [['Weiter', () => hub(after)]]);
+      <p class="career-line">PTS ${line.pts} · AST ${line.ast} · REB ${line.reb}</p>`, [['Weiter', () => interim(after)]]);
+  }
+  /** Zwischenstand der Liga nach jedem Key Game (nach dem letzten folgt direkt das Saisonende) */
+  function interim(c: CareerState): void {
+    if (c.gameIndex >= c.keyGames.length) return hub(c);
+    const played = Math.round(82 * c.gameIndex / c.keyGames.length);
+    screen(`<h2>Tabelle</h2><p>Saison ${c.year} · nach ${played} Spielen</p>${leagueTables(c, ownProjection(c), played)}`, [['Weiter', () => hub(c)]], 'career-long');
+    wireTables(c);
   }
 
   function seasonEnd(c: CareerState): void {
@@ -231,14 +239,56 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     const rank = table.findIndex(r => r.team === c.team) + 1;
     screen(`<h2>Saisonende ${c.year}</h2><p>${ownWins} – ${82 - ownWins} · Platz ${rank} in der ${teamById(c.team).conference === 'east' ? 'Eastern' : 'Western'} Conference</p>
       <p>${STATUS[playoffStatus(rank)]}</p>
-      <table class="career-table"><thead><tr><th>#</th><th>Team</th><th>Wert</th><th>S</th><th>N</th></tr></thead><tbody>${table.map((r, i) =>
-        `<tr${r.team === c.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${teamLogo(r.team, 16)}${esc(teamName(teamById(r.team)))}${r.note ? ` <small>${r.note}</small>` : ''}</td><td>${strengthOf(c, r.team)}</td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</tbody></table>`,
+      ${leagueTables(c, ownWins, 82)}`,
       rank <= 10
         ? [[rank <= 6 ? 'Playoffs' : 'Play-In', () => {
           const n = { ...c, postseason: startPostseason(c, ownWins, table, seededRng(seed + 2))! };
           save(n); playoffHub(n);
         }]]
         : [['Nächste Saison', () => nextSeason(c, ownWins)]], 'career-long');
+    wireTables(c);
+  }
+
+  /** Hochrechnung der eigenen Siege aus den bisherigen Key Games (am Saisonende = Endstand) */
+  const ownProjection = (c: CareerState) =>
+    projectWins(strengthOf(c, c.team), c.season.filter(g => g.won).length, c.season.length, c.difficulty, seededRng(seasonSeed(c)));
+  const CONF_NAME = { east: 'Eastern', west: 'Western' };
+
+  /** Tabellen beider Conferences nach `played` Spielen (82 = Endstand) plus Vorsaison; Umschalter verdrahtet wireTables */
+  function leagueTables(c: CareerState, ownWins: number, played: number): string {
+    const own = teamById(c.team).conference, other = own === 'east' ? 'west' : 'east';
+    const last = c.history.at(-1), prev = last?.table;
+    const block = (conf: 'east' | 'west'): string => {
+      // gleiche Seeds wie finishSeason → am Saisonende angezeigter Platz = gespeicherter Platz
+      const final = standings(c, ownWins, seededRng(conf === own ? seasonSeed(c) + 1 : otherSeed(c)), conf);
+      const rows = final.map(r => ({ ...r, w: Math.round(r.wins * played / 82) }));
+      if (played < 82) rows.sort((a, b) => b.w - a.w);
+      const before = (prev ?? []).filter(r => teamById(r.team).conference === conf);
+      const trend = (team: string, now: number): string => {
+        const was = before.findIndex(r => r.team === team) + 1, d = was - now;
+        return !was ? '' : d > 0 ? `<span class="up" aria-label="${d} Plätze besser als in der Vorsaison">▲${d}</span>`
+          : d < 0 ? `<span class="down" aria-label="${-d} Plätze schlechter als in der Vorsaison">▼${-d}</span>` : '<span class="same">–</span>';
+      };
+      const now = `<table class="career-table" data-conf="${conf}" data-old="0"${conf === own ? '' : ' hidden'}><thead><tr><th>#</th><th></th><th>${CONF_NAME[conf]}</th><th>OVR</th><th>S</th><th>N</th></tr></thead><tbody>${rows.map((r, i) =>
+        `<tr${r.team === c.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${trend(r.team, i + 1)}</td><td>${teamLogo(r.team, 16)}${esc(teamName(teamById(r.team)))}${played === 82 && r.note ? ` <small>${r.note}</small>` : ''}</td><td>${strengthOf(c, r.team)}</td><td>${r.w}</td><td>${played - r.w}</td></tr>`).join('')}</tbody></table>`;
+      const old = before.length ? `<table class="career-table" data-conf="${conf}" data-old="1" hidden><thead><tr><th>#</th><th>${CONF_NAME[conf]} · Saison ${c.year - 1}</th><th>S</th><th>N</th></tr></thead><tbody>${before.map((r, i) =>
+        `<tr${r.team === last!.team ? ' class="own"' : ''}><td>${i + 1}</td><td>${teamLogo(r.team, 16)}${esc(teamName(teamById(r.team)))}</td><td>${r.wins}</td><td>${82 - r.wins}</td></tr>`).join('')}</tbody></table>` : '';
+      return now + old;
+    };
+    return `<div class="table-tabs"><button class="menu-btn table-conf">${CONF_NAME[other]} Conference</button>${
+      prev?.length ? '<button class="menu-btn table-toggle">Vorsaison</button>' : ''}</div>${block(own)}${block(other)}`;
+  }
+  function wireTables(c: CareerState): void {
+    const own = teamById(c.team).conference;
+    let conf = own, old = false;
+    const confBtn = root.querySelector<HTMLButtonElement>('.table-conf'), oldBtn = root.querySelector<HTMLButtonElement>('.table-toggle');
+    const show = () => {
+      root.querySelectorAll<HTMLTableElement>('.career-table[data-conf]').forEach(t => { t.hidden = !(t.dataset.conf === conf && (t.dataset.old === '1') === old); });
+      if (confBtn) confBtn.textContent = `${CONF_NAME[conf === 'east' ? 'west' : 'east']} Conference`;
+      if (oldBtn) oldBtn.textContent = old ? 'Aktuelle Saison' : 'Vorsaison';
+    };
+    confBtn?.addEventListener('click', () => { conf = conf === 'east' ? 'west' : 'east'; show(); });
+    oldBtn?.addEventListener('click', () => { old = !old; show(); });
   }
   function nextSeason(c: CareerState, ownWins: number): void {
     // gleicher Seed wie die Tabelle am Saisonende → gespeicherter Platz = angezeigter Platz

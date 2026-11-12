@@ -16,7 +16,9 @@ export interface CareerPlayer {
 }
 export interface KeyGame { opponent: string; label: string; home: boolean }
 export interface GameRecord { opponent: string; label: string; home: boolean; won: boolean; pts: number; ast: number; reb: number }
-export interface SeasonRecord { year: number; team: string; age: number; wins: number; losses: number; rank: number; games: GameRecord[]; playoff?: PlayoffResult; awards?: AwardId[] }
+export interface SeasonRecord { year: number; team: string; age: number; wins: number; losses: number; rank: number; games: GameRecord[]; playoff?: PlayoffResult; awards?: AwardId[];
+  /** Abschlusstabellen beider Conferences, je nach Siegen sortiert (für Pfeile und Rückblick in der Folgesaison) */
+  table?: { team: string; wins: number }[] }
 export interface CareerState {
   version: 1; seed: number; difficulty: Difficulty; player: CareerPlayer; team: string; year: number;
   keyGames: KeyGame[]; gameIndex: number;

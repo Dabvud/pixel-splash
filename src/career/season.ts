@@ -43,6 +43,10 @@ export function standings(state: CareerState, ownWins: number, rng: () => number
   }).sort((a, b) => b.wins - a.wins || (a.team === state.team ? -1 : b.team === state.team ? 1 : 0));
 }
 
+/** Seeds der Saisontabellen: eigene Conference seasonSeed + 1 (wie finishSeason), andere Conference seasonSeed + 3 */
+export const seasonSeed = (state: CareerState) => (state.seed ^ (state.year * 31337)) >>> 0;
+export const otherSeed = (state: CareerState) => seasonSeed(state) + 3;
+
 export function playoffStatus(rank: number): 'playoffs' | 'playin' | 'out' {
   return rank <= 6 ? 'playoffs' : rank <= 10 ? 'playin' : 'out';
 }
@@ -51,10 +55,12 @@ const RETIRE: Record<number, number> = { 36: .2, 37: .35, 38: .55, 39: .75 };
 
 /** Saison abschließen: archivieren, altern, Liga entwickeln, neue Key Games, Verletzung/Karriereende würfeln */
 export function finishSeason(state: CareerState, ownWins: number, rng: () => number): CareerState {
-  const rank = standings(state, ownWins, rng).findIndex(r => r.team === state.team) + 1;
+  const table = standings(state, ownWins, rng), rank = table.findIndex(r => r.team === state.team) + 1;
+  // andere Conference mit eigenem Zufall (gleicher Seed-Versatz wie die Anzeige), damit die eigene Tabelle unverändert bleibt
+  const other = standings(state, ownWins, seededRng(otherSeed(state)), teamById(state.team).conference === 'east' ? 'west' : 'east');
   const record = { year: state.year, team: state.team, age: state.player.age, wins: ownWins, losses: 82 - ownWins, rank, games: state.season,
     playoff: state.postseason?.result ?? 'none' as const,
-    awards: seasonAwards(state, rank, state.postseason?.result ?? 'none') };
+    awards: seasonAwards(state, rank, state.postseason?.result ?? 'none'), table: [...table, ...other].map(({ team, wins }) => ({ team, wins })) };
   const league = evolveLeague(leagueOf(state), rng), strengths = ratings(league);
   const age = state.player.age + 1;
   const retired = age >= 40 || rng() < (RETIRE[age] ?? 0);

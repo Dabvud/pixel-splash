@@ -23,6 +23,7 @@ import { command, createPlayState, isControlled, lastHint, playPositionValue, st
 import { laneFromAngle, passQuality, pickTargetWithAngle, swipeAngleTo, type ScreenTarget } from "../play/pass";
 import { createHud } from "../ui/hud";
 import { addPlay, boxRows, emptyGame } from "../stats/statline";
+import { CONTESTS } from "../play/contest";
 import { createPlayHud, formatPlayClock, type Marker } from "../ui/play-hud";
 import type { Mode } from "./mode";
 
@@ -84,7 +85,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
   const cfg = (): EngineConfig => ({
     situationRandom: settings.defenseRandom,
     // Verteidigungstaktik am Ballblock: im Labor mit Verteidigungs-Zufall, in der Karriere immer
-    tactics: settings.defenseRandom || Boolean(career),
+    tactics: settings.defenseRandom || Boolean(career), contests: Boolean(career),
     decisionLead: settings.decisionS,
     finishArrow: true,
     foulScene: true,
@@ -233,6 +234,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
       else if (e.type === "arrowStart") {
         comboT0 = releasedFill = null;
         hud.setMeter(null, noZones, MAX_FILL);
+        if (e.contest !== undefined) phud.flash(CONTESTS[e.contest]);
       } else if (e.type === "arrowTap") {
         hud.markRelease(e.fill, true, s.arrowMeter?.zones, s.arrowMeter ? meterDisplayFill(s.arrowMeter.kind, e.fill) : undefined);
         phud.setFinishFeedback(s.arrowMeter?.feedback ?? null);
@@ -249,6 +251,7 @@ export function startPlayLab(app: HTMLElement, initial: Settings, career?: { spe
         else if (e.kind === "dunk") phud.flash("DUNK!");
       } else if (e.type === "combo") {
         if (e.fouled) phud.flash("KONTAKT!");
+        else if (e.contest !== undefined) phud.flash(CONTESTS[e.contest]);
       } else if (e.type === "tactic") {
         phud.flash(`${e.name.toUpperCase()}!`);
       } else if (e.type === "mismatch") {

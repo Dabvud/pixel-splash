@@ -13,6 +13,7 @@ import { positionValue } from './position';
 import type { Vec2 } from './position';
 import { ACTORS } from './teams';
 import { finishMeter, ratingsOf } from './ratings';
+import { CONTEST_ZONE, blockChance, contestLevel } from './contest';
 import { TACTICS, TACTIC_NAME, findBallScreen, tacticTarget, type Tactic } from './tactics';
 import { castPlay, varyHelpTiming } from './situations';
 import type { Activity, Option, Play, Segment, Variant, Waypoint } from './types';
@@ -47,6 +48,8 @@ export interface EngineConfig {
   calmEnd?: boolean;
   /** Verteidigungstaktik am Ballblock würfeln (Switch/Drop/Hedge/Doppeln/Unter dem Block) + Mismatch-Effekt; forceTactic für Tests */
   tactics?: boolean; forceTactic?: Tactic;
+  /** Kontest-Stufen (Wide Open … Smothered) mit kleinerem Fenster und Block-Chance, Help-Verteidiger am Korb beim Drive; forceContest/helpChance für Tests */
+  contests?: boolean; forceContest?: number; helpChance?: number;
   /** Karriere-Spezialisierung: wirkt nur für `controlled` (onFire = Green Light aktiv) */
   perks?: Perks & { onFire?: boolean };
   posterVariant?: 'random' | PosterVariant;
@@ -67,7 +70,8 @@ export interface PlayState {
   overtime: boolean; foulTrouble: string | null;
   actors: Record<string, ActorState>; ball: Vec3; points: number; assisted: boolean; turnovers: number; foulScene: boolean;
   /** Statline dieses Spielzugs (Punkte, Assists) je Spieler-ID */ box: Record<string, StatLine>; lastPasser: string | null;
-  combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null };
+  combo: null | { kind: ShotKind; P: number; meterMs: number; zones: Zones; fouled: boolean; bankWindow: BankWindow | null;
+    /** Kontest-Stufe 0–4 und der kontestende Verteidiger (nur mit cfg.contests) */ contest?: number; contestBy?: string };
   freeThrows: null | { shooter: string; left: number }; banner: string | null; verdict: string | null; fingerDown: boolean;
   realTime: number; arrowMeter: ArrowMeter | null; // pausierbare Echtzeit in Sekunden
   poster: { victim: string; kind: 'poster' | 'block' | 'ankle'; variant: PosterVariant; startedAt: number } | null;
@@ -85,8 +89,8 @@ export type Command = { kind: 'pass'; to: string; quality?: number } | { kind: '
 export type EngineEvent = { type: 'decision'; options: Option[] } | { type: 'pass'; from: string; to: string; steal: boolean }
   | { type: 'caught'; by: string } | { type: 'takeoff'; kind: 'layup' | 'dunk' | 'contact_dunk' }
   | { type: 'pocket'; quality: number }
-  | { type: 'arrowStart'; kind: ArrowMeter['kind'] } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
-  | { type: 'combo'; fouled: boolean; contact: boolean } | { type: 'result'; banner: string; made: boolean }
+  | { type: 'arrowStart'; kind: ArrowMeter['kind']; contest?: number } | { type: 'arrowTap'; fill: number } | { type: 'arrowEnd' }
+  | { type: 'combo'; fouled: boolean; contact: boolean; contest?: number } | { type: 'result'; banner: string; made: boolean }
   | { type: 'foul'; andOne: boolean }
   | { type: 'glass' } | { type: 'glassFixed' } | { type: 'boardOop' } | { type: 'ankle' } | { type: 'tactic'; name: string } | { type: 'mismatch' }
   | { type: 'freethrow'; left: number } | { type: 'end'; verdict: string };
@@ -106,7 +110,7 @@ interface Drive { from: Vec2; to: Vec2; duration: number; elapsed: number; lane:
 interface Shot {
   result: ShotResult; kind: ShotKind; fouled: boolean; ft: boolean; elapsed: number; delay: number;
   flight?: Flight; from: Vec2; fromY: number; windup: number; defender?: string; defenderFrom?: Vec2;
-  lob: boolean; timedOut: boolean;
+  lob: boolean; timedOut: boolean; swatted?: boolean;
   perfect: boolean; glassChecked?: boolean;
 }
 interface ComboData { combo: NonNullable<PlayState['combo']>; params: ShotParams; foulRoll: number }
@@ -114,6 +118,8 @@ interface ArrowInput { holdMs: number; P: number }
 interface Runtime {
   ratings?: boolean;
   perks?: Perks & { onFire?: boolean }; controlled?: string; calmEnd?: boolean;
+  /** Help-Verteidiger vom Korb, der beim Drive zum Kontesten rotiert */
+  help?: { id: string; pos: Vec2 };
   tacticRt?: { t: number; screener: string; hd?: string; sd?: string; pos: Record<string, Vec2>; done?: boolean };
   /** Floor General: dieser Mitspieler wird nach dem Pass des eigenen Spielers mitgesteuert */
   borrowed?: string;
@@ -173,6 +179,29 @@ const isMismatch = (s: PlayState) => {
   return Boolean(d && distance(d.pos, h.pos) < 2.5 && mismatch(s, d.id, h.pos) < 1);
 };
 const currentP = (s: PlayState) => playPositionValue(s, s.actors[s.handler].pos);
+
+/** Help-Verteidiger läuft zwischen Absprungpunkt und Korb und bleibt dort bis zum Ende des Angriffs */
+function applyHelp(s: PlayState, dt: number): void {
+  const r = rt(s), help = r.help, a = help && s.actors[help.id];
+  if (!help || !a) return;
+  if (s.freeThrows || s.phase === 'ended' || impacted(a)) { releaseHelp(s); return; }
+  if (s.phase === 'ballflight' && help.id === r.shot?.defender) return;
+  const to = r.drive?.to ?? s.actors[s.handler].pos, len = distance(to, { x: 0, z: 0 }) || 1, m = Math.min(.9, len);
+  a.pos = { ...help.pos };
+  const arrived = stepToward(a, { x: to.x - to.x / len * m, z: to.z - to.z / len * m }, 5.5 * dt);
+  help.pos = { ...a.pos };
+  if (!['block_jump', 'block_jump_hit', 'contact'].includes(a.move)) move(a, arrived ? 'defend' : 'run');
+  a.facing = facingTo(a.pos, s.actors[s.handler].pos);
+}
+/** Help beenden: Abweichung als Versatz zum Laufweg behalten, statt zurückzuspringen */
+function releaseHelp(s: PlayState): void {
+  const r = rt(s), help = r.help, path = help && r.paths[help.id];
+  if (help && path?.length) {
+    const p = point(path, r.segT);
+    r.offsets[help.id] = { x: help.pos.x - p.x, z: help.pos.z - p.z };
+  }
+  r.help = undefined;
+}
 
 /** Ab dem Ballblock bewegen sich die zwei beteiligten Verteidiger nach der gewürfelten Taktik statt nach ihrem Laufweg */
 function applyTactic(s: PlayState, dt: number, events: EngineEvent[]): void {
@@ -495,7 +524,19 @@ function comboData(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, r
       : ft ? 0 : Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI,
     zoneFactor: ft ? 1 : zoneFactor(P, cfg.zoneFloor, fouled, kind === 'contact_dunk')
       * (lobQuality === undefined ? 1 : .75 + .25 * lobQuality) };
-  return { params, combo: { kind, P, meterMs, zones: effectiveZones(params), fouled, bankWindow: bankWindow(params) }, foulRoll };
+  let contest: { contest?: number; contestBy?: string } = {};
+  if (cfg.contests && !ft) {
+    // der Help-Verteidiger zählt schon, als stünde er am Abschluss (er ist unterwegs dorthin)
+    const help = finishing ? rt(s).help?.id : undefined;
+    const gap = (d: ActorState) => d.id === help ? Math.min(1, distance(at(d), pos)) : distance(at(d), pos);
+    const by = defenders(s).filter(d => !impacted(d)).sort((x, y) => gap(x) - gap(y))[0];
+    if (by) {
+      const level = cfg.forceContest ?? contestLevel(gap(by), ratingsOf(ACTORS[by.id]).defense, rng);
+      contest = { contest: level, contestBy: by.id };
+      params.zoneFactor *= CONTEST_ZONE[level];
+    }
+  }
+  return { params, combo: { kind, P, meterMs, zones: effectiveZones(params), fouled, bankWindow: bankWindow(params), ...contest }, foulRoll };
 }
 
 function prepareCombo(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig, rng: () => number, events: EngineEvent[]): void {
@@ -505,7 +546,7 @@ function prepareCombo(s: PlayState, kind: ShotKind, P: number, cfg: EngineConfig
   rt(s).comboMove = shotMove(s, kind, P, rng);
   move(s.actors[s.handler], rt(s).comboMove!, true);
   s.actors[s.handler].facing = facingTo(s.actors[s.handler].pos, { x: 0, z: 0 });
-  events.push({ type: 'combo', fouled: data.combo.fouled, contact: kind === 'contact_dunk' });
+  events.push({ type: 'combo', fouled: data.combo.fouled, contact: kind === 'contact_dunk', contest: data.combo.contest });
   heldBall(s);
 }
 
@@ -535,7 +576,7 @@ function startArrow(s: PlayState, kind: ArrowMeter['kind'], startTime: number, d
   rt(s).arrow = data;
   s.arrowMeter = { kind, startTime, meterMs: data.combo.meterMs, zones: data.combo.zones,
     bankWindow: data.combo.bankWindow, fill: null, feedback: null };
-  events.push({ type: 'arrowStart', kind });
+  events.push({ type: 'arrowStart', kind, contest: kind === 'catchshoot' ? data.combo.contest : undefined });
   if (kind === 'alleyoop') events.push({ type: 'combo', fouled: data.combo.fouled, contact: data.combo.kind === 'contact_dunk' });
 }
 
@@ -547,7 +588,7 @@ function refreshCatchArrow(s: PlayState, P: number, cfg: EngineConfig): void {
   a.params.distance = distance(s.actors[s.handler].pos, { x: 0, z: 0 });
   const pos = s.actors[s.handler].pos;
   a.params.bankAngleDeg = Math.atan2(Math.abs(pos.x), pos.z) * 180 / Math.PI;
-  a.params.zoneFactor = zoneFactor(P, cfg.zoneFloor, c.fouled, false);
+  a.params.zoneFactor = zoneFactor(P, cfg.zoneFloor, c.fouled, false) * CONTEST_ZONE[c.contest ?? 0];
   c.zones = effectiveZones(a.params);
   c.bankWindow = bankWindow(a.params);
   s.arrowMeter!.zones = c.zones;
@@ -672,6 +713,7 @@ function startPass(s: PlayState, option: Option, quality: number, cfg: EngineCon
   const fr = rt(s);
   fr.borrowed = !steal && fr.perks?.floorGeneral && h.id === fr.controlled ? catcher.id : undefined;
   r.comboMove = undefined; r.drive = undefined;
+  releaseHelp(s);
   const dx = target.pos.x - h.pos.x, dz = target.pos.z - h.pos.z, len2 = dx * dx + dz * dz;
   const laneDistance = (a: ActorState) => {
     const f = Math.max(0, Math.min(1, ((a.pos.x - h.pos.x) * dx + (a.pos.z - h.pos.z) * dz) / (len2 || 1)));
@@ -767,7 +809,15 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
   const nearest = !s.freeThrows && contactDefenders(s).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos))[0];
   // Posterizer: ein verfehlter Kontakt-Dunk wird nie geblockt (normaler Fehlwurf ohne Verteidigerkontakt)
   const noBlock = perks.posterizer && combo.kind === 'contact_dunk' && !result.made;
-  const defender = !noBlock && nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
+  let defender = !noBlock && nearest && distance(nearest.pos, h.pos) < 2.5 ? nearest : undefined;
+  // Kontest: ab „Contested“ kann der Verteidiger den Wurf blocken – auch bei perfektem Timing (Kontakt-Dunk hat sein eigenes Duell)
+  const by = combo.contestBy ? s.actors[combo.contestBy] : undefined;
+  const swatted = Boolean(by) && !s.freeThrows && combo.kind !== 'contact_dunk' && !impacted(by!)
+    && rng() < blockChance(combo.contest ?? 0, ratingsOf(ACTORS[by!.id]).defense);
+  if (swatted) {
+    result = { ...result, made: false, outcome: 'airball', banner: 'GEBLOCKT' };
+    defender = by;
+  }
   if (defender) {
     move(defender, combo.kind === 'contact_dunk' ? 'block_jump_hit'
       : combo.fouled ? 'contact' : 'block_jump', true);
@@ -777,7 +827,7 @@ function startShot(s: PlayState, input: { holdMs: number; angleDeg: number }, rn
     elapsed: windup, delay: combo.kind === 'contact_dunk' && !result.made ? .3
       : finishing || id === 'step_back' || id === 'fadeaway' ? ((MOVES[id].rimFrame ?? 2) + 1) / MOVES[id].fps : .2,
     from: { ...h.pos }, fromY: h.y, windup, defender: defender?.id, defenderFrom: defender && { ...defender.pos }, lob: r.lob ?? false,
-    timedOut: r.arrow?.timedOut ?? false,
+    timedOut: r.arrow?.timedOut ?? false, swatted,
     perfect: s.arrowMeter && s.arrowMeter.kind !== 'catchshoot' ? s.arrowMeter.feedback === 'PERFEKT' : Math.abs(result.t) <= 1 };
   phase(s, 'ballflight');
   heldBall(s);
@@ -833,7 +883,7 @@ function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: Engin
     if (ai.target === undefined) {
       const combo = r.arrow?.combo, kind = combo?.kind ?? 'jump2', pos = s.actors[owner]?.pos ?? { x: 0, z: 0 };
       const rating = kind === 'three' ? ratings.three : kind === 'jump2' ? ratings.mid : ratings.finish;
-      ai.target = aiFill(m.zones.g, rng() < aiHitChance(kind, combo?.P ?? 1, rating, distance(pos, { x: 0, z: 0 }), cfg.aiDifficulty), rng);
+      ai.target = aiFill(m.zones.g, rng() < aiHitChance(kind, combo?.P ?? 1, rating, distance(pos, { x: 0, z: 0 }), cfg.aiDifficulty) * CONTEST_ZONE[combo?.contest ?? 0], rng);
     }
     if ((s.realTime - m.startTime) * 1000 / m.meterMs + 1e-9 >= ai.target) tapArrow(s, cfg, rng, events);
     return;
@@ -847,7 +897,8 @@ function aiAct(s: PlayState, cfg: EngineConfig, rng: () => number, events: Engin
     events.push(...runCommand(s, { kind: 'comboStart' }, cfg, rng));
     if (!s.combo) return;
     const kind = s.combo.kind, rating = s.freeThrows ? ratings.mid : kind === 'three' ? ratings.three : kind === 'jump2' ? ratings.mid : ratings.finish;
-    const chance = aiHitChance(s.freeThrows ? 'ft' : kind, s.combo.P, rating, distance(s.actors[owner].pos, { x: 0, z: 0 }), cfg.aiDifficulty);
+    const chance = aiHitChance(s.freeThrows ? 'ft' : kind, s.combo.P, rating, distance(s.actors[owner].pos, { x: 0, z: 0 }), cfg.aiDifficulty)
+      * (s.freeThrows ? 1 : CONTEST_ZONE[s.combo.contest ?? 0]);
     const hold = s.combo.meterMs * aiFill(s.combo.zones.g, rng() < chance, rng);
     r.ai = { key: `${s.phase}|${owner}||${s.freeThrows?.left ?? ''}`, at: s.realTime, releaseAt: s.realTime + hold / 1000, hold };
   };
@@ -939,6 +990,12 @@ function runCommand(s: PlayState, cmd: Command, cfg: EngineConfig, rng: () => nu
     const h = s.actors[s.handler], to = takeoffPoint(h.pos, cmd.lane);
     r.drive = { from: { ...h.pos }, to, duration: Math.max(1, distance(h.pos, to) / 8), elapsed: 0, lane: cmd.lane };
     r.comboMove = undefined;
+    if (cfg.contests) {
+      // Help: steht ein Verteidiger (nicht der am Ball) am Korb, rotiert er meistens zum Kontesten
+      const free = defenders(s).filter(a => !impacted(a)).sort((a, b) => distance(a.pos, h.pos) - distance(b.pos, h.pos)).slice(1);
+      const big = free.filter(a => distance(a.pos, { x: 0, z: 0 }) <= 3.2).sort((a, b) => distance(a.pos, to) - distance(b.pos, to))[0];
+      if (big && rng() < (cfg.helpChance ?? .9)) r.help = { id: big.id, pos: { ...big.pos } };
+    }
     phase(s, 'driving');
     const driveMove = cmd.lane === 0 ? rng() < .5 ? 'hesitation' : 'spin_move'
       : rng() < .5 ? 'crossover' : 'behind_back';
@@ -1075,7 +1132,7 @@ function finishShot(s: PlayState, events: EngineEvent[]): void {
     // Assist nur für den Feldkorb, nicht für Freiwürfe
     if (!ft && s.assisted && s.lastPasser && s.lastPasser !== scorer) (s.box[s.lastPasser] ??= emptyLine()).ast++;
   }
-  s.banner = shot.timedOut ? kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING'
+  s.banner = shot.swatted ? 'GEBLOCKT' : shot.timedOut ? kind === 'contact_dunk' ? 'GEBLOCKT' : 'VOM RING'
     : result.outcome === 'bank_in'
     ? `${!ft && s.assisted ? 'ASSIST + ' : ''}${result.banner}${!ft && fouled ? ' + AND-ONE' : ''}`
     : ft ? result.made ? 'TREFFER' : 'DANEBEN' : finishBanner(kind, result.made, fouled, s.assisted);
@@ -1340,6 +1397,7 @@ function tick(s: PlayState, dtReal: number, cfg: EngineConfig, rng: () => number
     ? r.decisionPathRate ?? 1 : 1);
   updatePaths(s, previous);
   applyTactic(s, dt, events);
+  applyHelp(s, dt);
   if (oldPhase === 'running') {
     // Entscheiden im Laufen: das Fenster öffnet schon während der letzten Wegsekunde, niemand bleibt stehen
     if (r.segT >= Math.max(0, (r.segment.decisionAt ?? 0) - (cfg.decisionLead ?? 0))) decision(s, events, cfg);

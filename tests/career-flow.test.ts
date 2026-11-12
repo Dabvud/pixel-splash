@@ -40,8 +40,15 @@ function fresh(storage: Storage, seed = 4): CareerState {
   saveCareer(c, storage);
   return c;
 }
+/** Ergebnis wegklicken und die Zwischentabelle überspringen */
+function done(): void {
+  press('Weiter');
+  if (/Tabelle/.test(document.querySelector('.career-screen h2')?.textContent ?? '')) press('Weiter');
+}
 /** Ein Key Game durchspielen: Ticker überspringen, Szene endet nach 10 ms */
 function playGame(): void {
+  // Zwischentabelle nach dem vorigen Key Game wegklicken
+  if (/Tabelle/.test(document.querySelector('.career-screen h2')?.textContent ?? '')) press('Weiter');
   press('Spielen');
   for (let i = 0; i < 3 && /VIERTEL/.test(text()) && !/Sieg|Niederlage/.test(text()); i++) {
     vi.advanceTimersByTime(3000); // Ticker läuft automatisch weiter
@@ -72,11 +79,11 @@ describe('Karriere-Ablauf', () => {
       expect(text()).toMatch(/Sieg|Niederlage/);
       expect(text()).toMatch(/PTS \d+ · AST \d+ · REB \d+/);
       expect(loadCareer(st)!.season).toHaveLength(g + 1);
-      press('Weiter');
+      done();
     }
     expect(text()).toContain('Saisonende');
     expect(text()).toMatch(/Platz \d+/);
-    expect(document.querySelectorAll('.career-table tbody tr')).toHaveLength(15);
+    expect(document.querySelectorAll('.career-table:not([hidden]) tbody tr')).toHaveLength(15);
     press('Nächste Saison'); skipAwards();
     // Off-Season: Rookie-Vertrag läuft weiter (bzw. seltener Trade) → Skillpunkte verteilen
     if (text().includes('Trade!')) press('Weiter');
@@ -123,8 +130,8 @@ describe('Karriere-Ablauf', () => {
     fresh(st);
     let mode = startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
-    playGame(); press('Weiter');
-    playGame(); press('Weiter');
+    playGame(); done();
+    playGame(); done();
     press('Spielen');
     vi.advanceTimersByTime(3000); // erste Szene von Spiel 3 läuft
     mode.stop();
@@ -160,7 +167,7 @@ describe('Karriere – Play-In und Playoffs', () => {
   function season(st: Storage): void {
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
-    for (let g = 0; g < 5; g++) { playGame(); press('Weiter'); }
+    for (let g = 0; g < 5; g++) { playGame(); done(); }
   }
   it('Platz 1 → vier Serien gewonnen → MEISTER, Ring in der Statistik', async () => {
     const { TEAMS } = await import('../src/career/league');
@@ -210,8 +217,8 @@ describe('Karriere – Play-In und Playoffs', () => {
     saveCareer({ ...c, strengths: Object.fromEntries(TEAMS.map(t => [t.id, t.id === c.team ? 95 : 30])) }, st);
     season(st);
     press('Playoffs');
-    playGame(); press('Weiter');
-    playGame(); press('Weiter');
+    playGame(); done();
+    playGame(); done();
     expect(document.querySelector('.career-screen h2')!.textContent).toBe('Conference-Finale');
     document.body.innerHTML = '<div id="app"></div>';
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
@@ -228,7 +235,7 @@ describe('Karriere – Off-Season-Bildschirme', () => {
       strengths: Object.fromEntries(ALL_TEAMS.map(t => [t.id, t.id === c.team ? 25 : 85])) }, st);
     let mode = startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
-    for (let g = 0; g < 5; g++) { playGame(); press('Weiter'); }
+    for (let g = 0; g < 5; g++) { playGame(); done(); }
     press('Nächste Saison'); skipAwards();
     expect(text()).toContain('Vertragsangebote');
     expect(document.querySelectorAll('.offer')).toHaveLength(3);
@@ -279,7 +286,7 @@ describe('Karriere – Spezialisierung in den Szenen', () => {
     outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 2, ast: 0, heroShots: 1, heroMakes: 1 });
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
-    playGame(); press('Weiter');
+    playGame(); done();
     expect(loadCareer(st)!.hot).toBeGreaterThanOrEqual(2);
     expect(specs[0].perks).toMatchObject({ threeGreen: 1.3, deepRange: true, greenLight: true, onFire: false });
     press('Spielen');
@@ -315,7 +322,7 @@ describe('Karriere – Auszeichnungen, Hall of Fame, Rangliste', () => {
     outcome = () => ({ won: true, verdict: 'GAMEWINNER', pts: 8, ast: 2 });
     startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
     press('Fortsetzen');
-    for (let g = 0; g < 5; g++) { playGame(); press('Weiter'); }
+    for (let g = 0; g < 5; g++) { playGame(); done(); }
     press('Nächste Saison');
     expect(text()).toContain('Auszeichnungen 1');
     expect(document.querySelectorAll('.trophy').length).toBeGreaterThan(0);
@@ -382,6 +389,7 @@ describe('Karriere – Endstand passt zum Spielverlauf', () => {
 
 describe('Karriere – Schluss-Szene nur wenn sie entscheidet', () => {
   function run(own: number, others: number, hit: boolean): { wins: number; open: number } {
+    document.body.innerHTML = '<div id="app"></div>'; specs = [];
     const st = memory(); const c = fresh(st);
     saveCareer({ ...c, strengths: Object.fromEntries(ALL_TEAMS.map(t => [t.id, t.id === c.team ? own : others])) }, st);
     outcome = () => hit ? { won: true, verdict: 'GAMEWINNER', pts: 3, ast: 0, teamPts: 3 } : { won: false, verdict: 'VERLOREN', pts: 0, ast: 0, teamPts: 0 };
@@ -416,5 +424,74 @@ describe('Karriere – Schluss-Szene nur wenn sie entscheidet', () => {
   });
   it('ausgeglichen: Treffen lohnt sich – mit Treffern mehr Siege als ohne', () => {
     expect(run(60, 60, true).wins).toBeGreaterThan(run(60, 60, false).wins);
+  });
+});
+
+describe('Karriere – feindliche Halle', () => {
+  it('alle grünen Fenster und die Mitspieler-Trefferquote 5 % kleiner als im normalen Spiel', () => {
+    const tuningFor = (label: string) => {
+      document.body.innerHTML = '<div id="app"></div>'; specs = [];
+      const st = memory(); const c = fresh(st);
+      saveCareer({ ...c, keyGames: c.keyGames.map(g => ({ ...g, label })) }, st);
+      startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+      press('Fortsetzen'); playGame();
+      return specs[0].tuning!;
+    };
+    const home = tuningFor('Rivalen-Duell'), away = tuningFor('Auswärts in feindlicher Halle');
+    expect(away.zone).toBeCloseTo(home.zone * .95, 9);
+    expect(away.ai).toBeCloseTo(home.ai * .95, 9);
+    expect(away.meter).toBe(home.meter);
+  });
+});
+
+describe('Karriere – Tabellen', () => {
+  const visible = () => [...document.querySelectorAll<HTMLTableElement>('.career-table')].filter(t => !t.hidden);
+  it('nach jedem Key Game Zwischentabelle; Ost/West umschaltbar, eigene Conference zuerst', () => {
+    const st = memory(); const c = fresh(st);
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen'); playGame(); press('Weiter');
+    expect(text()).toContain('nach 16 Spielen');
+    const own = ALL_TEAMS.find(t => t.id === c.team)!.conference;
+    expect(visible()).toHaveLength(1);
+    expect(visible()[0].dataset.conf).toBe(own);
+    expect(visible()[0].querySelectorAll('tbody tr')).toHaveLength(15);
+    for (const tr of visible()[0].querySelectorAll('tbody tr')) {
+      const td = tr.querySelectorAll('td');
+      expect(Number(td[4].textContent) + Number(td[5].textContent)).toBe(16);
+    }
+    press(own === 'east' ? 'Western Conference' : 'Eastern Conference');
+    expect(visible()).toHaveLength(1);
+    expect(visible()[0].dataset.conf).not.toBe(own);
+    expect(visible()[0].querySelector('tr.own')).toBeNull();
+    press('Weiter');
+    expect(text()).toContain('Key Game 2 / 5');
+  });
+  it('Saison 1 ohne Pfeile; Saison 2 mit Pfeilen und umschaltbarer Vorsaison-Tabelle', () => {
+    const st = memory(); const c = fresh(st);
+    saveCareer({ ...c, strengths: Object.fromEntries(ALL_TEAMS.map(t => [t.id, t.id === c.team ? 25 : 85])) }, st);
+    outcome = () => ({ won: false, verdict: 'VERLOREN', pts: 0, ast: 0, teamPts: 0 });
+    startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed: 1 });
+    press('Fortsetzen');
+    for (let g = 0; g < 5; g++) { playGame(); done(); }
+    expect(text()).toContain('Saisonende 1');
+    expect(document.querySelector('.table-toggle')).toBeNull();
+    expect(document.querySelectorAll('.career-table .up, .career-table .down, .career-table .same')).toHaveLength(0);
+    press('Nächste Saison'); skipAwards();
+    if (text().includes('Trade!')) press('Weiter');
+    if (text().includes('Wechselbörse')) press('Weiter');
+    press('Fertig');
+    const s2 = loadCareer(st)!, old = s2.history[0];
+    expect(old.table).toHaveLength(30);
+    expect(old.table!.find(r => r.team === old.team)!.wins).toBe(old.wins);
+    for (let g = 0; g < s2.keyGames.length; g++) { playGame(); done(); }
+    expect(text()).toContain('Saisonende 2');
+    expect(visible()[0].querySelectorAll('.up, .down, .same')).toHaveLength(15);
+    press('Vorsaison');
+    expect(visible()).toHaveLength(1);
+    expect(visible()[0].dataset.old).toBe('1');
+    expect(visible()[0].querySelectorAll('tbody tr')).toHaveLength(15);
+    if (s2.team === old.team) expect(visible()[0].querySelector('tr.own')!.textContent).toContain(String(old.wins));
+    press('Aktuelle Saison');
+    expect(visible()[0].dataset.old).toBe('0');
   });
 });
