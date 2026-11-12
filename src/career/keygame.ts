@@ -71,10 +71,14 @@ export function sceneSpec(state: CareerState, game: KeyGame, index: number, tota
   };
 }
 
+/** Statline des Spiels aus den eigenen Key Moments: Punkte je Szene (ein Dreier in jeder Szene = 37–41 Punkte, gestaffelt nach unten),
+ *  Assists je Szene plus Grundwert aus dem Passen; Rebounds haben keine Szenen-Aktion und kommen aus Athletik und Verteidigung */
 export function projectLine(r: Ratings, scenes: SceneResult[], rng: () => number): { pts: number; ast: number; reb: number } {
-  const noise = (n: number) => (rng() * 2 - 1) * n;
-  const pts = scenes.reduce((s, x) => s + x.pts, 0) + Math.round(6 + 18 * (r.mid + r.three + r.finish) / 3 + noise(4));
-  const ast = scenes.reduce((s, x) => s + x.ast, 0) + Math.round(1 + 8 * r.pass + noise(2));
+  const noise = (n: number) => (rng() * 2 - 1) * n, n = Math.max(1, scenes.length);
+  const scoring = Math.min(1, scenes.reduce((s, x) => s + x.pts, 0) / n / 3);
+  const passing = Math.min(1, scenes.reduce((s, x) => s + x.ast, 0) / n);
+  const pts = Math.round(10 + 29 * scoring + noise(2));
+  const ast = Math.round(2 + 3 * r.pass + 9 * passing + noise(1));
   const reb = Math.round(1 + 9 * (r.athleticism + r.defense) / 2 + noise(2));
   return { pts: Math.max(0, pts), ast: Math.max(0, ast), reb: Math.max(0, reb) };
 }
