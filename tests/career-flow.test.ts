@@ -495,3 +495,43 @@ describe('Karriere – Tabellen', () => {
     expect(visible()[0].dataset.old).toBe('0');
   });
 });
+
+describe('Karriere – Verlängerung als eigene Szene', () => {
+  /** Spiel mit ausgeglichenen Teams spielen, bis eine Schluss-Szene kommt, die per OVERTIME endet */
+  function playToOvertime(after: SceneResult): { text: string; ot: SceneSpec[] } | null {
+    for (let seed = 1; seed <= 12; seed++) {
+      document.body.innerHTML = '<div id="app"></div>'; specs = [];
+      const st = memory(); const c = fresh(st, seed);
+      saveCareer({ ...c, strengths: Object.fromEntries(ALL_TEAMS.map(t => [t.id, 60])) }, st);
+      outcome = i => specs[i].period === 'OVERTIME' ? after
+        : specs[i].final ? { won: false, verdict: 'OVERTIME', pts: 2, ast: 0, teamPts: specs[i].deficit }
+          : { won: true, verdict: 'GAMEWINNER', pts: 2, ast: 0, teamPts: 2 };
+      startCareer(document.querySelector('#app')!, { ...DEFAULTS, mode: 'career' }, { storage: st, playScene: scene, seed });
+      press('Fortsetzen');
+      press('Spielen');
+      for (let k = 0; k < 6 && !/Sieg|Niederlage/.test(text()); k++) { vi.advanceTimersByTime(3000); vi.advanceTimersByTime(20); }
+      const ot = specs.filter(s => s.period === 'OVERTIME');
+      if (ot.length) return { text: text(), ot };
+    }
+    return null;
+  }
+  it('Ausgleich mit der Sirene → genau eine weitere, entscheidende Szene in der Verlängerung; Treffer gewinnt', () => {
+    const r = playToOvertime({ won: true, verdict: 'GAMEWINNER', pts: 3, ast: 0, teamPts: 4 })!;
+    expect(r).not.toBeNull();
+    expect(r.ot).toHaveLength(1);
+    const sp = r.ot[0], d = sp.score![1] - sp.score![0];
+    expect(sp.final).toBe(true);
+    expect(sp.title.startsWith('OVERTIME')).toBe(true);
+    expect(d).toBeGreaterThanOrEqual(0); expect(d).toBeLessThanOrEqual(3);
+    expect(sp.deficit).toBe(d);
+    expect(r.text).toContain('Sieg');
+    expect(r.text).toContain('Sieg nach Verlängerung');
+  });
+  it('Fehlwurf in der Verlängerung → Niederlage; erneuter Ausgleich → keine dritte Szene', () => {
+    const lost = playToOvertime({ won: false, verdict: 'VERLOREN', pts: 0, ast: 0, teamPts: 0 })!;
+    expect(lost.text).toContain('Niederlage nach Verlängerung');
+    const again = playToOvertime({ won: false, verdict: 'OVERTIME', pts: 0, ast: 0, teamPts: 0 })!;
+    expect(again.ot).toHaveLength(1);
+    expect(again.text).toContain('zweiten Verlängerung');
+  });
+});

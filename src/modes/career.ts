@@ -117,26 +117,34 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
         return finish(results, rng, { won, own: end.own, opp: end.opp,
           note: won && before > 0 ? 'Comeback im Schlussviertel!' : !won && before < 0 ? 'Die Führung im Schlussviertel noch hergegeben.' : undefined });
       }
-      if (i >= total) {
-        // Crunchtime gespielt: die letzte Szene entscheidet, Gleichstand (Overtime) per Münzwurf
-        const last = results[i - 1], ot = !last.won && /OVERTIME/.test(last.verdict);
-        const won = last.won || (ot && rng() < .5);
+      // Ausgleich mit der Sirene → die Verlängerung wird als weitere Szene gespielt (höchstens eine)
+      const tied = i >= total && !results[i - 1].won && /OVERTIME/.test(results[i - 1].verdict), goOT = tied && i === total;
+      if (i >= total && !goOT) {
+        const last = results[i - 1], won = last.won || (tied && rng() < .5);
         const ownEnd = score!.own + (last.teamPts ?? 0);
-        if (ot) {
-          // Gleichstand mit der Sirene → Verlängerung: beide punkten, der Sieger mit 1–5 Punkten Vorsprung
+        if (tied) {
+          // auch die Verlängerung endet unentschieden → zweite Verlängerung per Zufall, Sieger mit 1–5 Punkten Vorsprung
           const base = ownEnd + 6 + Math.floor(rng() * 7), margin = 1 + Math.floor(rng() * 5);
-          return finish(results, rng, { won, own: won ? base + margin : base, opp: won ? base : base + margin, note: 'Entschieden in der Verlängerung.' });
+          return finish(results, rng, { won, own: won ? base + margin : base, opp: won ? base : base + margin, note: 'Entschieden in der zweiten Verlängerung.' });
         }
-        // Endstand = Stand vor der Crunchtime + eigene Punkte der Szene (kein ausgeloster Endstand mehr)
-        return finish(results, rng, won ? { won, own: Math.max(ownEnd, score!.opp + 1), opp: score!.opp }
-          : { won, own: ownEnd, opp: Math.max(score!.opp, ownEnd + 1) });
+        // Endstand = Stand vor der letzten Szene + eigene Punkte der Szene (kein ausgeloster Endstand mehr)
+        const note = i > total ? won ? 'Sieg nach Verlängerung!' : 'Niederlage nach Verlängerung.' : undefined;
+        return finish(results, rng, won ? { won, own: Math.max(ownEnd, score!.opp + 1), opp: score!.opp, note }
+          : { won, own: ownEnd, opp: Math.max(score!.opp, ownEnd + 1), note });
       }
-      // Momentum: Treffer in der letzten Szene schieben den Spielstand bis zur nächsten Szene
-      score = !score ? fate(openingScore(total, ownStr, oppStr, c.difficulty, rng), rng)
-        : advanceScore(score, results[i - 1], sceneGap(total, i), ownStr, oppStr, c.difficulty, rng);
-      let deficit: number;
-      const cr = i === total - 1 ? crunch(score, rng) : undefined, open = cr?.kind === 'open';
-      if (cr?.kind === 'play') {
+      let deficit = 0;
+      if (goOT) {
+        // Verlängerung: beide punkten, am Ende steht wieder ein entscheidender Angriff (Gleichstand oder 1–3 hinten)
+        const base = score!.own + (results[i - 1].teamPts ?? 0) + 6 + Math.floor(rng() * 7);
+        deficit = Math.floor(rng() * 4);
+        score = { own: base, opp: base + deficit };
+      } else {
+        // Momentum: Treffer in der letzten Szene schieben den Spielstand bis zur nächsten Szene
+        score = !score ? fate(openingScore(total, ownStr, oppStr, c.difficulty, rng), rng)
+          : advanceScore(score, results[i - 1], sceneGap(total, i), ownStr, oppStr, c.difficulty, rng);
+      }
+      const cr = !goOT && i === total - 1 ? crunch(score, rng) : undefined, open = cr?.kind === 'open';
+      if (goOT) { /* Stand steht schon */ } else if (cr?.kind === 'play') {
         deficit = cr.deficit;
         score = { own: score.own, opp: score.own + deficit };
       } else deficit = Math.max(1, Math.min(3, score.opp - score.own));
@@ -146,11 +154,17 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       const hostile = game.label === 'Auswärts in feindlicher Halle' ? .95 : 1;
       const withPerks = (sp: SceneSpec): SceneSpec => ({ ...sp, tuning: { zone: t.zone * hostile, meter: t.meter, ai: t.ai * hostile },
         perks: { ...perks, passSteal: (perks.passSteal ?? 1) * t.steal, onFire: Boolean(perks.greenLight) && hot >= 2 } });
-      const spec = withPerks(sceneSpec(c, game, i, total, deficit, rng, score, open));
+      // die Verlängerung ist eine Schluss-Szene mit eigenem Abschnittsnamen
+      const make = (): SceneSpec => {
+        const sp = sceneSpec(c, game, Math.min(i, total - 1), total, deficit, rng, score, open);
+        return goOT ? { ...sp, period: 'OVERTIME', title: sp.title.replace(sp.period ?? '', 'OVERTIME') } : sp;
+      };
+      const count = goOT ? 'Verlängerung' : `Szene ${i + 1} / ${total}`;
+      const spec = withPerks(make());
       openOffset = spec.clockOffset ?? 0;
       // Coach-Call: zweiter Spielzug zur Wahl (gleiche Lage, anderer Spielzug)
       let alt: SceneSpec | undefined;
-      for (let k = 0; perks.coachCall && k < 6 && (!alt || alt.play.id === spec.play.id); k++) alt = withPerks({ ...sceneSpec(c, game, i, total, deficit, rng, score, open), title: spec.title, clockS: spec.clockS, clockOffset: spec.clockOffset, deficit });
+      for (let k = 0; perks.coachCall && k < 6 && (!alt || alt.play.id === spec.play.id); k++) alt = withPerks({ ...make(), title: spec.title, clockS: spec.clockS, clockOffset: spec.clockOffset, deficit });
       if (alt?.play.id === spec.play.id) alt = undefined;
       const go = (chosen: SceneSpec = spec): void => {
         clearTimeout(timer);
@@ -166,13 +180,13 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
       };
       const fireNote = spec.perks?.onFire ? '<p class="ticker-fire">🔥 Green Light – du brennst!</p>' : '';
       if (alt) {
-        screen(`<p class="ticker-label">${esc(spec.subtitle)}</p><h2>${esc(spec.title)}</h2>${fireNote}<p>Szene ${i + 1} / ${total} · Coach-Call: wähle den Spielzug</p>`,
+        screen(`<p class="ticker-label">${esc(spec.subtitle)}</p><h2>${esc(spec.title)}</h2>${fireNote}<p>${count} · Coach-Call: wähle den Spielzug</p>`,
           [[spec.play.name, () => go(spec)], [alt.play.name, () => go(alt!)]]);
         return;
       }
       root.innerHTML = `<div class="career-screen career-ticker" role="button" tabindex="0">
         <p class="ticker-label">${esc(spec.subtitle)}</p><h2>${esc(spec.title)}</h2>${fireNote}
-        <p>Szene ${i + 1} / ${total} · Tippen zum Starten</p></div>`;
+        <p>${count} · Tippen zum Starten</p></div>`;
       root.querySelector('.career-ticker')!.addEventListener('click', () => go());
       timer = setTimeout(() => go(), TICKER_MS);
     };
