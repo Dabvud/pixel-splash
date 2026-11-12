@@ -87,12 +87,13 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
     if (c.gameIndex >= c.keyGames.length) return c.postseason ? c.postseason.done ? postseasonEnd(c) : playoffHub(c) : seasonEnd(c);
     const game = c.keyGames[c.gameIndex], wins = c.season.filter(g => g.won).length;
     screen(`<h2>Saison ${c.year}</h2>
-      <p>${esc(c.player.name)} · #${c.player.num} · ${c.player.age} Jahre · ${teamLogo(c.team)}${esc(teamName(teamById(c.team)))}</p>
-      ${c.injured ? '<p>Verletzt: diese Saison nur 3 Key Games.</p>' : ''}
-      <p>Bilanz Key Games: ${wins} – ${c.season.length - wins}</p>
+      <p class="hub-name">${esc(c.player.name)} <small>#${c.player.num}</small></p>
+      <p>${c.player.age} Jahre</p>
+      <p>${teamLogo(c.team)}${esc(teamName(teamById(c.team)))}</p>
       ${c.contract ? `<p>Vertrag: noch ${c.contract.years} ${c.contract.years === 1 ? 'Jahr' : 'Jahre'} · ${money(c.contract.salary)}</p>` : ''}
-      <p>${teamValue(c, c.team)}</p>
-      <div class="career-next"><b>Key Game ${c.gameIndex + 1} / ${c.keyGames.length}</b><br>${esc(game.label)}<br>${opponentLine(game)}<br><small>${teamValue(c, game.opponent)}</small></div>`,
+      ${c.injured ? '<p>Verletzt: nur 3 Key Games</p>' : ''}
+      ${tiles(c, c.team)}
+      <div class="career-next"><b>Key Game ${c.gameIndex + 1} / ${c.keyGames.length} · ${wins}–${c.season.length - wins}</b><br>${esc(game.label)}<br>${opponentLine(game)}${tiles(c, game.opponent)}</div>`,
       [['Spielen', () => playGame(c, game)], ['Karriere-Statistik', () => stats(c, () => hub(c))]]);
   }
 
@@ -183,9 +184,19 @@ export function startCareer(app: HTMLElement, settings: Settings, deps: CareerDe
 
   function teamValue(c: CareerState, id: string): string {
     const v = offDef(c, id);
-    // die drei besten Stars des Teams (alte Spielstände ohne Liga: keine)
-    const stars = (c.league?.stars ?? []).filter(s => s.team === id).sort((a, b) => b.value - a.value).slice(0, 3).map(s => esc(s.name));
-    return `${esc(teamById(id).name)}: Teamwert ${strengthOf(c, id)} · Angriff ${v.off} · Verteidigung ${v.def}${stars.length ? `<br>Stars: ${stars.join(', ')}` : ''}`;
+    const stars = starLine(c, id);
+    return `${esc(teamById(id).name)}: OVR ${strengthOf(c, id)} · OFF ${v.off} · DEF ${v.def}${stars ? `<br>${stars}` : ''}`;
+  }
+  /** die drei besten Stars des Teams, nur Nachnamen (alte Spielstände ohne Liga: keine) */
+  function starLine(c: CareerState, id: string): string {
+    const stars = (c.league?.stars ?? []).filter(s => s.team === id).sort((a, b) => b.value - a.value).slice(0, 3)
+      .map(s => esc(s.name.split(' ').slice(1).join(' ') || s.name));
+    return stars.length ? `★ ${stars.join(' · ')}` : '';
+  }
+  /** Teamwerte als drei Kacheln: Gesamt, Angriff, Verteidigung */
+  function tiles(c: CareerState, id: string): string {
+    const v = offDef(c, id), stars = starLine(c, id);
+    return `<div class="tv" aria-label="Teamwerte ${esc(teamById(id).name)}"><span><b>${strengthOf(c, id)}</b>OVR</span><span><b>${v.off}</b>OFF</span><span><b>${v.def}</b>DEF</span></div>${stars ? `<p class="tv-stars">${stars}</p>` : ''}`;
   }
 
   function finishGame(c: CareerState, game: KeyGame, results: SceneResult[], rng: () => number, o: Outcome): void {
